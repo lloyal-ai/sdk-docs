@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 136 80">
+  <!-- Black background with 8px padding -->
+  <rect width="136" height="80" fill="#000"/>
+  
+  <g transform="translate(8, 8)">
+    <!-- Left bracket [ -->
+    <path d="M0 0h20v8H8v48h12v8H0V0z" fill="#fff"/>
+    
+    <!-- First L -->
+    <path d="M28 8h8v40h16v8H28V8z" fill="#fff"/>
+    
+    <!-- Second L -->
+    <path d="M68 8h8v40h16v8H68V8z" fill="#fff"/>
+    
+    <!-- Right bracket ] -->
+    <path d="M100 0h20v64h-20v-8h12V8h-12V0z" fill="#fff"/>
+  </g>
+</svg>

@@ -1,0 +1,189 @@
+# KV Pressure
+
+Agent pools share a single KV cache. As agents generate tokens and prefill tool results, the cache fills. `ContextPressure` tracks how much room remains and enforces shutdown thresholds at four points in the tick loop to prevent out-of-memory crashes and ensure downstream work has room to complete.
+
+## The budget model
+
+`ContextPressure` reads from `SessionContext._storeKvPressure()`, which returns `{ nCtx, cellsUsed, remaining }` where `remaining = nCtx - cellsUsed`. Two caller-configurable thresholds partition `remaining` into three zones:
+
+```
+               nCtx
+ ┌──────────┬───────────────────┬──────────────────┐
+ │cellsUsed │    headroom > 0   │    softLimit      │
+ │ (in use) │   (new work OK)   │   (reserved)      │
+ └──────────┴───────────────────┴──────────────────┘
+              <- remaining ->
+                                |
+ headroom = remaining - softLimit
+ critical = remaining < hardLimit
+```
+
+- **headroom > 0** -- room for new work. Tool results can be prefilled, agents can continue generating.
+- **headroom <= 0** -- over budget. SETTLE rejects tool results. PRODUCE denies non-terminal tool calls. Terminal tools (e.g. `report`) still pass through.
+- **critical** -- `remaining` has dropped below `hardLimit`. Agents are killed before `produceSync()` to prevent `llama_decode` crashes.
+
+## `ContextPressure` API
+
+The class is constructed from a `SessionContext` and optional thresholds. It captures an immutable snapshot of KV state at construction time -- the snapshot does not update as the tick progresses.
+
+```typescript
+import { ContextPressure } from '@lloyal-labs/lloyal-agents';
+
+const pressure = new ContextPressure(ctx, {
+  softLimit: 2048,  // reserve 2048 tokens for downstream work
+  hardLimit: 128,   // crash-prevention floor
+});
+
+pressure.remaining  // nCtx - cellsUsed (Infinity when nCtx <= 0)
+pressure.headroom   // remaining - softLimit
+pressure.critical   // remaining < hardLimit
+pressure.canFit(n)  // n <= headroom
+```
+
+Defaults: `softLimit = 1024`, `hardLimit = 128`.
+
+## Four enforcement points
+
+`ContextPressure` is instantiated at multiple points in the tick loop. Each snapshot is fresh -- constructed from current `cellsUsed` at that moment.
+
+### 1. Prefill gate (pool setup)
+
+Before the tick loop starts, the pool computes the total suffix cost for all agents -- the tokenized chat template (system prompt + tool schemas + user message + generation prompt) per agent. If the total exceeds headroom, agents are dropped from the end of the task list until the remainder fits:
+
+```typescript
+const initPressure = new ContextPressure(ctx, pressureOpts);
+const totalSuffix = prefillSetup.reduce((s, [, t]) => s + t.length, 0);
+
+if (!initPressure.canFit(totalSuffix)) {
+  while (prefillSetup.length > 0) {
+    const needed = prefillSetup.reduce((s, [, t]) => s + t.length, 0);
+    if (initPressure.canFit(needed)) break;
+    prefillSetup.pop();
+    const dropped = agents.pop();
+    dropped.state = 'done';
+  }
+}
+```
+
+This is the primary mechanism that limits agent count in nested pools. When an outer agent's tool spawns an inner pool, the outer agents' live branches consume KV that the inner pool's prefill gate measures against. An inner pool requesting 3 agents may only get 1 or 2 if the outer pool has consumed most of the headroom.
+
+Agents dropped at the prefill gate never emit `agent:spawn` events -- they silently disappear before generating a single token.
+
+### 2. PRODUCE critical (hard kill)
+
+At the start of each tick, a fresh `ContextPressure` snapshot is taken. Any agent whose `pressure.critical` is true is killed immediately -- before `produceSync()` is called:
+
+```typescript
+const pressure = new ContextPressure(ctx, pressureOpts);
+
+for (const a of agents) {
+  if (a.state !== 'generating') continue;
+
+  if (pressure.critical) {
+    a.state = 'done';
+    continue;
+  }
+
+  const { token, text, isStop } = a.branch.produceSync();
+  // ...
+}
+```
+
+This is a safety net. `hardLimit` defaults to 128 tokens -- enough for `llama_decode` to operate without hitting "no memory slot for batch" errors. If you reach this threshold, the system is already past the point where useful work can happen. The goal is preventing crashes, not managing workflow.
+
+### 3. PRODUCE soft-cut (non-terminal denial)
+
+When an agent hits a stop token and the parsed output contains a tool call, the pool checks whether the call should be allowed:
+
+```typescript
+const overBudget = (a.turns >= maxTurns || pressure.headroom < 0)
+  && (!terminalTool || tc.name !== terminalTool);
+```
+
+If `headroom < 0` (over the soft limit) and the tool call is not the terminal tool, the agent is marked done. Terminal tools always pass -- an agent that has done research and wants to report should never be blocked by pressure, since the report call itself consumes minimal KV.
+
+This is the mechanism that prevents agents from starting new work when the cache is nearly full. An agent that has accumulated 6 tool results worth of KV and wants to call `research` (which would spawn sub-agents consuming even more KV) gets denied. The same agent calling `report` goes through.
+
+### 4. SETTLE rejection (tool result gating)
+
+After DISPATCH executes tools and pushes results to `settledBuffer`, the next tick's SETTLE phase drains those results. Each result is pressure-gated against a fresh snapshot:
+
+```typescript
+const settlePressure = new ContextPressure(ctx, pressureOpts);
+let headroom = settlePressure.headroom;
+
+for (const item of settled) {
+  const a = agentById.get(item.agentId);
+  if (!a || a.state === 'done') continue;
+
+  if (item.prefillTokens.length > headroom) {
+    a.state = 'done';     // reject -- result too large
+    continue;
+  }
+
+  prefillPairs.push([a.branch, item.prefillTokens]);
+  headroom -= item.prefillTokens.length;
+}
+```
+
+Tool results are the largest KV consumers. A `web_search` result can be 2,000+ tokens. A `fetch_page` result can be 6,000+. SETTLE rejection is the primary enforcement point for preventing KV overflow during active research -- it catches the moment when accumulated tool results would push the cache past its soft limit.
+
+The `headroom` variable is decremented as results are accepted, so ordering matters. If three tool results are pending and only two fit, the third is rejected even if it is smaller than the first -- processing is sequential through the settled buffer.
+
+## `cellsUsed` is monotonic during a pool run
+
+`cellsUsed` increments on every `decode_each` (COMMIT) and `decode_scatter` (SETTLE prefill). It does not decrement on individual branch prune. It resets only on bulk operations like `retainOnly` and `drain`.
+
+This means `remaining` is a conservative lower bound that becomes increasingly pessimistic as branches are pruned during a run. If agent A completes and its branch is pruned, the cells it freed are not reflected in the next `ContextPressure` snapshot. The pressure system overestimates usage and may drop agents earlier than strictly necessary.
+
+This is a deliberate design choice. Accurate per-branch cell tracking would require walking the branch tree on every snapshot. The monotonic counter is O(1) -- read a single integer. The pessimism is bounded: it triggers pressure sooner, which is safe (agents get dropped or denied), never later (which could crash).
+
+## Sizing `softLimit` for nested pools
+
+The outer pool's `softLimit` must reserve enough headroom for the inner pool's entire lifecycle. Consider what the inner pool consumes:
+
+| Inner pool phase | Typical KV cost |
+|---|---|
+| Shared prefix (system prompt + tool schemas) | 300-500 tokens |
+| Agent suffixes (user message + generation prompt, per agent) | 250-400 tokens each |
+| Tool results per agent turn (search, fetch, read) | 500-6000 tokens each |
+| Agent generation output before reporting | 100-300 tokens each |
+
+For a single-level recursive tool with up to 3 inner agents and `maxTurns: 6`:
+
+```typescript
+yield* useAgentPool({
+  tasks,
+  tools: toolMap,
+  maxTurns: 8,
+  pressure: { softLimit: 3072 },  // reserve for inner pool
+});
+```
+
+A `softLimit` of 2048-3072 provides adequate headroom for one level of nesting. For deeper recursion (a tool that itself calls a tool that spawns agents), each level needs its own budget reserved by the level above.
+
+Monitor with `trace: true` -- the `[SETTLE]` and `[PRODUCE]` pressure logs print `remaining`, `headroom`, `cellsUsed`, and `nCtx` at each tick:
+
+```
+[PRODUCE] SOFT_LIMIT remaining=1200 headroom=-824 cellsUsed=15184 nCtx=16384
+[SETTLE] remaining=1200 headroom=-824 cellsUsed=15184 nCtx=16384 items=[web_search:1847]
+[SETTLE] REJECT web_search:1847 > headroom=-824
+```
+
+## Pressure-driven agent lifecycle
+
+The four enforcement points create a pressure-driven agent lifecycle:
+
+```
+Pool setup:
+  prefill gate drops agents that don't fit above softLimit
+
+Each tick:
+  PRODUCE: kill agents below hardLimit (critical)
+  PRODUCE: deny non-terminal tool calls when headroom < 0 (soft-cut)
+  SETTLE:  reject tool results that exceed headroom
+```
+
+Agents that survive the prefill gate will generate tokens until one of three things happens: they complete naturally (stop token + no tool call, or terminal tool call), they hit `maxTurns`, or pressure enforcement kills them at the next PRODUCE or SETTLE.
+
+Agents killed by pressure (at any enforcement point) emit `agent:done` events. Hard-cut agents at the prefill gate do not -- they never existed from the event stream's perspective. The `pool:agentDrop` trace event records the specific enforcement point that triggered the drop: `pressure_init`, `pressure_critical`, `pressure_softcut`, or `pressure_settle_reject`.

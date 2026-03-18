@@ -1,0 +1,96 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "lloyal-agents",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#10B981",
+    "light": "#34D399",
+    "dark": "#059669",
+    "background": {
+      "dark": "#111111"
+    },
+    "anchors": {
+      "from": "#10B981",
+      "to": "#34D399"
+    }
+  },
+  "font": {
+    "headings": { "family": "Crimson Pro", "weight": 600 },
+    "body": { "family": "Quicksand", "weight": 400 }
+  },
+  "modeToggle": {
+    "default": "dark"
+  },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/lloyal-ai/sdk"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "npm",
+    "url": "https://www.npmjs.com/package/@lloyal-labs/lloyal-agents"
+  },
+  "tabs": [
+    { "name": "Learn", "url": "learn" },
+    { "name": "Concepts", "url": "concepts" },
+    { "name": "Guides", "url": "guides" },
+    { "name": "Examples", "url": "examples" },
+    { "name": "API", "url": "https://lloyal-ai.github.io/sdk/" }
+  ],
+  "navigation": [
+    {
+      "group": "Learn",
+      "pages": [
+        "learn/thinking-in-lloyal",
+        "learn/quick-start",
+        "learn/your-first-pipeline",
+        "learn/adding-tools",
+        "learn/multi-agent",
+        "learn/web-research",
+        "learn/multi-source",
+        "learn/sessions",
+        "learn/tracing"
+      ]
+    },
+    {
+      "group": "Concepts",
+      "pages": [
+        "concepts/rig-vs-rag",
+        "concepts/concurrency",
+        "concepts/prefix-sharing",
+        "concepts/kv-pressure",
+        "concepts/grammar-constraining",
+        "concepts/scratchpad-extraction",
+        "concepts/sources-and-bridges",
+        "concepts/branch-lifecycle"
+      ]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/custom-pipeline",
+        "guides/custom-source",
+        "guides/custom-tool",
+        "guides/deployment",
+        "guides/debugging"
+      ]
+    },
+    {
+      "group": "Examples",
+      "pages": [
+        "examples/react-agent",
+        "examples/reflection",
+        "examples/supervisor",
+        "examples/deep-research"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/lloyal-ai/sdk"
+  }
+}
