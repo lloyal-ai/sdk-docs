@@ -57,7 +57,7 @@ That's a working tool. The model sees the schema. When it emits a tool call, the
 
 ## Tool execution model
 
-Every tool's `execute()` returns an Effection `Operation<unknown>`. This gives you four levels of capability.
+Every tool's `execute()` returns an Effection Operation. This gives you four levels of capability.
 
 ### Synchronous tools
 
@@ -170,7 +170,7 @@ const { toolMap, toolsJson } = createToolkit([
 
 `createToolkit()` produces two things:
 
-- **`toolMap`** — `Map<string, Tool>` used by the pool for dispatch
+- **`toolMap`** — a name-to-instance map used by the pool for dispatch
 - **`toolsJson`** — JSON-serialized schemas passed to `formatChat()` for prompt formatting
 
 Pass both to the agent pool:

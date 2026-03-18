@@ -19,7 +19,7 @@
     }
   },
   "font": {
-    "headings": { "family": "Crimson Pro", "weight": 600 },
+    "headings": { "family": "Quicksand", "weight": 600 },
     "body": { "family": "Quicksand", "weight": 400 }
   },
   "modeToggle": {

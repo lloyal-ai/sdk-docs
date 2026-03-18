@@ -51,7 +51,7 @@ function* research(query: string): Operation<string> {
 Key differences:
 
 - `yield*` instead of `await` — runs an Operation within the current scope
-- `Operation<T>` instead of `Promise<T>` — describes work without executing immediately
+- `Operation&lt;T&gt;` instead of `Promise&lt;T&gt;` — describes work without executing immediately
 - `runAgents` instead of `Promise.all` — concurrent agents with shared GPU and automatic cleanup
 
 <Tip>
