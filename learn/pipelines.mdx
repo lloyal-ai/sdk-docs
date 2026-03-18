@@ -3,7 +3,6 @@ title: Pipelines
 description: Composing generator stages into multi-step workflows.
 ---
 
-# Pipelines
 
 A pipeline is a sequence of generator stages. Each stage `yield*`s into a framework primitive — `generate`, `runAgents`, `diverge`, `withSharedRoot`. The output of one stage feeds the next.
 
