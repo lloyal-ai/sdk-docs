@@ -3,24 +3,29 @@ title: Introduction
 description: Continuous Context Agents — where agents branch, inherit, and build on each other's attention state.
 ---
 
-## There's no attention continuity between LLM calls.
+<Frame>
+  <img
+    src="/assets/continuous-context-dark.svg"
+    alt="Traditional agents rebuild context each step. Continuous Context Agents persist KV state — tool results prefilled into attention, branches forked at O(1) cost."
+  />
+</Frame>
+
+## Traditional Agents: There's no attention continuity between LLM calls.
 
 Each request re-encodes the full context and re-computes attention from scratch. The KV state from the prior call — the specific weighted relationships the model found between tokens — is gone. The next call re-reads a transcript of what a previous generation produced and re-computes Q·Kᵀ over the entire sequence.
 
 Every agent framework today works this way. Call a tool, get a result, rebuild the prompt, make a new request. The model's prior attention state is discarded. Continuity is simulated by making the model re-read its own output as text.
 
-<Frame>
-  <img src="/assets/continuous-context-dark.svg" alt="Traditional agents rebuild context each step. Continuous Context Agents persist KV state — tool results prefilled into attention, branches forked at O(1) cost." />
-</Frame>
+## Continuous Context Agents: Agents branch, inherit, and build on each other's attention state.
 
-## Continuous Context Agents
-
-**Where agents branch, inherit, and build on each other's attention state — on a single GPU.**
-
-Continuous Context Agents share a physical frontier in the KV cache. Every branch inherits the full attention state of its parent — prior generations, tool results, and prefilled context remain addressable at their original positions. Forking is O(1) metadata. Context is never re-encoded.
+They share a physical frontier in the KV cache. Every branch inherits the full attention state of its parent — prior generations, tool results, and prefilled context remain addressable at their original positions. Forking is O(1) metadata. Context is never re-encoded.
 
 <Note>
-When the model computes Q·Kᵀ for its next token, it attends over all K vectors at positions 0..N — including those written during prior tool result prefills. Child branches attend over the parent's KV vectors at shared positions — the same physical key-value pairs, not a re-encoding. No information bottleneck. No lossy compression step.
+  When the model computes Q·Kᵀ for its next token, it attends over all K vectors
+  at positions 0..N — including those written during prior tool result prefills.
+  Child branches attend over the parent's KV vectors at shared positions — the
+  same physical key-value pairs, not a re-encoding. No information bottleneck.
+  No lossy compression step.
 </Note>
 
 A fork is a metadata operation on shared KV cells — O(1) cost, zero tensor copy. Three agents forked from the same root attend to the same physical key-value pairs for the prefix while writing their own unique context above the fork point.
@@ -43,7 +48,12 @@ grep(/discovered concept/) → verifies that connection across the corpus
 That final grep targets concepts **absent from the original question** — discovered during reads and still present in the KV cache at their original positions.
 
 <Note>
-This emerges from the decision boundary. Between each tool result prefill and the next generation step, the model gets a clean pause: complete KV state, grammar reset, fresh next-token distribution. Hypothesis formation is the natural outcome when the attention window contains both the question and a surprising discovery. Under concurrent dispatch — where results arrive mid-generation — this collapses to single-hop retrieval.
+  This emerges from the decision boundary. Between each tool result prefill and
+  the next generation step, the model gets a clean pause: complete KV state,
+  grammar reset, fresh next-token distribution. Hypothesis formation is the
+  natural outcome when the attention window contains both the question and a
+  surprising discovery. Under concurrent dispatch — where results arrive
+  mid-generation — this collapses to single-hop retrieval.
 </Note>
 
 ## Why this runs on your laptop
@@ -62,7 +72,8 @@ Runs fully offline — no API keys, no network, no data leaving the device.
 
 <CardGroup cols={3}>
   <Card title="Research pipelines" icon="magnifying-glass">
-    Search, read, hypothesize, verify — across local files, web, databases, or any data source.
+    Search, read, hypothesize, verify — across local files, web, databases, or
+    any data source.
   </Card>
   <Card title="Personal assistants" icon="robot">
     Multi-turn agents with persistent KV state, connected to any service or API.
@@ -74,7 +85,8 @@ Runs fully offline — no API keys, no network, no data leaving the device.
     Query databases, aggregate results, produce reports with source attribution.
   </Card>
   <Card title="Support agents" icon="headset">
-    Search knowledge bases, follow troubleshooting trees, escalate with full context.
+    Search knowledge bases, follow troubleshooting trees, escalate with full
+    context.
   </Card>
   <Card title="Your workflow" icon="arrows-split-up-and-left">
     Any process where agents need tools, shared state, and structured cleanup.
@@ -106,7 +118,11 @@ Your application
   <Card title="Quick Start" icon="rocket" href="/learn/quick-start">
     Your first agent with tools in 5 minutes.
   </Card>
-  <Card title="Thinking in lloyal" icon="brain" href="/learn/thinking-in-lloyal">
+  <Card
+    title="Thinking in lloyal"
+    icon="brain"
+    href="/learn/thinking-in-lloyal"
+  >
     New to generators and structured concurrency? Start with the mental model.
   </Card>
 </CardGroup>
