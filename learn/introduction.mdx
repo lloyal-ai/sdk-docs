@@ -9,7 +9,11 @@ Each request re-encodes the full context and re-computes attention from scratch.
 
 Every agent framework today works this way. Call a tool, get a result, rebuild the prompt, make a new request. The model's prior attention state is discarded. Continuity is simulated by making the model re-read its own output as text.
 
-## What if they didn't have to?
+<Frame>
+  <img src="/assets/continuous-context-dark.svg" alt="Traditional agents rebuild context each step. Continuous Context Agents persist KV state — tool results prefilled into attention, branches forked at O(1) cost." />
+</Frame>
+
+## Continuous Context Agents
 
 **Where agents branch, inherit, and build on each other's attention state — on a single GPU.**
 
@@ -19,21 +23,15 @@ Continuous Context Agents share a physical frontier in the KV cache. Every branc
 When the model computes Q·Kᵀ for its next token, it attends over all K vectors at positions 0..N — including those written during prior tool result prefills. Child branches attend over the parent's KV vectors at shared positions — the same physical key-value pairs, not a re-encoding. No information bottleneck. No lossy compression step.
 </Note>
 
-<Frame>
-  <img src="/assets/continuous-context-dark.svg" alt="Traditional agents rebuild context each step. Continuous Context Agents persist KV state — tool results prefilled into attention, branches forked at O(1) cost." />
-</Frame>
-
 A fork is a metadata operation on shared KV cells — O(1) cost, zero tensor copy. Three agents forked from the same root attend to the same physical key-value pairs for the prefix while writing their own unique context above the fork point.
 
-When a tool returns a result, it's prefilled directly into the agent's KV cache. The model's next generation step sees the complete result at its original position in the attention window — not a summary, not a re-encoding.
+When a tool returns a result, it's prefilled directly into the agent's KV cache. The model's next generation step sees the complete result at its original position in the attention window.
 
 When a sub-agent forks from a parent, it inherits every tool call, every tool result, every token the parent generated. The sub-agent's first token attends over the parent's full accumulated state.
 
 ## What emerges from this
 
-Agents don't just execute tool calls — they refine hypotheses.
-
-We observe a consistent pattern across runs: agents narrow, discover, hypothesize, then verify. Not prompted. Emergent.
+Attention continuity changes what agents do with tools. We observe a consistent pattern across runs — agents narrow, discover, hypothesize, then verify — without being prompted to do so:
 
 ```
 grep(/narrow pattern/)     → locates where the topic appears
@@ -42,7 +40,7 @@ read_file(section)         → discovers an unexpected connection
 grep(/discovered concept/) → verifies that connection across the corpus
 ```
 
-That final grep targets concepts **absent from the original question** — discovered during reads, present in the KV cache, used to construct a verification query the user never asked for.
+That final grep targets concepts **absent from the original question** — discovered during reads and still present in the KV cache at their original positions.
 
 <Note>
 This emerges from the decision boundary. Between each tool result prefill and the next generation step, the model gets a clean pause: complete KV state, grammar reset, fresh next-token distribution. Hypothesis formation is the natural outcome when the attention window contains both the question and a surprising discovery. Under concurrent dispatch — where results arrive mid-generation — this collapses to single-hop retrieval.
@@ -54,11 +52,11 @@ Prefix sharing, scratchpad extraction, and position-aware forking aren't perform
 
 Three agents sharing a 16K window can't fit if each re-decodes 900 tokens of tool schemas. With prefix sharing, those tokens are decoded once. Every fork inherits them. Measured across a real pipeline: **4.4x fewer tokens processed** than a prompt-rebuilding approach.
 
-A single web search result can be 1,500–3,700 tokens. Scratchpad extraction attends to the full result on an ephemeral branch, compresses it via grammar-constrained generation, then prunes the branch. The KV cost vanishes. The insight stays.
+A single web search result can be 1,500–3,700 tokens. Scratchpad extraction attends to the full result on an ephemeral branch, compresses it via grammar-constrained generation, then prunes the branch. The compressed result stays; the ephemeral KV is freed.
 
 ContextPressure reads available headroom and makes real-time orchestration decisions — how many sub-agents to spawn, when to extract partial findings, when to synthesize early. Same pipeline code on a 32K cloud GPU or a 16K laptop. Depth adapts to the hardware.
 
-No API keys. No network. No data leaving the device.
+Runs fully offline — no API keys, no network, no data leaving the device.
 
 ## What you can build
 
