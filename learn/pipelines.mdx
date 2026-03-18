@@ -1,0 +1,233 @@
+---
+title: Pipelines
+description: Composing generator stages into multi-step workflows.
+---
+
+# Pipelines
+
+A pipeline is a sequence of generator stages. Each stage `yield*`s into a framework primitive — `generate`, `runAgents`, `diverge`, `withSharedRoot`. The output of one stage feeds the next.
+
+There is no pipeline framework. No DAG builder. No node graph. You compose generators with `yield*` and the type system keeps you honest.
+
+## The pattern
+
+Every stage is a generator function that takes input and produces output:
+
+```typescript
+function* plan(query: string): Operation<string[]> {
+  const result = yield* generate({ prompt, grammar });
+  return result.parsed.questions;
+}
+
+function* research(questions: string[]): Operation<string[]> {
+  const pool = yield* withSharedRoot(
+    { systemPrompt, tools: toolsJson },
+    function*(root) {
+      return yield* runAgents({
+        tasks: questions.map(q => ({ systemPrompt, content: q, tools: toolsJson, parent: root })),
+        tools: toolMap,
+        terminalTool: "report",
+      });
+    },
+  );
+  return pool.agents.map(a => a.findings).filter(Boolean);
+}
+
+function* synthesize(findings: string[], query: string): Operation<string> {
+  const pool = yield* withSharedRoot(
+    { systemPrompt: SYNTH_PROMPT, tools: synthToolsJson },
+    function*(root) {
+      return yield* runAgents({
+        tasks: [{ systemPrompt: SYNTH_PROMPT, content: buildSynthPrompt(findings, query), tools: synthToolsJson, parent: root }],
+        tools: synthToolMap,
+        terminalTool: "report",
+      });
+    },
+  );
+  return pool.agents[0]?.findings || "";
+}
+```
+
+Compose them in sequence:
+
+```typescript
+function* handleQuery(query: string): Operation<string> {
+  const questions = yield* plan(query);
+  const findings = yield* research(questions);
+  const answer = yield* synthesize(findings, query);
+  return answer;
+}
+```
+
+That's a pipeline. Each stage runs to completion. Resources are cleaned up between stages — `withSharedRoot` prunes branches when its body returns, freeing KV for the next stage.
+
+<Tip>
+Stages are independent generators. You can test them in isolation, reorder them, skip them conditionally, or add new ones. The composition is plain code — `if` statements, loops, early returns.
+</Tip>
+
+## The building blocks
+
+Four primitives serve as stage implementations:
+
+<CardGroup cols={2}>
+  <Card title="generate()" icon="wand-magic-sparkles">
+    Single-branch, grammar-constrained generation. Plan decomposition, JSON extraction, evaluation. Returns text + optional parsed result.
+  </Card>
+  <Card title="runAgents()" icon="users">
+    Parallel agent pool with tools. Research, investigation, synthesis. Returns per-agent findings and statistics.
+  </Card>
+  <Card title="diverge()" icon="code-branch">
+    Multi-branch perplexity selection. Fork N attempts, generate in parallel, select the lowest-perplexity output. Verification and confidence checking.
+  </Card>
+  <Card title="withSharedRoot()" icon="sitemap">
+    Shared prefix scope. Creates a root branch, prefills the system prompt, passes it to a body function. Prunes everything on exit.
+  </Card>
+</CardGroup>
+
+## Example pipelines
+
+### Research pipeline
+
+Plan, dispatch agents across sources, rerank findings, synthesize an answer, verify with perplexity sampling.
+
+```typescript
+function* researchPipeline(query: string): Operation<string> {
+  // Stage 1: Decompose query into sub-questions
+  const questions = yield* plan(query);
+
+  // Stage 2: Research agents search across sources
+  const findings = yield* research(questions, sources);
+
+  // Stage 3: Synthesize with grounding tools for fact-checking
+  const answer = yield* synthesize(findings, query);
+
+  // Stage 4: Verify with N parallel samples
+  const verified = yield* verify(answer, query);
+
+  return verified.answer;
+}
+```
+
+### Code review pipeline
+
+Parse a diff, dispatch agents per file, collect issues, produce a summary.
+
+```typescript
+function* codeReview(diff: string): Operation<string> {
+  // Stage 1: Extract changed files from diff
+  const files = yield* generate({ prompt: parsePrompt(diff), grammar: filesGrammar });
+
+  // Stage 2: One agent per file — each searches the codebase for context
+  const reviews = yield* withSharedRoot(
+    { systemPrompt: REVIEW_PROMPT, tools: codeToolsJson },
+    function*(root) {
+      return yield* runAgents({
+        tasks: files.parsed.map(f => ({
+          systemPrompt: REVIEW_PROMPT,
+          content: `Review changes to ${f.path}:\n${f.diff}`,
+          tools: codeToolsJson, parent: root,
+        })),
+        tools: codeToolMap,
+        terminalTool: "report",
+      });
+    },
+  );
+
+  // Stage 3: Synthesize per-file reviews into summary
+  const summary = yield* synthesize(reviews.agents.map(a => a.findings), diff);
+  return summary;
+}
+```
+
+### Support pipeline
+
+Classify intent, search knowledge base, draft response, check confidence.
+
+```typescript
+function* supportTicket(ticket: string): Operation<{ response: string; confident: boolean }> {
+  // Stage 1: Classify — grammar-constrained to valid categories
+  const { parsed: category } = yield* generate({ prompt: classifyPrompt(ticket), grammar: categoryGrammar });
+
+  // Stage 2: Search knowledge base for relevant articles
+  const pool = yield* withSharedRoot(
+    { systemPrompt: KB_PROMPT, tools: kbToolsJson },
+    function*(root) {
+      return yield* runAgents({
+        tasks: [{ systemPrompt: KB_PROMPT, content: ticket, tools: kbToolsJson, parent: root }],
+        tools: kbToolMap,
+        terminalTool: "report",
+      });
+    },
+  );
+
+  // Stage 3: Confidence check — low perplexity = model is confident
+  const samples = yield* diverge({ prompt: draftPrompt(pool.agents[0]?.findings, ticket), attempts: 3 });
+  const confident = samples.best.ppl < 2.0;
+
+  return { response: samples.best.output, confident };
+}
+```
+
+## Conditional stages
+
+Pipelines are plain code. Use `if` statements, early returns, and loops.
+
+```typescript
+function* handleQuery(query: string): Operation<QueryResult> {
+  const plan = yield* classify(query);
+
+  // Early return for clarification
+  if (plan.intent === "clarify") {
+    return { type: "clarify", questions: plan.questions };
+  }
+
+  // Passthrough for simple queries — skip decomposition
+  const questions = plan.questions.length > 0
+    ? plan.questions.map(q => q.text)
+    : [query];
+
+  const findings = yield* research(questions);
+  const answer = yield* synthesize(findings, query);
+  return { type: "done", answer };
+}
+```
+
+<Note>
+There is no state machine, no DAG, no node connections to define. Conditional logic is an `if` statement. Looping is a `for` loop. Retry is calling the stage again. The generator pattern makes control flow explicit and readable.
+</Note>
+
+## KV lifecycle between stages
+
+Each stage that uses `withSharedRoot` creates and destroys branches within its scope. When the scope exits, branches are pruned and KV cells are freed.
+
+```
+Stage 1: plan     → generate() uses ~500 KV cells → pruned
+Stage 2: research → withSharedRoot + runAgents uses ~8,000 cells → pruned
+Stage 3: synthesize → withSharedRoot + runAgents uses ~3,000 cells → pruned
+Stage 4: verify   → diverge() uses ~1,500 cells → pruned
+```
+
+Stages don't compete for KV. Each stage gets the full context budget. This is why `withSharedRoot`'s cleanup is critical — it runs in `finally`, so KV is freed even if the stage throws.
+
+<Tip>
+When you need data to survive between stages, return it as plain values (strings, arrays, objects). KV state is ephemeral — it lives within a stage's scope. Findings, passages, and scores are the durable output.
+</Tip>
+
+## Multi-source pipelines
+
+When a pipeline uses multiple sources, research stages can chain with bridge stages between them:
+
+```typescript
+for (let i = 0; i < sources.length; i++) {
+  const result = yield* sources[i].researchTool.execute({ questions });
+  findings.push(result);
+
+  // Between sources: structure discoveries as context for the next source
+  if (i < sources.length - 1) {
+    const bridged = yield* bridge(result.findings, query);
+    questions = questions.map(q => `${q}\n\nPrior discoveries:\n${bridged}`);
+  }
+}
+```
+
+Each source is independent. The bridge stage distills findings from source N into context for source N+1. Later sources benefit from earlier research without re-doing it.

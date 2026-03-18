@@ -1,0 +1,89 @@
+---
+title: Introduction
+description: What are Continuous Context Agents and why do they matter?
+---
+
+# Continuous Context Agents
+
+Most agent frameworks treat each model call as independent. Send a prompt, get a response, parse it, call a tool, rebuild the prompt, send again. Every step starts from scratch.
+
+**lloyal-agents works differently.** All agents run inside one continuous inference process. They share GPU memory, inherit each other's context through KV cache forking, and receive tool results directly into their attention state — no serialization, no prompt rebuilding, no wasted compute.
+
+<Tip>
+Traditional agents rebuild context on every turn. Continuous Context Agents keep it in GPU memory and build on it — 4.4x fewer tokens processed for the same work.
+</Tip>
+
+## What you can build
+
+Anything that needs tool-using agents running locally:
+
+<CardGroup cols={3}>
+  <Card title="Research pipelines" icon="magnifying-glass">
+    Agents search, read, form hypotheses, and verify — across local files, web, databases, or any data source.
+  </Card>
+  <Card title="Personal assistants" icon="robot">
+    Multi-turn agents with persistent memory, connected to email, calendar, files, and APIs.
+  </Card>
+  <Card title="Code agents" icon="code">
+    Agents that read codebases, run tests, trace dependencies, and propose changes.
+  </Card>
+  <Card title="Data analysis" icon="chart-bar">
+    Agents that query databases, aggregate results, and produce reports with source attribution.
+  </Card>
+  <Card title="Support agents" icon="headset">
+    Agents that search knowledge bases, follow troubleshooting trees, and escalate with context.
+  </Card>
+  <Card title="Monitoring" icon="bell">
+    Agents that watch dashboards, correlate alerts, and investigate anomalies.
+  </Card>
+</CardGroup>
+
+## How it's different
+
+Three properties set Continuous Context Agents apart:
+
+### Shared KV prefix
+
+Multiple agents fork from a shared root branch. The system prompt and tool schemas are decoded once into GPU memory. Every agent inherits them at zero cost — an O(1) metadata operation, not a copy.
+
+```
+Root branch (system + tools): decoded once
+  ├── Agent 0: fork → investigate question A
+  ├── Agent 1: fork → investigate question B
+  └── Agent 2: fork → investigate question C
+```
+
+### Tool results in KV, not re-sent
+
+When an agent calls a tool, the result is prefilled directly into the agent's KV cache. The model sees the complete result before generating its next token. No prompt rebuilding. No re-sending conversation history. Each turn costs only the new tokens.
+
+### Recursive sub-agents
+
+An agent's tool can spawn more agents. A research tool forks from the calling agent's live branch, runs a sub-pool of investigators, and returns findings as a tool result. Same GPU, same KV cache, same inference process. Depth is bounded by KV pressure, not by framework limits.
+
+## The stack
+
+```
+Your application
+    ↓
+@lloyal-labs/rig              Research tools, sources, pipelines
+    ↓
+@lloyal-labs/lloyal-agents    Orchestration: agents, tools, structured concurrency
+    ↓
+@lloyal-labs/sdk              Inference runtime: Branch, Session, KV primitives
+    ↓
+@lloyal-labs/lloyal.node      Native backend: GPU inference, model loading
+```
+
+**You choose your level.** Use `rig` for ready-made research tools and sources. Use `lloyal-agents` to build custom agent workflows. Use `sdk` for direct branch and KV control.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/learn/quick-start">
+    Build your first agent in 5 minutes.
+  </Card>
+  <Card title="Thinking in lloyal" icon="brain" href="/learn/thinking-in-lloyal">
+    Understand the mental model — generators, structured concurrency, and scope trees.
+  </Card>
+</CardGroup>

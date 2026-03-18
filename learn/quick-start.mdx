@@ -1,0 +1,186 @@
+---
+title: Quick Start
+description: Build your first tool-using agent in 5 minutes.
+---
+
+# Quick Start
+
+You'll create an agent that uses tools, reasons about results, and produces findings — all running locally on your machine.
+
+## Prerequisites
+
+One file: a **GGUF model** with tool calling support.
+
+Recommended: [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-Q4_K_M-GGUF) (~2.5 GB)
+
+<Tip>
+Any instruction-tuned GGUF model with native tool support works — Qwen3, Llama 3.x, Mistral, and more. The framework detects the model's chat template and generates grammar constraints automatically.
+</Tip>
+
+## Install
+
+```bash
+npm i @lloyal-labs/lloyal-agents @lloyal-labs/lloyal.node effection
+```
+
+## Create two simple tools
+
+Before connecting to databases or APIs, start with the basics. Here are two tools any agent can use:
+
+```typescript tools.ts
+import { Tool } from "@lloyal-labs/lloyal-agents";
+import type { JsonSchema, Operation } from "@lloyal-labs/lloyal-agents";
+
+class CalculatorTool extends Tool<{ expression: string }> {
+  readonly name = "calculate";
+  readonly description = "Evaluate a math expression and return the result.";
+  readonly parameters: JsonSchema = {
+    type: "object",
+    properties: {
+      expression: { type: "string", description: "Math expression to evaluate" },
+    },
+    required: ["expression"],
+  };
+
+  *execute(args: { expression: string }): Operation<unknown> {
+    try {
+      const result = Function(`"use strict"; return (${args.expression})`)();
+      return { result: Number(result) };
+    } catch {
+      return { error: "Invalid expression" };
+    }
+  }
+}
+
+class TimeTool extends Tool<Record<string, never>> {
+  readonly name = "current_time";
+  readonly description = "Get the current date and time.";
+  readonly parameters: JsonSchema = { type: "object", properties: {} };
+
+  *execute(): Operation<unknown> {
+    return { time: new Date().toISOString() };
+  }
+}
+
+export { CalculatorTool, TimeTool };
+```
+
+<Note>
+A Tool is a generator function that returns `Operation<unknown>`. It can do anything — call APIs, query databases, read files, run shell commands, even spawn more agents. These two are deliberately simple.
+</Note>
+
+## Run an agent
+
+```typescript agent.ts
+import { main, call } from "effection";
+import { createContext } from "@lloyal-labs/lloyal.node";
+import {
+  initAgents,
+  withSharedRoot,
+  useAgentPool,
+  createToolkit,
+} from "@lloyal-labs/lloyal-agents";
+import { CalculatorTool, TimeTool } from "./tools";
+
+const MODEL = process.argv[2] || "model.gguf";
+
+await main(function* () {
+  // 1. Load model
+  const ctx = yield* call(() =>
+    createContext({ modelPath: MODEL, nCtx: 8192, nSeqMax: 4, typeK: "q4_0", typeV: "q4_0" }),
+  );
+
+  // 2. Build toolkit
+  const toolkit = createToolkit([
+    new CalculatorTool(),
+    new TimeTool(),
+  ]);
+
+  // 3. Initialize runtime
+  const { session } = yield* initAgents(ctx);
+
+  // 4. Run agent
+  const SYSTEM = "You are a helpful assistant with access to a calculator and clock. Use your tools to answer precisely.";
+
+  const pool = yield* withSharedRoot(
+    { systemPrompt: SYSTEM, tools: toolkit.toolsJson },
+    function* (root) {
+      return yield* useAgentPool({
+        tasks: [{
+          systemPrompt: SYSTEM,
+          content: "What is 7 * 13 + the current hour of the day?",
+          tools: toolkit.toolsJson,
+          parent: root,
+        }],
+        tools: toolkit.toolMap,
+        maxTurns: 5,
+      });
+    },
+  );
+
+  console.log(pool.agents[0]?.findings ?? pool.agents[0]?.rawOutput ?? "No output");
+});
+```
+
+## Run it
+
+```bash
+npx tsx agent.ts ./models/Qwen3-4B-Q4_K_M.gguf
+```
+
+The agent will:
+1. Call `calculate` with `7 * 13` → get `91`
+2. Call `current_time` → get the current hour
+3. Add them together and respond
+
+All inference runs locally. No API calls leave your machine.
+
+## What just happened
+
+<Steps>
+  <Step title="Model loaded into GPU memory">
+    `createContext` loads the GGUF file, allocates KV cache, and prepares the inference backend.
+  </Step>
+  <Step title="Tools registered as a toolkit">
+    `createToolkit` serializes tool schemas to JSON (for the model's system prompt) and builds a dispatch map (for executing tool calls).
+  </Step>
+  <Step title="Shared root created">
+    `withSharedRoot` prefills the system prompt + tool schemas into a root branch. This is decoded once — every agent forks from it at zero cost.
+  </Step>
+  <Step title="Agent ran the tick loop">
+    `useAgentPool` ran the four-phase loop: generate → commit → settle tool results → dispatch tool calls. Each tool result was prefilled into the agent's KV cache before the next generation step.
+  </Step>
+  <Step title="Cleanup happened automatically">
+    When `withSharedRoot` exited, all branches were pruned. No leaked GPU state.
+  </Step>
+</Steps>
+
+## Now connect to real data
+
+These two tools are toys. The real power comes from connecting agents to your data:
+
+<CardGroup cols={2}>
+  <Card title="Search your files" icon="file-lines" href="/rig/corpus-source">
+    Semantic search, grep, and file reading over local documents.
+  </Card>
+  <Card title="Search the web" icon="globe" href="/rig/web-source">
+    Web search + page fetching with any search provider (Tavily, Brave, or your own).
+  </Card>
+  <Card title="Query databases" icon="database" href="/rig/custom-sources">
+    Build a source that wraps SQL queries, vector search, or any API.
+  </Card>
+  <Card title="Build any tool" icon="wrench" href="/learn/tools">
+    The Tool interface is one method. If you can write a function, you can build a tool.
+  </Card>
+</CardGroup>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Tools" icon="wrench" href="/learn/tools">
+    Deep dive into the Tool abstraction — sync, async, recursive, and terminal tools.
+  </Card>
+  <Card title="Thinking in lloyal" icon="brain" href="/learn/thinking-in-lloyal">
+    If `function*` and `yield*` look unfamiliar, start here.
+  </Card>
+</CardGroup>

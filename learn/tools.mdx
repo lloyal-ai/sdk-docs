@@ -1,0 +1,225 @@
+---
+title: Tools
+description: The Tool abstraction — anything an agent can invoke.
+---
+
+# Tools
+
+A tool is anything an agent can call. Database query. API request. Shell command. Hardware sensor. Another agent pool.
+
+You define what it does. The framework handles dispatch, error boundaries, result injection, and cleanup.
+
+## Your first tool in 10 lines
+
+```typescript
+import { Tool } from "@lloyal-labs/lloyal-agents";
+import type { Operation } from "effection";
+
+class GreetTool extends Tool<{ name: string }> {
+  readonly name = "greet";
+  readonly description = "Return a greeting for the given name.";
+  readonly parameters = {
+    type: "object" as const,
+    properties: { name: { type: "string", description: "Name to greet" } },
+    required: ["name"],
+  };
+
+  *execute(args: { name: string }): Operation<unknown> {
+    return { greeting: `Hello, ${args.name}!` };
+  }
+}
+```
+
+That's a working tool. The model sees the schema. When it emits a tool call, the pool invokes `execute()`, JSON-serializes the result, and prefills it back into the agent's KV cache.
+
+## What tools can do
+
+<CardGroup cols={3}>
+  <Card title="Database queries" icon="database">
+    SQL, vector search, graph traversal — any data store with a client library.
+  </Card>
+  <Card title="API calls" icon="globe">
+    REST, GraphQL, gRPC. Search engines, weather, stock prices, maps.
+  </Card>
+  <Card title="Shell commands" icon="terminal">
+    Run scripts, compile code, execute tests, read system state.
+  </Card>
+  <Card title="File systems" icon="folder-open">
+    Read files, grep codebases, parse structured data, index directories.
+  </Card>
+  <Card title="Hardware & sensors" icon="microchip">
+    Camera feeds, IoT devices, GPIO pins, serial ports.
+  </Card>
+  <Card title="External services" icon="envelope">
+    Email, Slack, JIRA, GitHub, calendar — anything with an API.
+  </Card>
+</CardGroup>
+
+## Tool execution model
+
+Every tool's `execute()` returns an Effection `Operation<unknown>`. This gives you four levels of capability.
+
+### Synchronous tools
+
+Return a value directly from the generator body. No async work.
+
+```typescript
+*execute(args: { x: number; y: number }): Operation<unknown> {
+  return { result: args.x + args.y };
+}
+```
+
+### Async tools
+
+Use `call()` to bridge to Promises. The framework suspends the generator until the Promise resolves.
+
+```typescript
+*execute(args: { query: string }): Operation<unknown> {
+  const results = yield* call(() =>
+    fetch(`https://api.example.com/search?q=${args.query}`)
+      .then(r => r.json())
+  );
+  return { results };
+}
+```
+
+<Note>
+`call()` handles Promises, Operations, and plain values uniformly. You don't need to check what you're wrapping.
+</Note>
+
+### Terminal tools
+
+A terminal tool signals the agent is done. The agent pool intercepts the call, extracts findings, and marks the agent complete. No further generation.
+
+```typescript
+class ReportTool extends Tool<{ findings: string }> {
+  readonly name = "report";
+  readonly description = "Submit your final findings.";
+  readonly parameters = {
+    type: "object" as const,
+    properties: {
+      findings: { type: "string", description: "Your research findings" },
+    },
+    required: ["findings"],
+  };
+
+  *execute(args: { findings: string }): Operation<unknown> {
+    return { status: "reported" };
+  }
+}
+```
+
+You declare the terminal tool when creating the agent pool:
+
+```typescript
+yield* runAgents({
+  tasks,
+  tools: toolMap,
+  terminalTool: "report", // ← pool intercepts this tool
+});
+```
+
+<Tip>
+When `terminalTool` is set and the pool has other tools, agents must call at least one non-terminal tool before reporting. This prevents agents from immediately reporting without doing work.
+</Tip>
+
+### Recursive tools
+
+A tool can spawn sub-agents. `execute()` runs inside the pool's Effection scope, so it has access to all contexts — `Ctx`, `Store`, `Events`. This is how a `web_research` tool dispatches sub-investigators.
+
+```typescript
+*execute(args: { questions: string[] }): Operation<unknown> {
+  const pool = yield* withSharedRoot(
+    { systemPrompt: RESEARCH_PROMPT, tools: toolsJson },
+    function*(root) {
+      return yield* runAgents({
+        tasks: args.questions.map(q => ({
+          systemPrompt: RESEARCH_PROMPT,
+          content: q,
+          tools: toolsJson,
+          parent: root,
+        })),
+        tools: toolMap,
+        terminalTool: "report",
+        maxTurns: 6,
+      });
+    },
+  );
+  return {
+    findings: pool.agents.map(a => a.findings).filter(Boolean),
+  };
+}
+```
+
+The inner pool shares the same GPU and KV cache. Depth is bounded by context pressure, not framework limits.
+
+## Building a toolkit
+
+You never pass individual tools to the agent pool. You build a toolkit first.
+
+```typescript
+import { createToolkit } from "@lloyal-labs/lloyal-agents";
+
+const { toolMap, toolsJson } = createToolkit([
+  new SearchTool(reranker),
+  new ReadFileTool(resources),
+  new GrepTool(resources),
+  new ReportTool(),
+]);
+```
+
+`createToolkit()` produces two things:
+
+- **`toolMap`** — `Map<string, Tool>` used by the pool for dispatch
+- **`toolsJson`** — JSON-serialized schemas passed to `formatChat()` for prompt formatting
+
+Pass both to the agent pool:
+
+```typescript
+yield* runAgents({
+  tasks: [{ systemPrompt, content, tools: toolsJson, parent: root }],
+  tools: toolMap,
+  terminalTool: "report",
+});
+```
+
+<Note>
+**Tool ordering matters.** The model sees tools in the order you pass them to `createToolkit()`. Put the most commonly used tools first. Some models are sensitive to tool ordering — a search tool listed first gets called more reliably than one buried after five other schemas.
+</Note>
+
+## How dispatch works
+
+When the model emits a tool call:
+
+1. The pool parses the output and extracts the tool name and arguments
+2. Looks up the tool in `toolMap`
+3. Executes inside a `scoped()` error boundary — errors don't crash other agents
+4. JSON-serializes the result
+5. Builds a token delta and prefills it into the agent's KV cache
+6. The agent resumes generating with the tool result in its attention state
+
+The result goes directly into GPU memory. No prompt rebuilding. No re-sending conversation history. The agent's next token attends to everything — system prompt, prior turns, and the fresh tool result.
+
+## Schema format
+
+Tool schemas follow the OpenAI function calling format. The `schema` getter on `Tool` generates this automatically from your `name`, `description`, and `parameters`:
+
+```json
+{
+  "type": "function",
+  "function": {
+    "name": "search",
+    "description": "Search the corpus for relevant passages",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "description": "Search query" },
+        "topK": { "type": "number", "description": "Number of results" }
+      },
+      "required": ["query"]
+    }
+  }
+}
+```
+
+The framework detects the model's chat template and generates grammar constraints from these schemas automatically. When the model begins a tool call, a lazy GBNF grammar activates and constrains every subsequent token to valid JSON structure. Malformed tool calls are structurally impossible while grammar is active.

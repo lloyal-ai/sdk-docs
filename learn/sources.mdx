@@ -1,0 +1,203 @@
+---
+title: Sources
+description: The Source abstraction — any system with searchable content.
+---
+
+# Sources
+
+A source is any system your agents can search. File system. Web. Vector database. Email inbox. JIRA. Internal wiki. Anything with content and a way to find it.
+
+You define how to search. The framework handles agent orchestration, tool dispatch, and result collection.
+
+## What sources can wrap
+
+<CardGroup cols={3}>
+  <Card title="Email" icon="envelope">
+    Search mailboxes, thread histories, attachments. IMAP, Gmail API, Exchange.
+  </Card>
+  <Card title="JIRA / issue trackers" icon="ticket">
+    Query tickets, comments, linked issues. JQL, GitHub Issues, Linear.
+  </Card>
+  <Card title="File systems" icon="folder-open">
+    Grep codebases, read files, traverse directories. Local or networked.
+  </Card>
+  <Card title="Vector databases" icon="brain">
+    Semantic search over embeddings. Pinecone, Weaviate, ChromaDB, pgvector.
+  </Card>
+  <Card title="Web" icon="globe">
+    Search engines, page fetching, crawling. Tavily, Bing, Brave, direct HTTP.
+  </Card>
+  <Card title="APIs" icon="plug">
+    Any REST/GraphQL endpoint. Maps, weather, financial data, internal services.
+  </Card>
+  <Card title="Knowledge bases" icon="book">
+    Confluence, Notion, SharePoint, wikis. Structured or unstructured.
+  </Card>
+  <Card title="Databases" icon="database">
+    SQL queries, graph traversals, time-series. Postgres, Neo4j, InfluxDB.
+  </Card>
+</CardGroup>
+
+## The contract
+
+Every source implements five members:
+
+```typescript
+import { Source } from "@lloyal-labs/lloyal-agents";
+import type { Tool } from "@lloyal-labs/lloyal-agents";
+import type { Operation } from "effection";
+
+class MySource extends Source<MyContext, MyChunk> {
+  // 1. Human-readable label for this source
+  readonly name = "jira";
+
+  // 2. The research tool — an atomic swarm that searches this source
+  get researchTool(): Tool {
+    return this._researchTool;
+  }
+
+  // 3. Late-bind runtime dependencies not available at construction
+  *bind(ctx: MyContext): Operation<void> {
+    this._reranker = ctx.reranker;
+    this._researchTool = new JiraResearchTool(this._reranker);
+  }
+
+  // 4. Post-research chunks for reranking
+  getChunks(): MyChunk[] {
+    return this._buffer.getAll();
+  }
+
+  // 5. Grounding tools for independent verification
+  get groundingTools(): Tool[] {
+    return [new JiraSearchTool(this._client)];
+  }
+}
+```
+
+<Steps>
+  <Step title="name">
+    A label. Used in findings to attribute which source produced what. Keep it short — `"web"`, `"corpus"`, `"jira"`.
+  </Step>
+
+  <Step title="researchTool">
+    The main tool. When called, it spawns agents that search this source and return findings. This is typically a recursive tool — it creates a `withSharedRoot` + `runAgents` internally.
+
+    The orchestrator doesn't know how your source works. It calls `researchTool.execute({ questions })` and gets back findings.
+  </Step>
+
+  <Step title="bind(ctx)">
+    Called before tools are used. Wire up runtime dependencies — reranker, API clients, database connections — that weren't available at construction time. This is a generator, so you can do async setup.
+  </Step>
+
+  <Step title="getChunks()">
+    Returns buffered content for post-research reranking. During research, agents fetch content (pages, documents, code files). The source buffers it. After research completes, the orchestrator calls `getChunks()` and reranks against the original query to select the best passages for synthesis.
+  </Step>
+
+  <Step title="groundingTools">
+    Tools for independent verification. The synthesis agent gets these so it can fact-check findings against the source directly — without running a full research swarm.
+  </Step>
+</Steps>
+
+## How sources compose
+
+A pipeline can use multiple sources. The orchestrator iterates through them:
+
+```typescript
+const sources = [
+  new CorpusSource(resources),  // Search local files first
+  new WebSource(tavilyKey),     // Then search the web
+];
+
+// In the pipeline:
+for (const source of sources) {
+  yield* source.bind(ctx);
+  const result = yield* source.researchTool.execute({ questions });
+  findings.push(result);
+}
+```
+
+Each source is independent. It builds its own tools, manages its own agents, and returns its own findings. The orchestrator sees a uniform interface.
+
+<Tip>
+Sources are ordered deliberately. Put high-confidence sources first (local corpus, verified databases). Web or broad API sources go last. Between sources, a bridge stage can structure early findings as context for later sources.
+</Tip>
+
+## Shipped implementations
+
+lloyal ships two source implementations in `@lloyal-labs/rig`:
+
+<CardGroup cols={2}>
+  <Card title="CorpusSource" icon="folder-open" href="/rig/corpus-source">
+    Local file system research. Grep, read file, semantic search over indexed content. Agents search your codebase or document corpus.
+  </Card>
+  <Card title="WebSource" icon="globe" href="/rig/web-source">
+    Web research with Tavily search, page fetching, content buffering, and recursive sub-agents. Agents search the web and extract relevant passages.
+  </Card>
+</CardGroup>
+
+These are reference implementations. They show how to wire up `researchTool`, `bind`, `getChunks`, and `groundingTools` for real use cases. Use them directly or as templates for your own sources.
+
+## Building your own source
+
+Start with the question: what can you search, and what do you get back?
+
+```typescript
+class SlackSource extends Source<SourceContext, SlackChunk> {
+  readonly name = "slack";
+  private _client: SlackClient;
+  private _buffer: SlackChunk[] = [];
+  private _researchTool!: Tool;
+
+  constructor(token: string) {
+    super();
+    this._client = new SlackClient(token);
+  }
+
+  get researchTool(): Tool { return this._researchTool; }
+
+  *bind(ctx: SourceContext): Operation<void> {
+    // Build a tool that searches Slack channels and threads
+    this._researchTool = new SlackResearchTool(
+      this._client, this._buffer, ctx.reranker
+    );
+  }
+
+  getChunks(): SlackChunk[] { return this._buffer; }
+
+  get groundingTools(): Tool[] {
+    return [new SlackSearchTool(this._client)];
+  }
+}
+```
+
+The research tool is where the work happens. It's a regular `Tool` subclass that spawns agents:
+
+```typescript
+class SlackResearchTool extends Tool<{ questions: string[] }> {
+  readonly name = "slack_research";
+  // ...
+
+  *execute(args: { questions: string[] }): Operation<unknown> {
+    const pool = yield* withSharedRoot(
+      { systemPrompt: SLACK_PROMPT, tools: toolsJson },
+      function*(root) {
+        return yield* runAgents({
+          tasks: args.questions.map(q => ({
+            systemPrompt: SLACK_PROMPT,
+            content: q,
+            tools: toolsJson,
+            parent: root,
+          })),
+          tools: toolMap,
+          terminalTool: "report",
+        });
+      },
+    );
+    return { findings: pool.agents.map(a => a.findings).filter(Boolean) };
+  }
+}
+```
+
+<Note>
+The source abstraction is intentionally thin. Five members. No configuration framework, no registration system, no plugin lifecycle. You subclass `Source`, implement the contract, and pass instances to your pipeline.
+</Note>

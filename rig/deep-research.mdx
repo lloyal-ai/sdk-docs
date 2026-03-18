@@ -1,0 +1,165 @@
+---
+title: "Deep Research Pipeline"
+description: "Reference architecture walkthrough — Plan, Research, Bridge, Synthesize, Eval"
+---
+
+The deep-research example is the reference RIG pipeline. It chains five operations into a complete research workflow: decompose the query, investigate with source-specific agents, bridge between sources, synthesize findings, and verify convergence.
+
+## Pipeline Overview
+
+```
+Plan → Research → [Bridge →] Synthesize → Eval
+```
+
+Each stage runs inside the [tick loop](/concepts/concurrency). All agent coordination uses the same primitives: `withSharedRoot`, `useAgentPool`, `generate`, `diverge`.
+
+## Stage Walkthrough
+
+<Steps>
+  <Step title="Plan">
+    Grammar-constrained decomposition of the user query into sub-questions.
+
+    The `PlanTool` uses `generate()` with a JSON schema grammar to produce structured output:
+
+    ```json
+    {
+      "questions": [
+        { "text": "What are the mechanisms of X?", "intent": "research" },
+        { "text": "Can you clarify what you mean by Y?", "intent": "clarify" }
+      ]
+    }
+    ```
+
+    The router inspects the result:
+    - **All research** -- decompose into parallel sub-questions
+    - **All clarify** -- return clarification questions to the user
+    - **Mixed** -- drop clarify, dispatch research
+    - **Empty array** -- passthrough, investigate the original query directly
+
+    Passthrough queries get double `maxTurns` since they run as a single focused agent.
+  </Step>
+  <Step title="Research">
+    Each source's research tool spawns a pool of agents. Agents interleave retrieval and generation -- searching, reading, forming hypotheses, searching again.
+
+    All agents within a source run concurrently on shared GPU compute via `useAgentPool`. Sources run sequentially, each getting the full KV budget.
+
+    ```typescript
+    const result = yield* withSharedRoot(
+      { systemPrompt: ROOT.system },
+      function*(root) {
+        for (const source of opts.sources)
+          yield* source.bind({ reranker, reporterPrompt, reportTool, maxTurns, trace });
+
+        for (const source of opts.sources) {
+          yield* source.researchTool.execute({ questions: activeQuestions });
+          // Bridge between sources (see next step)
+        }
+        return opts.sources.flatMap(s => s.getChunks());
+      },
+    );
+    ```
+
+    Agents that get cut by context pressure are recovered via scratchpad extraction. A grammar-constrained `generate({ parent: agent.branch })` attends over the agent's accumulated KV and extracts findings. The agent paid the KV cost of reasoning; the extraction recovers the value.
+  </Step>
+  <Step title="Bridge">
+    Runs between sources when multiple sources are configured and the completed source produced findings.
+
+    A single agent structures discoveries into three tiers: what was established, where evidence is incomplete, what was not covered. These discoveries condition the next source's sub-questions. See [Bridges](/rig/bridges) for details.
+  </Step>
+  <Step title="Synthesize">
+    A synthesis agent integrates findings from all sources into a structured report with source attribution.
+
+    The synthesizer receives two inputs:
+    - **Agent findings** -- analytical notes from each research agent
+    - **Reranked passages** -- top passages from all sources scored against the original query
+
+    Research notes provide analytical structure. Reranked passages provide ground truth for citation. The synthesizer cross-references both.
+
+    Grounding tools from all sources are available during synthesis for independent verification. The synthesizer can spot-check claims by running its own searches.
+  </Step>
+  <Step title="Eval">
+    Multi-branch semantic comparison via `diverge()`.
+
+    Fork N branches from a shared frontier. Generate independently with the same verify prompt. Check convergence.
+
+    ```typescript
+    const samples = yield* diverge({
+      prompt,
+      attempts: opts.verifyCount,
+      params: { temperature: 0.7 },
+    });
+    ```
+
+    A grammar-constrained evaluator compares the responses:
+    - **Converged** -- branches agree, the model is confident
+    - **Diverged** -- branches disagree, the answer needs refinement
+  </Step>
+</Steps>
+
+## Warm vs Cold
+
+The pipeline handles both cold starts (first query) and warm continuations (follow-up questions) automatically.
+
+<Tabs>
+  <Tab title="Cold (first query)">
+    Research runs inside `withSharedRoot`. A shared prefix branch is created, agents fork from it. After synthesis, `promoteTrunk` creates a new trunk with the query-response pair for future warm turns.
+  </Tab>
+  <Tab title="Warm (follow-up)">
+    Prior conversation tokens are physically present in the trunk's KV cache. Research runs against the existing trunk via `warmResearch` -- sources bind and execute without creating a new shared root. After synthesis, `appendTurn` prefills the new query-response pair onto the existing trunk.
+  </Tab>
+</Tabs>
+
+## CLI Usage
+
+Three configurations depending on your data sources:
+
+<Tabs>
+  <Tab title="Web only">
+    ```bash
+    TAVILY_API_KEY=tvly-... npx tsx examples/deep-research-web/main.ts \
+      ./models/your-model.gguf \
+      --reranker ./models/reranker.gguf \
+      --query "What are the latest advances in protein folding?"
+    ```
+  </Tab>
+  <Tab title="Corpus only">
+    ```bash
+    npx tsx examples/deep-research-web/main.ts \
+      ./models/your-model.gguf \
+      --corpus ./docs \
+      --reranker ./models/reranker.gguf \
+      --query "How does the allocation pool handle cleanup?"
+    ```
+  </Tab>
+  <Tab title="Web + Corpus">
+    ```bash
+    TAVILY_API_KEY=tvly-... npx tsx examples/deep-research-web/main.ts \
+      ./models/your-model.gguf \
+      --corpus ./docs \
+      --reranker ./models/reranker.gguf \
+      --query "Compare our implementation with the latest research"
+    ```
+
+    Sources run sequentially: corpus first, then web. A [bridge](/rig/bridges) structures corpus discoveries before web research begins.
+  </Tab>
+</Tabs>
+
+### Options
+
+| Flag | Description | Default |
+|---|---|---|
+| `--query <text>` | Run a single query and exit | Interactive REPL |
+| `--corpus <dir>` | Load local files as a corpus source | None |
+| `--reranker <path>` | Path to reranker model (GGUF) | `models/qwen3-reranker-0.6b-q4_k_m.gguf` |
+| `--findings-budget <n>` | Max chars for reranked passages | 4000 |
+| `--trace` | Write structured trace events to `trace-*.jsonl` | Off |
+| `--verbose` | Show stderr debug output | Off |
+| `--jsonl` | Machine-readable JSON Lines output | Off |
+
+### Defaults
+
+The pipeline runs with 3 research agents, 3 verify branches, and 20 max tool turns per agent. Context size defaults to 16384 tokens (configurable via `LLAMA_CTX_SIZE`).
+
+<Tip>
+Drop `--query` to enter the interactive REPL. Ask follow-up questions -- the pipeline automatically switches to warm mode and continues the conversation with full prior context in KV.
+</Tip>

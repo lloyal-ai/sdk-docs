@@ -1,0 +1,193 @@
+---
+title: Sessions
+description: Trunk lifecycle, promotion, and multi-turn conversation deltas.
+---
+
+# Sessions
+
+A session owns the current conversation state. It tracks the trunk branch — the ongoing conversation — and provides methods to advance it.
+
+```typescript
+import { Session } from "@lloyal-labs/sdk";
+
+const session = new Session({ ctx, store });
+```
+
+That's it. A session starts with no trunk. The first query creates one.
+
+## The trunk
+
+The trunk is the branch that holds the current conversation. It contains every token the model has seen — system prompt, user messages, assistant responses, tool results.
+
+```typescript
+session.trunk  // Branch | null
+```
+
+- **`null`** — no conversation yet (cold start)
+- **`Branch`** — active conversation with tokens in KV cache (warm)
+
+<Note>
+Cold and warm are physical properties of KV cache state, not modes. A cold session has no tokens in GPU memory. A warm session has prior turns physically present in the KV cache. The model recalls the conversation because those tokens are there.
+</Note>
+
+## Lifecycle
+
+<Steps>
+  <Step title="Cold start — first query">
+    No trunk exists. You create a fresh branch, run your pipeline, and promote the winner.
+
+    ```typescript
+    // No trunk — first query
+    if (!session.trunk) {
+      const answer = yield* research(query);
+      yield* promoteTrunk(query, answer, session);
+    }
+    ```
+  </Step>
+
+  <Step title="Promote">
+    After your pipeline produces a result, promote a branch to become the trunk. This calls `retainOnly()` on the branch store — all other branches are pruned, and the winner becomes the ongoing conversation.
+
+    ```typescript
+    const trunk = Branch.create(ctx, 0, {});
+    yield* call(() => trunk.prefill(conversationTokens));
+    yield* call(() => session.promote(trunk));
+    // session.trunk is now the promoted branch
+    ```
+
+    `promote()` does two things:
+    - `store.retainOnly(winner)` — prunes everything except the winner
+    - Sets `session.trunk = winner`
+  </Step>
+
+  <Step title="Warm continuation — follow-up queries">
+    Trunk exists. You append the new user turn directly into the existing KV cache, then run your pipeline on the warm branch.
+
+    ```typescript
+    if (session.trunk) {
+      // Append user turn to existing trunk
+      await session.prefillUser(query);
+      // Pipeline forks from warm trunk — model sees full conversation history
+      const answer = yield* research(query);
+      yield* appendTurn(query, answer, session);
+    }
+    ```
+  </Step>
+
+  <Step title="Dispose">
+    When the conversation ends, dispose the session to prune the trunk.
+
+    ```typescript
+    await session.dispose();
+    // session.trunk is now null, KV cells freed
+    ```
+  </Step>
+</Steps>
+
+## API
+
+### `session.promote(winner)`
+
+Crown a branch as the new trunk. Prunes all other branches in the store.
+
+```typescript
+await session.promote(winner);
+```
+
+This is safe even if the winner is the only branch — it resets topology without KV cost.
+
+<Tip>
+Promote after verification. Run your pipeline, verify the result (e.g. with `diverge()` for perplexity checking), then promote the branch that produced the best answer. Loser branches are cleaned up automatically.
+</Tip>
+
+### `session.prefillUser(content, opts?)`
+
+Append a user turn to the trunk. Builds the token delta using the canonical pattern: turn separator + formatted chat + tokenization.
+
+```typescript
+await session.prefillUser("What about the edge cases?");
+// Trunk now has the new user turn in KV — ready for generation
+```
+
+Optionally pass tools for tool-aware formatting:
+
+```typescript
+await session.prefillUser("Search for more details", { tools: toolsJson });
+```
+
+### `session.prefillToolResult(resultStr, callId)`
+
+Append a tool result turn to the trunk. Used when running tools outside the agent pool (e.g. single-agent interactive mode).
+
+```typescript
+await session.prefillToolResult(
+  JSON.stringify({ results: searchResults }),
+  "call_123"
+);
+```
+
+### `session.dispose()`
+
+Prune the trunk and set it to null.
+
+```typescript
+await session.dispose();
+```
+
+<Note>
+Session does NOT own the `SessionContext` or `BranchStore`. You create those separately and pass them in. `dispose()` only prunes the trunk. Clean up `ctx` and `store` yourself when shutting down.
+</Note>
+
+## Token deltas
+
+Under the hood, `prefillUser` and `prefillToolResult` build token deltas using helper functions from `@lloyal-labs/sdk`:
+
+```typescript
+// buildUserDelta: sep + formatChat + tokenize
+function buildUserDelta(ctx, content, opts): number[] {
+  const sep = ctx.getTurnSeparator();
+  const { prompt } = ctx.formatChatSync(
+    JSON.stringify([{ role: "system", content: "" }, { role: "user", content }]),
+    opts.tools ? { tools: opts.tools } : {}
+  );
+  const delta = ctx.tokenizeSync(prompt, false);
+  return [...sep, ...delta];
+}
+```
+
+The pattern is always the same:
+
+1. Get the turn separator tokens (model-specific boundary between turns)
+2. Format the message using the model's chat template
+3. Tokenize the formatted text
+4. Concatenate: `[...separator, ...tokens]`
+
+This ensures correct turn boundaries regardless of which model you use. The chat template handles the formatting — you provide the content.
+
+## Multi-turn flow
+
+Here's the full picture — a session handling multiple queries:
+
+```typescript
+const session = new Session({ ctx, store });
+
+// Query 1: cold start
+const answer1 = yield* handleQuery("What is KV caching?", session);
+// Pipeline runs, promotes trunk with Q1 + A1
+
+// Query 2: warm continuation
+const answer2 = yield* handleQuery("How does forking work?", session);
+// Pipeline appends Q2 to trunk, runs on warm branch, appends A2
+
+// Query 3: warm continuation
+const answer3 = yield* handleQuery("Compare with cloud APIs", session);
+// Trunk now has: Q1 + A1 + Q2 + A2 + Q3 + A3
+
+await session.dispose();
+```
+
+Each query builds on the physical KV state from prior turns. The model's attention spans the entire conversation — not because the history is re-sent, but because those tokens are physically present in GPU memory.
+
+<Tip>
+The trunk grows monotonically. Every turn adds tokens. This is efficient (no re-processing) but bounded by context length. Monitor KV pressure and consider summarization strategies for very long conversations.
+</Tip>

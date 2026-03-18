@@ -1,0 +1,127 @@
+---
+title: "Corpus Source"
+description: "Local file research with grep, semantic search, read_file, and recursive agents"
+---
+
+`CorpusSource` turns a directory of files into a searchable knowledge base. Agents investigate it with four tools: semantic search, exhaustive grep, targeted file reads, and recursive sub-agent research.
+
+## Setup
+
+<Steps>
+  <Step title="Load resources and chunk them">
+    ```typescript
+    import {
+      CorpusSource,
+      loadResources,
+      chunkResources,
+      createReranker,
+    } from "@lloyal-labs/rig";
+
+    const resources = loadResources("./docs");
+    const chunks = chunkResources(resources);
+    ```
+
+    `loadResources` reads all files from the directory. `chunkResources` splits them into paragraph-level chunks with headings and line ranges.
+  </Step>
+  <Step title="Create the source">
+    ```typescript
+    const source = new CorpusSource(resources, chunks);
+    ```
+
+    At construction, `CorpusSource` wires up `ReadFileTool` and `GrepTool` immediately. These tools work without a reranker.
+  </Step>
+  <Step title="Bind the reranker">
+    ```typescript
+    yield* source.bind({
+      reranker,
+      reporterPrompt: REPORT,
+      reportTool,
+      maxTurns: 20,
+      trace: false,
+    });
+    ```
+
+    `bind()` tokenizes all chunks through the reranker, prepends a `SearchTool` to the tool list, and constructs the self-referential `ResearchTool`. Call it once before using the source.
+  </Step>
+</Steps>
+
+<Note>
+`bind()` is idempotent. Calling it multiple times is safe -- it skips work after the first call.
+</Note>
+
+## The 4 Corpus Tools
+
+| Tool | What it does | When agents use it |
+|---|---|---|
+| `search` | Semantic search via reranker scoring. Returns ranked chunks with file names, headings, scores, and line ranges. | First tool agents reach for. Broad semantic matching. |
+| `grep` | Exhaustive regex scan across all files. Returns matching lines with file names and line numbers, capped at 50. | When the agent needs exact pattern matches -- specific identifiers, error codes, function names. |
+| `read_file` | Read file content at specific line ranges. Tracks per-agent read state to skip already-read lines. | After search or grep reveals a relevant section. Agents read the surrounding context. |
+| `research` | Spawn a parallel sub-agent pool. Each sub-question gets its own agent with the full toolkit. | When an agent discovers a sub-topic that needs deeper investigation. Self-referential recursion. |
+
+<Tip>
+`search` is ordered first in the toolkit deliberately. The model prefers tools listed earlier, so agents default to semantic search before falling back to grep or read_file.
+</Tip>
+
+### Read tracking
+
+`ReadFileTool` tracks which lines each agent has already read, keyed by `agentId:filename`. When an agent requests a range it has already seen, the tool returns only the unread portions. This prevents redundant context inflation.
+
+### Research recursion
+
+`ResearchTool` is self-referential. It spawns sub-agents that have access to the full toolkit -- including `research` itself. Sub-agents can spawn their own sub-agents for arbitrarily deep investigation.
+
+Hard-cut agents (those that exhaust their turn limit without calling `report`) get a forced extraction pass. The research tool forks from the agent's branch and runs a grammar-constrained generation to recover partial findings.
+
+## Quick Start
+
+```typescript
+import { call } from "effection";
+import {
+  CorpusSource,
+  loadResources,
+  chunkResources,
+  createReranker,
+  reportTool,
+} from "@lloyal-labs/rig";
+import { initAgents, withSharedRoot, useAgentPool, createToolkit } from "@lloyal-labs/lloyal-agents";
+
+// Load corpus
+const resources = loadResources("./knowledge-base");
+const chunks = chunkResources(resources);
+const reranker = await createReranker("./models/reranker.gguf");
+const source = new CorpusSource(resources, chunks);
+
+// Inside an Effection scope:
+const { session, events } = yield* initAgents(ctx);
+
+yield* source.bind({
+  reranker,
+  reporterPrompt: { system: "...", user: "..." },
+  reportTool,
+  maxTurns: 20,
+  trace: false,
+});
+
+// Use the research tool directly
+const result = yield* source.researchTool.execute({
+  questions: ["How does the allocation pool handle cleanup?"],
+});
+```
+
+## createTools Helper
+
+For simpler cases where you do not need the full `CorpusSource` lifecycle, use the `createTools` function to build a toolkit directly:
+
+```typescript
+import { createTools, createReranker } from "@lloyal-labs/rig";
+
+const toolkit = createTools({
+  resources,
+  chunks,
+  reranker,
+});
+// toolkit.toolMap has search, read_file, grep, report
+// toolkit.toolsJson has the JSON schemas for the model
+```
+
+This builds a flat toolkit with `SearchTool`, `ReadFileTool`, `GrepTool`, and `ReportTool`. No `ResearchTool` -- use this when you want corpus tools without recursive sub-agents.

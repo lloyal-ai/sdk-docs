@@ -1,0 +1,183 @@
+---
+title: Agents
+description: Parallel agents on shared GPU — the agent pool and shared root.
+---
+
+# Agents
+
+Three agents. One GPU. Shared prefix.
+
+```
+Shared root (system prompt + tool schemas): decoded once
+  ├── Agent 0: fork → investigate question A
+  ├── Agent 1: fork → investigate question B
+  └── Agent 2: fork → investigate question C
+```
+
+Every agent inherits the root's KV cache at zero cost — an O(1) metadata tag, not a copy. Each agent then generates independently, calls tools, and reports findings. The pool manages the entire lifecycle.
+
+## The pattern
+
+Two functions compose to create a parallel agent pool:
+
+```typescript
+import { withSharedRoot, runAgents, createToolkit } from "@lloyal-labs/lloyal-agents";
+
+const { toolMap, toolsJson } = createToolkit([...tools, reportTool]);
+
+const pool = yield* withSharedRoot(
+  { systemPrompt: RESEARCH_PROMPT, tools: toolsJson },
+  function*(root) {
+    return yield* runAgents({
+      tasks: questions.map(q => ({
+        systemPrompt: RESEARCH_PROMPT,
+        content: q,
+        tools: toolsJson,
+        parent: root,
+      })),
+      tools: toolMap,
+      terminalTool: "report",
+      maxTurns: 6,
+    });
+  },
+);
+
+// pool.agents[0].findings, pool.agents[1].findings, ...
+```
+
+`withSharedRoot` creates the root branch, prefills the system prompt, and passes the root to your body function. When the body returns, the root and all its children are pruned automatically.
+
+`runAgents` forks one branch per task from the root, runs them in parallel, and returns when all agents finish. Branches are pruned on exit.
+
+## The four-phase tick loop
+
+All agents generate tokens together in a batched loop. Each tick has four phases:
+
+<Steps>
+  <Step title="PRODUCE">
+    Every active agent samples one token via `produceSync()`. If the token is a stop token, the pool parses the output for tool calls or final content. No async gaps — pure synchronous sampling.
+  </Step>
+
+  <Step title="COMMIT">
+    A single GPU call via `store.commit()` batch-decodes all produced tokens. One `llama_decode` for the entire pool, not one per agent.
+  </Step>
+
+  <Step title="SETTLE">
+    Tool results from the previous tick's dispatch are drained. Each result is tokenized and prefilled into the calling agent's branch. Agents resume generating with the tool result in their attention state.
+  </Step>
+
+  <Step title="DISPATCH">
+    Collected tool calls execute sequentially — one at a time. Each tool runs inside a `scoped()` error boundary. When a tool spawns sub-agents (recursive tools), those sub-agents run their own tick loop within the dispatch phase.
+  </Step>
+</Steps>
+
+<Note>
+Tools execute sequentially because they may access the GPU (recursive tools spawn inner pools). Concurrent tool execution would cause concurrent `llama_decode` calls on the same context — which crashes. The pool serializes dispatch to guarantee exclusive GPU access.
+</Note>
+
+## Prefix sharing
+
+The shared root is the key efficiency mechanism. System prompt + tool schemas are decoded into KV once. Every agent fork inherits them.
+
+```
+Without sharing: 3 agents x 900 tokens = 2,700 GPU decode ops
+With sharing:    900 shared + 3 x 30 unique = 990 GPU decode ops
+Savings:         64% fewer decode operations
+```
+
+In real pipelines with multi-turn agents, the savings compound further — tool results stay in KV as deltas, never re-sent. Measured savings reach **78% fewer tokens** across a full research run.
+
+<Tip>
+For the full picture — KV layout, position-aware decode, nested sharing, measured numbers — see [Prefix Sharing](/concepts/prefix-sharing).
+</Tip>
+
+## Context pressure
+
+The pool monitors KV cache usage every tick and enforces two thresholds:
+
+- **Soft limit** (default 1024 tokens) — headroom reserved for downstream work. When exhausted, non-terminal tool calls are rejected. Terminal tools (like `report`) always pass through.
+- **Hard limit** (default 128 tokens) — crash-prevention floor. Agents are killed before `produceSync()` to prevent `llama_decode` failures.
+
+You can tune these:
+
+```typescript
+yield* runAgents({
+  tasks,
+  tools: toolMap,
+  pressure: { softLimit: 2048, hardLimit: 256 },
+});
+```
+
+<Note>
+Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported findings keep them, agents that didn't are marked done.
+</Note>
+
+## `useAgentPool` vs `runAgents`
+
+Both create agent pools. The difference is branch lifetime.
+
+<Tabs>
+  <Tab title="runAgents">
+    Branches are pruned when the pool completes. Use this when you only need findings.
+
+    ```typescript
+    const pool = yield* runAgents({ tasks, tools: toolMap });
+    // Branches already pruned — pool.agents[*].findings still available
+    ```
+  </Tab>
+
+  <Tab title="useAgentPool">
+    Branches stay alive after the pool completes. Use this when you need to fork from agent branches — for verification, follow-up generation, or scratchpad extraction.
+
+    ```typescript
+    const pool = yield* useAgentPool({ tasks, tools: toolMap });
+    // Branches still alive — you can fork from pool.agents[0].branch
+    const verified = yield* generate({ prompt, parent: pool.agents[0].branch });
+    // Branches pruned when the enclosing scope exits
+    ```
+  </Tab>
+</Tabs>
+
+## Nested pools
+
+A tool can spawn its own agent pool. The inner pool shares the same GPU and KV cache.
+
+```
+Outer pool:
+  withSharedRoot (root, pos 0..866)
+    ├── Agent A0 (fork at 866)
+    │     └── tool dispatch: web_research
+    │           └── withSharedRoot (inner root, pos 0..750)
+    │                 ├── Sub-agent 0 (fork at 750)
+    │                 ├── Sub-agent 1 (fork at 750)
+    │                 └── Sub-agent 2 (fork at 750)
+    ├── Agent A1 (fork at 866)
+    └── Agent A2 (fork at 866)
+```
+
+Inner and outer pools share the same `BranchStore`. Context pressure is global — `cells_used` accounts for all branches across all nesting levels. When the inner pool exits, its branches are pruned and KV cells are freed for the outer pool.
+
+## Events
+
+The pool emits events through the `Events` channel for every lifecycle transition:
+
+- `agent:spawn` — agent created and prefilled
+- `agent:produce` — token generated (with optional entropy/surprisal)
+- `agent:tool_call` — tool invoked
+- `agent:tool_result` — tool result received
+- `agent:report` — agent submitted findings via terminal tool
+- `agent:done` — agent completed
+- `agent:tick` — batch decode committed (with KV pressure snapshot)
+
+Subscribe in a spawned consumer to build TUI, logging, or monitoring:
+
+```typescript
+yield* spawn(function*() {
+  for (const ev of yield* each(events)) {
+    if (ev.type === "agent:report") {
+      console.log(`Agent ${ev.agentId}: ${ev.findings}`);
+    }
+    yield* each.next();
+  }
+});
+```

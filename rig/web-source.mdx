@@ -1,0 +1,113 @@
+---
+title: "Web Source"
+description: "Web search and page fetching with scratchpad extraction"
+---
+
+`WebSource` gives agents access to the open web. Search via a pluggable provider, fetch and extract page content, and spawn recursive sub-agents for deep investigation.
+
+## Setup
+
+```typescript
+import { WebSource, TavilyProvider } from "@lloyal-labs/rig";
+
+const source = new WebSource(new TavilyProvider());
+```
+
+Pass your API key via constructor or environment variable:
+
+```typescript
+// Explicit key
+new TavilyProvider("tvly-your-key");
+
+// Or via environment
+// TAVILY_API_KEY=tvly-your-key
+new TavilyProvider();
+```
+
+<Note>
+`WebSource` resets its internal page buffer on every `bind()` call. Prior-run content never leaks into a new research pass.
+</Note>
+
+## Web Tools
+
+| Tool | What it does |
+|---|---|
+| `web_search` | Search the web via the configured provider. Returns URLs and a summary. Uses scratchpad extraction to compress raw results. |
+| `fetch_page` | Fetch a URL, extract article text via Readability. Buffers full content for post-research reranking. Returns a compact summary + links to the agent. |
+| `web_research` | Spawn parallel sub-agents with web_search, fetch_page, and report. Self-referential recursion for deep investigation. |
+
+## SearchProvider Is an Open Interface
+
+`TavilyProvider` is the included implementation. But `SearchProvider` is a simple interface -- implement it for any search backend.
+
+```typescript
+interface SearchProvider {
+  search(query: string, maxResults: number): Promise<SearchResult[]>;
+}
+
+interface SearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+```
+
+### Brave adapter example
+
+```typescript
+import type { SearchProvider, SearchResult } from "@lloyal-labs/rig";
+
+class BraveProvider implements SearchProvider {
+  constructor(private apiKey: string) {}
+
+  async search(query: string, maxResults: number): Promise<SearchResult[]> {
+    const res = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${maxResults}`,
+      { headers: { "X-Subscription-Token": this.apiKey } },
+    );
+    const data = await res.json();
+    return data.web.results.map((r: any) => ({
+      title: r.title,
+      url: r.url,
+      snippet: r.description,
+    }));
+  }
+}
+
+// Use it
+const source = new WebSource(new BraveProvider("BSA-your-key"));
+```
+
+<Tip>
+Any service that returns titles, URLs, and snippets works. SerpAPI, Bing, Google Custom Search -- implement one method and plug it in.
+</Tip>
+
+## Scratchpad Extraction
+
+Both `web_search` and `fetch_page` use scratchpad extraction to keep KV pressure low. Here is how it works for `fetch_page`:
+
+1. The inner `FetchPageTool` fetches and extracts the full page text.
+2. Full content is pushed into a buffer for post-research reranking.
+3. A scratchpad fork branches from `ScratchpadParent` (set by `withSharedRoot`).
+4. Grammar-constrained generation extracts `{ summary, links }` from the page.
+5. The fork is pruned -- zero net KV cost per extraction.
+6. The compact result (summary + links) goes back to the calling agent.
+
+The agent gets enough context to decide what to fetch next without paying the full KV cost of every page.
+
+`web_search` follows the same pattern: raw search results are distilled into `{ urls, summary }` via a scratchpad fork before the agent sees them.
+
+<Note>
+If no `ScratchpadParent` is available (e.g., running outside `withSharedRoot`), both tools fall back to returning the full uncompressed result.
+</Note>
+
+## Post-Research Reranking
+
+After the research phase completes, call `source.getChunks()` to convert the buffered pages into paragraph-level chunks for reranker scoring. The pipeline uses this to select the most relevant passages for the synthesis prompt.
+
+```typescript
+const chunks = source.getChunks();
+// → Chunk[] with resource (URL), heading (title), text (paragraph), line ranges
+```
+
+Pages are split on blank-line paragraph boundaries. Paragraphs shorter than 40 characters are filtered out.

@@ -1,0 +1,108 @@
+---
+title: "Bridges"
+description: "Structure discoveries between sources to direct investigation toward gaps"
+---
+
+When multiple sources run sequentially, a bridge connects them. It structures findings from the completed source into durable context that conditions the next source's investigation.
+
+## Why Bridges Exist
+
+Without a bridge, source N+1 re-investigates everything source N already covered. The web source searches for the same topics the corpus source already established. You waste KV budget on redundant retrieval.
+
+A bridge solves this by extracting what was found, what is incomplete, and what is missing. The next source targets gaps instead of re-covering established ground.
+
+## Three-Tier Discovery
+
+The bridge agent structures findings into three tiers:
+
+<Steps>
+  <Step title="What was established">
+    Specific data points, study details, statistics, quotes. Evidence preserved verbatim. These are confirmed findings that do not need further investigation.
+  </Step>
+  <Step title="Where evidence is incomplete">
+    Acknowledged limitations, absent study designs, uncertain mechanisms. These are well-researched claims with identified evidence gaps. The topic is covered; the evidence has holes.
+  </Step>
+  <Step title="What was not covered">
+    Topics mentioned but not substantiated, or entirely absent from the source. These are genuine blind spots that the next source should target.
+  </Step>
+</Steps>
+
+<Note>
+The distinction between tiers 2 and 3 is critical. A topic with six sections of evidence but no experimental validation is **not a gap** -- it is a well-researched claim with an identified evidence limitation. The bridge flags the limitation, not the topic. This prevents re-investigation of what the previous source already covered.
+</Note>
+
+## How Discoveries Condition the Next Source
+
+After the bridge produces its three-tier output, the discoveries are appended to each sub-question before the next source receives them:
+
+```typescript
+activeQuestions = questions.map(
+  (q) => `${q}\n\nPrior research discoveries:\n${discoveries}`,
+);
+```
+
+The next source's agents see the original question plus a structured summary of what has been found so far. They naturally direct their investigation toward the gaps.
+
+## Implementation
+
+The bridge runs as a single agent inside `withSharedRoot` with report-only tools:
+
+```typescript
+const reportOnlyToolkit = createToolkit([reportTool]);
+
+const discoveries = yield* withSharedRoot(
+  { systemPrompt: BRIDGE.system, tools: reportOnlyToolkit.toolsJson },
+  function*(bridgeRoot) {
+    const pool = yield* useAgentPool({
+      tasks: [{
+        systemPrompt: BRIDGE.system,
+        content: bridgeContent,
+        tools: reportOnlyToolkit.toolsJson,
+        parent: bridgeRoot,
+      }],
+      tools: reportOnlyToolkit.toolMap,
+      terminalTool: "report",
+      maxTurns: effectiveMaxTurns,
+      trace: opts.trace,
+      pressure: { softLimit: 1024 },
+    });
+    return pool.agents[0]?.findings || "";
+  },
+);
+```
+
+The bridge agent receives two inputs:
+- **Agent findings** -- the raw research notes from the completed source's agents.
+- **Source passages** -- reranked passages from the source's post-research chunks.
+
+It processes both, structures them into the three-tier discovery format, and calls `report` with the result.
+
+## Bridge in the Pipeline
+
+```
+Corpus research → Bridge → Web research → Synthesize
+```
+
+The bridge only runs when there are multiple sources **and** the completed source produced findings. If a source returns nothing, the pipeline skips the bridge and moves to the next source with unmodified questions.
+
+```typescript
+// Exit gate: only bridge if there are more sources AND findings exist
+if (i < opts.sources.length - 1 && sectionFindings) {
+  // Rerank source chunks, run bridge, condition next questions
+}
+```
+
+<Tip>
+The bridge uses reranked source passages alongside agent findings. Agent findings provide analytical structure. Source passages provide ground truth for citation. The bridge cross-references both to separate established facts from evidence gaps.
+</Tip>
+
+## When You Need a Bridge
+
+You need a bridge when:
+- Multiple sources are configured
+- Sources run sequentially (which they always do)
+- The earlier source is likely to partially cover the later source's territory
+
+You do not need a bridge when:
+- Only one source is configured
+- Sources investigate completely disjoint domains

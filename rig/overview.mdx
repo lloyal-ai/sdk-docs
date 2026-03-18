@@ -1,0 +1,88 @@
+---
+title: "RIG Overview"
+description: "Retrieval-Interleaved Generation — multi-hop reasoning through interleaved tool use"
+---
+
+## RIG vs RAG
+
+RAG retrieves first, then generates. Query the vector DB, get top-k passages, inject them into the prompt, call the model once. Retrieval and generation are separate phases.
+
+RIG interleaves retrieval and generation inside the decode loop. Agents generate reasoning, decide to search, process results, reason further, fetch content, form hypotheses, and search again with refined queries. Each retrieval decision is informed by everything the agent has already discovered.
+
+The difference is observable in tool call inputs. A RAG system constructs search queries from the original user question. A RIG agent constructs queries from hypotheses formed during generation.
+
+## The 4-Beat Pattern
+
+Watch a RIG agent investigate a codebase:
+
+```
+grep(/memory leak/)            → 3 matches in 2 files
+read_file(pool.ts L40-80)      → reads allocation logic, spots missing cleanup
+search("resource cleanup on connection close")  → finds teardown handler
+read_file(server.ts L120-155)  → discovers close handler never calls pool.drain()
+grep(/drain|dispose|cleanup/)  → 8 matches, confirms drain exists but is unused
+search("pool drain connection lifecycle interaction")  → targets the gap
+report(findings)
+```
+
+The last search -- `"pool drain connection lifecycle interaction"` -- is the signature behavior. The agent read the allocation logic, discovered the drain method existed but was never called on close, and constructed a search targeting that specific interaction. This is multi-hop reasoning: not "search and report" but "search, form hypothesis, search for confirmation."
+
+<Tip>
+The pattern is not fixed at four beats. Agents naturally alternate between **narrow tools** (grep, read_file) and **broad tools** (search) based on what they find. Depth scales with `maxTurns`.
+</Tip>
+
+## Why It Emerges from the Tick Loop
+
+This behavior is not prompted or engineered. It emerges from the [concurrency semantics](/concepts/concurrency) of `lloyal-agents`.
+
+The four-phase tick loop creates a clean decision boundary between each tool call and the next generation step:
+
+<Steps>
+  <Step title="Generate">
+    Agent generates tokens, hits a stop token. Tool call is extracted.
+  </Step>
+  <Step title="Execute">
+    Tool runs to completion. Agent is suspended.
+  </Step>
+  <Step title="Prefill">
+    Tool result is fully prefilled into the agent's KV cache.
+  </Step>
+  <Step title="Resume">
+    Grammar state resets. Agent resumes generating with the complete result as the last thing in context.
+  </Step>
+</Steps>
+
+Step 4 is the critical moment. The model's next-token prediction operates on a context where the tool result is fully present and the grammar is clean. The model makes a fresh decision: call another tool, call the same tool with different arguments, or report findings.
+
+<Note>
+Under concurrent dispatch (where tool results arrive mid-generation), the agent is already producing tokens when results land. Sequential dispatch produces progressively more specific queries. Concurrent dispatch produces variations on the original question.
+</Note>
+
+## Depth Scales with Turns
+
+At 2 turns, agents do single-shot retrieval. At 6 turns, they do 3-4 rounds of iterative refinement. At 20 turns, agents go deep -- following citation chains, cross-referencing claims, building evidence maps.
+
+The quality difference is in the later tool call inputs. Early queries mirror the original question. Later queries target specific gaps the agent discovered during investigation.
+
+## Sources
+
+`@lloyal-labs/rig` provides two built-in `Source` implementations:
+
+<CardGroup cols={2}>
+  <Card title="CorpusSource" href="/rig/corpus-source">
+    Local files with grep, semantic search, read_file, and recursive research tools. Agents investigate a knowledge base by pattern matching and reading sections in context.
+  </Card>
+  <Card title="WebSource" href="/rig/web-source">
+    Web search via Tavily, page fetching with content extraction, and recursive web_research tools. Scratchpad extraction keeps KV pressure low.
+  </Card>
+</CardGroup>
+
+Sources are composable. Use one, both, or [build your own](/rig/custom-sources). When multiple sources run, they execute sequentially -- each source gets the full KV budget. After source N completes, its branches are pruned and KV is freed for source N+1.
+
+Between sources, a [bridge](/rig/bridges) structures discoveries into durable context for the next source.
+
+## Install
+
+```bash
+npm i @lloyal-labs/rig @lloyal-labs/lloyal-agents @lloyal-labs/lloyal.node
+```

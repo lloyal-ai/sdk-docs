@@ -1,0 +1,128 @@
+---
+title: Tracing
+description: Capture the full inference graph for debugging and optimization.
+---
+
+# Tracing
+
+Every prompt, tool call, agent turn, and KV pressure transition — captured as structured JSONL you can grep, pipe through Python, and reconstruct into a full execution tree.
+
+## Enable tracing
+
+Pass a `JsonlTraceWriter` to `initAgents`:
+
+```typescript
+import { initAgents, JsonlTraceWriter } from "@lloyal-labs/lloyal-agents";
+import * as fs from "node:fs";
+
+const traceWriter = new JsonlTraceWriter(
+  fs.openSync(`trace-${Date.now()}.jsonl`, "w"),
+);
+
+const { session, events } = yield* initAgents(ctx, { traceWriter });
+```
+
+<Tip>
+When no trace writer is passed, `initAgents` uses a `NullTraceWriter` — every trace call is a no-op. Zero performance cost when tracing is disabled.
+</Tip>
+
+## What gets captured
+
+Every trace event has a `traceId`, `parentTraceId` (for building the tree), and `ts` (high-resolution timestamp).
+
+| Event | What it captures |
+|-------|-----------------|
+| `scope:open/close` | Named scope boundaries with duration — pools, tools, shared roots |
+| `prompt:format` | The exact prompt the model sees + the raw task content before formatting |
+| `agent:turn` | Raw model output + parsed content + parsed tool calls per turn |
+| `tool:dispatch` | Tool name, parsed args, **toolkit position** (`toolIndex/toolkitSize`) |
+| `tool:result` | Full result object, prefill token count, duration |
+| `pool:open/close` | Agent count, suffix token costs, pressure snapshot, per-agent findings |
+| `pool:agentDrop` | Why an agent was killed: `pressure_init`, `pressure_critical`, `pressure_softcut`, `pressure_settle_reject`, `maxTurns` |
+| `generate:start/end` | Single-branch generation (plan, eval, scratchpad) with output |
+| `branch:create/prefill/prune` | KV lifecycle with token counts and roles |
+| `rerank:start/end` | Query, chunk count, top scored results |
+
+## Read a trace
+
+Trace files are newline-delimited JSON. Use Python one-liners:
+
+<Tabs>
+  <Tab title="Agent trajectory">
+```bash
+cat trace.jsonl | python3 -c "
+import json, sys
+for e in (json.loads(l) for l in sys.stdin):
+    if e['type'] == 'tool:dispatch' and e['agentId'] == 3:
+        print(f\"{e['tool']}({json.dumps(e['args'])[:80]}) [{e['toolIndex']}/{e['toolkitSize']}]\")
+"
+```
+  </Tab>
+  <Tab title="KV pressure timeline">
+```bash
+cat trace.jsonl | python3 -c "
+import json, sys
+for e in (json.loads(l) for l in sys.stdin):
+    if e['type'] == 'pool:open':
+        print(f\"OPEN agents={e['agentCount']} headroom={e['pressure']['headroom']}\")
+    if e['type'] == 'pool:agentDrop':
+        print(f\"DROP agent={e['agentId']} reason={e['reason']}\")
+"
+```
+  </Tab>
+  <Tab title="Prefill budget">
+```bash
+cat trace.jsonl | python3 -c "
+import json, sys
+for e in (json.loads(l) for l in sys.stdin):
+    if e['type'] == 'tool:result':
+        print(f\"agent={e['agentId']} {e['tool']:15s} prefill={e['prefillTokenCount']:>5d}\")
+"
+```
+  </Tab>
+</Tabs>
+
+## Diagnose common issues
+
+<CardGroup cols={2}>
+  <Card title="Early termination" icon="circle-stop">
+    Check `toolIndex` in `tool:dispatch` events. If the terminal tool (`report`) has the highest index, recency bias may cause premature termination. See [tool ordering](/concepts/grammar-constraining#tool-ordering).
+  </Card>
+  <Card title="Agents killed by pressure" icon="gauge-high">
+    Filter `pool:agentDrop` events. The `reason` field tells you exactly where: init pressure, SETTLE rejection, or PRODUCE soft-cut. See [KV pressure](/concepts/kv-pressure).
+  </Card>
+  <Card title="Scratchpad failures" icon="code-branch">
+    Look for `generate:start` events with `hasParent: true`. If the matching `generate:end` has no `parsed` field, the extraction failed. See [scratchpad extraction](/concepts/scratchpad-extraction).
+  </Card>
+  <Card title="Wrong prompt content" icon="file-lines">
+    Check `prompt:format` events with `role: "agentSuffix"`. The `taskContent` field shows the raw filled template. The `promptText` field shows what the model physically sees.
+  </Card>
+</CardGroup>
+
+## The trace tree
+
+Events form a tree via `parentTraceId`. Reconstruct it to see the full execution structure:
+
+```
+scope:open(pool, outer)
+  ├── tool:dispatch(research, A0)          ← toolIndex: 4/5
+  │   ├── scope:open(withSharedRoot)       ← inner pool
+  │   │   └── scope:open(pool, inner)
+  │   │       ├── tool:dispatch(grep)      ← toolIndex: 2/5
+  │   │       └── tool:result(grep)
+  │   └── scope:close(withSharedRoot)
+  └── tool:result(research, A0)
+```
+
+The `TraceParent` Effection context automatically connects inner pools to the outer tool dispatch that spawned them. No manual wiring needed.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Debugging guide" icon="bug" href="/guides/debugging">
+    Systematic debugging workflow with real trace analysis examples.
+  </Card>
+  <Card title="KV Pressure" icon="gauge-high" href="/concepts/kv-pressure">
+    Deep dive into the budget model that governs agent lifecycle.
+  </Card>
+</CardGroup>

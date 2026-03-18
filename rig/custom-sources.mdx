@@ -1,0 +1,301 @@
+---
+title: "Custom Sources"
+description: "Build your own Source for databases, vector stores, APIs, or anything else"
+---
+
+The `Source` base class defines the contract every data source implements. Extend it to plug any backend into the RIG pipeline.
+
+## The Source Contract
+
+```typescript
+import type { Operation } from "effection";
+import type { Tool } from "@lloyal-labs/lloyal-agents";
+
+abstract class Source<TCtx, TChunk> {
+  /** Human-readable name (e.g. 'database', 'pinecone') */
+  abstract readonly name: string;
+
+  /** The self-contained research tool -- an atomic swarm with source-specific toolkit */
+  abstract get researchTool(): Tool;
+
+  /** Late-bind runtime deps not available at construction time */
+  *bind(_ctx: TCtx): Operation<void> {}
+
+  /** Post-research chunks for reranking. Called after research completes. */
+  getChunks(): TChunk[] { return []; }
+
+  /** Grounding tools for independent verification (search, grep, etc.) */
+  get groundingTools(): Tool[] { return []; }
+}
+```
+
+Five extension points. Only `name` and `researchTool` are required. The rest have sensible defaults.
+
+<Note>
+`bind()` is called before tools are used. Use it to set up anything that depends on runtime context -- reranker instances, database connections, authentication tokens.
+</Note>
+
+## Skeleton Implementations
+
+<Tabs>
+  <Tab title="Database (SQL)">
+    ```typescript
+    import { Source } from "@lloyal-labs/lloyal-agents";
+    import type { Tool } from "@lloyal-labs/lloyal-agents";
+    import { createToolkit, runAgents, withSharedRoot } from "@lloyal-labs/lloyal-agents";
+
+    interface Row {
+      table: string;
+      id: string;
+      text: string;
+    }
+
+    class SqlQueryTool extends Tool<{ sql: string }> {
+      readonly name = "query";
+      readonly description = "Run a read-only SQL query against the database.";
+      readonly parameters = {
+        type: "object" as const,
+        properties: { sql: { type: "string", description: "SQL SELECT query" } },
+        required: ["sql"],
+      };
+
+      constructor(private db: any) { super(); }
+
+      *execute(args: { sql: string }) {
+        return yield* call(() => this.db.query(args.sql));
+      }
+    }
+
+    class SchemaTool extends Tool<{}> {
+      readonly name = "schema";
+      readonly description = "Get the database schema (tables, columns, types).";
+      readonly parameters = { type: "object" as const, properties: {} };
+
+      constructor(private db: any) { super(); }
+
+      *execute() {
+        return yield* call(() => this.db.getSchema());
+      }
+    }
+
+    class DatabaseSource extends Source<SourceContext, Row> {
+      readonly name = "database";
+      private _results: Row[] = [];
+      private _researchTool: Tool | null = null;
+
+      constructor(private db: any) { super(); }
+
+      get researchTool(): Tool {
+        if (!this._researchTool) throw new Error("bind() first");
+        return this._researchTool;
+      }
+
+      *bind(ctx: SourceContext) {
+        const queryTool = new SqlQueryTool(this.db);
+        const schemaTool = new SchemaTool(this.db);
+        const toolkit = createToolkit([queryTool, schemaTool, ctx.reportTool]);
+
+        this._researchTool = new DatabaseResearchTool(toolkit, this._results);
+      }
+
+      getChunks(): Row[] { return this._results; }
+    }
+    ```
+  </Tab>
+  <Tab title="Vector DB (Pinecone/Qdrant)">
+    ```typescript
+    import { Source } from "@lloyal-labs/lloyal-agents";
+    import type { Tool } from "@lloyal-labs/lloyal-agents";
+    import { createToolkit } from "@lloyal-labs/lloyal-agents";
+
+    interface VectorChunk {
+      id: string;
+      text: string;
+      metadata: Record<string, unknown>;
+      score: number;
+    }
+
+    class VectorSearchTool extends Tool<{ query: string; topK?: number }> {
+      readonly name = "vector_search";
+      readonly description = "Semantic search over the vector store.";
+      readonly parameters = {
+        type: "object" as const,
+        properties: {
+          query: { type: "string", description: "Search query" },
+          topK: { type: "number", description: "Number of results (default: 10)" },
+        },
+        required: ["query"],
+      };
+
+      constructor(private client: any, private collection: string) { super(); }
+
+      *execute(args: { query: string; topK?: number }) {
+        const results = yield* call(() =>
+          this.client.search(this.collection, {
+            query: args.query,
+            limit: args.topK ?? 10,
+          }),
+        );
+        return results;
+      }
+    }
+
+    class VectorDBSource extends Source<SourceContext, VectorChunk> {
+      readonly name = "vectordb";
+      private _results: VectorChunk[] = [];
+      private _researchTool: Tool | null = null;
+
+      constructor(
+        private client: any,
+        private collection: string,
+      ) { super(); }
+
+      get researchTool(): Tool {
+        if (!this._researchTool) throw new Error("bind() first");
+        return this._researchTool;
+      }
+
+      get groundingTools(): Tool[] {
+        return [new VectorSearchTool(this.client, this.collection)];
+      }
+
+      *bind(ctx: SourceContext) {
+        const searchTool = new VectorSearchTool(this.client, this.collection);
+        const toolkit = createToolkit([searchTool, ctx.reportTool]);
+
+        this._researchTool = new VectorResearchTool(toolkit, this._results);
+      }
+
+      getChunks(): VectorChunk[] { return this._results; }
+    }
+    ```
+  </Tab>
+  <Tab title="API (REST)">
+    ```typescript
+    import { Source } from "@lloyal-labs/lloyal-agents";
+    import type { Tool } from "@lloyal-labs/lloyal-agents";
+    import { createToolkit } from "@lloyal-labs/lloyal-agents";
+
+    interface ApiResult {
+      endpoint: string;
+      data: unknown;
+      text: string;
+    }
+
+    class ApiSearchTool extends Tool<{ query: string }> {
+      readonly name = "api_search";
+      readonly description = "Search the API for relevant records.";
+      readonly parameters = {
+        type: "object" as const,
+        properties: { query: { type: "string", description: "Search query" } },
+        required: ["query"],
+      };
+
+      constructor(private baseUrl: string, private headers: Record<string, string>) {
+        super();
+      }
+
+      *execute(args: { query: string }) {
+        return yield* call(async () => {
+          const res = await fetch(
+            `${this.baseUrl}/search?q=${encodeURIComponent(args.query)}`,
+            { headers: this.headers },
+          );
+          return res.json();
+        });
+      }
+    }
+
+    class ApiDetailTool extends Tool<{ id: string }> {
+      readonly name = "api_detail";
+      readonly description = "Fetch full details for a specific record by ID.";
+      readonly parameters = {
+        type: "object" as const,
+        properties: { id: { type: "string", description: "Record ID" } },
+        required: ["id"],
+      };
+
+      constructor(private baseUrl: string, private headers: Record<string, string>) {
+        super();
+      }
+
+      *execute(args: { id: string }) {
+        return yield* call(async () => {
+          const res = await fetch(
+            `${this.baseUrl}/records/${args.id}`,
+            { headers: this.headers },
+          );
+          return res.json();
+        });
+      }
+    }
+
+    class APISource extends Source<SourceContext, ApiResult> {
+      readonly name = "api";
+      private _results: ApiResult[] = [];
+      private _researchTool: Tool | null = null;
+
+      constructor(
+        private baseUrl: string,
+        private headers: Record<string, string> = {},
+      ) { super(); }
+
+      get researchTool(): Tool {
+        if (!this._researchTool) throw new Error("bind() first");
+        return this._researchTool;
+      }
+
+      get groundingTools(): Tool[] {
+        return [
+          new ApiSearchTool(this.baseUrl, this.headers),
+          new ApiDetailTool(this.baseUrl, this.headers),
+        ];
+      }
+
+      *bind(ctx: SourceContext) {
+        const searchTool = new ApiSearchTool(this.baseUrl, this.headers);
+        const detailTool = new ApiDetailTool(this.baseUrl, this.headers);
+        const toolkit = createToolkit([searchTool, detailTool, ctx.reportTool]);
+
+        this._researchTool = new ApiResearchTool(toolkit, this._results);
+      }
+
+      getChunks(): ApiResult[] { return this._results; }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Key Patterns
+
+Every custom source follows the same structure:
+
+1. **Define grounding tools.** These are your source-specific search and retrieval tools. Agents use them to investigate.
+
+2. **Buffer results.** Store retrieved content during research so `getChunks()` can return it for post-research reranking.
+
+3. **Build a research tool.** The research tool spawns a sub-agent pool using `useAgentPool` or `runAgents` -- the same primitives the built-in sources use. Wire it with `createToolkit`.
+
+4. **Late-bind in `bind()`.** Set up anything that depends on runtime context: reranker, report tool, pressure thresholds. Construction happens early; binding happens when the pipeline is ready.
+
+<Tip>
+The `groundingTools` getter is optional but valuable. It exposes your source's tools for independent verification during the synthesis phase. The synthesizer can use them to spot-check claims without re-running the full research pipeline.
+</Tip>
+
+## Plugging Into the Pipeline
+
+Custom sources work identically to built-in ones:
+
+```typescript
+const sources = [
+  new DatabaseSource(db),
+  new WebSource(new TavilyProvider()),
+];
+
+// Pass to the harness -- sources run sequentially,
+// each getting the full KV budget
+const opts = { sources, session, reranker, /* ... */ };
+yield* handleQuery(query, opts);
+```
+
+Sources run in order. After each source completes, its branches are pruned and KV is freed for the next. A [bridge](/rig/bridges) structures discoveries between sources so the next source targets gaps rather than re-covering established ground.

@@ -37,6 +37,7 @@
   },
   "tabs": [
     { "name": "Learn", "url": "learn" },
+    { "name": "RIG", "url": "rig" },
     { "name": "Concepts", "url": "concepts" },
     { "name": "Guides", "url": "guides" },
     { "name": "Examples", "url": "examples" },
@@ -46,21 +47,31 @@
     {
       "group": "Learn",
       "pages": [
+        "learn/introduction",
         "learn/thinking-in-lloyal",
         "learn/quick-start",
-        "learn/your-first-pipeline",
-        "learn/adding-tools",
-        "learn/multi-agent",
-        "learn/web-research",
-        "learn/multi-source",
+        "learn/tools",
+        "learn/agents",
+        "learn/sources",
+        "learn/pipelines",
         "learn/sessions",
         "learn/tracing"
       ]
     },
     {
+      "group": "RIG",
+      "pages": [
+        "rig/overview",
+        "rig/corpus-source",
+        "rig/web-source",
+        "rig/custom-sources",
+        "rig/bridges",
+        "rig/deep-research"
+      ]
+    },
+    {
       "group": "Concepts",
       "pages": [
-        "concepts/rig-vs-rag",
         "concepts/concurrency",
         "concepts/prefix-sharing",
         "concepts/kv-pressure",
@@ -73,9 +84,9 @@
     {
       "group": "Guides",
       "pages": [
-        "guides/custom-pipeline",
-        "guides/custom-source",
         "guides/custom-tool",
+        "guides/custom-source",
+        "guides/custom-pipeline",
         "guides/deployment",
         "guides/debugging"
       ]
