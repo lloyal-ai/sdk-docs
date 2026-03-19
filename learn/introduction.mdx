@@ -10,6 +10,33 @@ description: TypeScript SDK for recursive local agents with Continuous Context.
 - **Branch comparison** — N attempts from one origin, measure agreement
 - **Parallel agents, armortized compute** — N agents advance assymetrically in one GPU pass (bin-packed)
 
+## What you can build
+
+<CardGroup cols={3}>
+  <Card title="Research pipelines" icon="magnifying-glass">
+    Search, read, hypothesize, verify — across local files, web, databases, or
+    any data source.
+  </Card>
+  <Card title="Personal assistants" icon="robot">
+    Multi-turn agents with persistent KV state, connected to any service or API.
+  </Card>
+  <Card title="Code agents" icon="code">
+    Navigate codebases, trace dependencies, run tests, propose changes.
+  </Card>
+  <Card title="Data analysis" icon="chart-bar">
+    Query databases, aggregate results, produce reports with source attribution.
+  </Card>
+  <Card title="Support agents" icon="headset">
+    Search knowledge bases, follow troubleshooting trees, escalate with full
+    context.
+  </Card>
+  <Card title="Your workflow" icon="arrows-split-up-and-left">
+    Any process where agents need tools, shared state, and structured cleanup.
+  </Card>
+</CardGroup>
+
+## Not another agent framework
+
 <Frame>
   <img
     src="/assets/continuous-context-dark.svg"
@@ -58,31 +85,6 @@ A single web search result can be 1,500–3,700 tokens. Scratchpad extraction at
 ContextPressure reads available headroom and makes real-time orchestration decisions — how many sub-agents to spawn, when to extract partial findings, when to synthesize early. Same pipeline code on a 32K cloud GPU or a 16K laptop. Depth adapts to the hardware.
 
 Runs fully offline — no API keys, no network, no data leaving the device.
-
-## What you can build
-
-<CardGroup cols={3}>
-  <Card title="Research pipelines" icon="magnifying-glass">
-    Search, read, hypothesize, verify — across local files, web, databases, or
-    any data source.
-  </Card>
-  <Card title="Personal assistants" icon="robot">
-    Multi-turn agents with persistent KV state, connected to any service or API.
-  </Card>
-  <Card title="Code agents" icon="code">
-    Navigate codebases, trace dependencies, run tests, propose changes.
-  </Card>
-  <Card title="Data analysis" icon="chart-bar">
-    Query databases, aggregate results, produce reports with source attribution.
-  </Card>
-  <Card title="Support agents" icon="headset">
-    Search knowledge bases, follow troubleshooting trees, escalate with full
-    context.
-  </Card>
-  <Card title="Your workflow" icon="arrows-split-up-and-left">
-    Any process where agents need tools, shared state, and structured cleanup.
-  </Card>
-</CardGroup>
 
 ## The stack
 
