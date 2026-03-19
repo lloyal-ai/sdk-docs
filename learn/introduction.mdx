@@ -3,6 +3,15 @@ title: Introduction
 description: TypeScript SDK for recursive local agents with Continuous Context.
 ---
 
+## Not your typical agent framework
+
+<Frame>
+  <img
+    src="/assets/continuous-context-dark.svg"
+    alt="Traditional agents rebuild context each step. Continuous Context Agents persist KV state — tool results prefilled into attention, branches forked at O(1) cost."
+  />
+</Frame>
+
 - **Offline first** — no API key, no network required, scale to cloud
 - **Tools that spawn agents** — the model decides when to go deeper
 - **Multi-hop tool use** — results land fully before the next action
@@ -34,15 +43,6 @@ description: TypeScript SDK for recursive local agents with Continuous Context.
     Any process where agents need tools, shared state, and structured cleanup.
   </Card>
 </CardGroup>
-
-## Not another agent framework
-
-<Frame>
-  <img
-    src="/assets/continuous-context-dark.svg"
-    alt="Traditional agents rebuild context each step. Continuous Context Agents persist KV state — tool results prefilled into attention, branches forked at O(1) cost."
-  />
-</Frame>
 
 ## Traditional Agents: There's no attention continuity between LLM calls.
 
