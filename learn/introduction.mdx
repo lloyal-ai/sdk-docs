@@ -12,10 +12,11 @@ description: TypeScript SDK for recursive local agents with Continuous Context.
 
 - **Offline first** — no API key, no network required, scale to cloud
 - **Tools that spawn agents** — the model decides when to go deeper
-- **Multi-hop tool use** — results land fully before the next action
-- **Shared KV prefix** — tokenize once, every agent inherits it
+- **Multi-hop tool use** — emergent hypothesis refinement and adaptive tool use
+- **Shared KV prefix** — agents inherit full attention from parent
+- **Tree search** — fork sampler, grammar, and metrics atomically — expand/backup/select for LATS / MCTS
 - **Branch comparison** — N attempts from one origin, measure agreement
-- **Parallel agents, armortized compute** — N agents advance in one GPU pass (bin-packed)
+- **Parallel agents, amortized compute** — N agents advance in one GPU pass (bin-packed)
 
 ## What you can build
 
