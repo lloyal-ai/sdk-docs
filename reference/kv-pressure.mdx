@@ -22,7 +22,7 @@ Agent pools share a single KV cache. As agents generate tokens and prefill tool 
 ```
 
 - **headroom > 0** -- room for new work. Tool results can be prefilled, agents can continue generating.
-- **headroom <= 0** -- over budget. SETTLE rejects tool results. PRODUCE denies non-terminal tool calls. Terminal tools (e.g. `report`) still pass through.
+- **headroom ≤ 0** -- over budget. SETTLE rejects tool results. PRODUCE denies non-terminal tool calls. Terminal tools (e.g. `report`) still pass through.
 - **critical** -- `remaining` has dropped below `hardLimit`. Agents are killed before `produceSync()` to prevent `llama_decode` crashes.
 
 ## `ContextPressure` API
