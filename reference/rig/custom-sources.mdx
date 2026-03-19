@@ -298,4 +298,4 @@ const opts = { sources, session, reranker, /* ... */ };
 yield* handleQuery(query, opts);
 ```
 
-Sources run in order. After each source completes, its branches are pruned and KV is freed for the next. A [bridge](/rig/bridges) structures discoveries between sources so the next source targets gaps rather than re-covering established ground.
+Sources run in order. After each source completes, its branches are pruned and KV is freed for the next. A [bridge](/reference/rig/bridges) structures discoveries between sources so the next source targets gaps rather than re-covering established ground.

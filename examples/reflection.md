@@ -1,4 +1,7 @@
-# Reflection
+---
+title: "Reflection"
+description: "Research → draft → critique → revise — manual branch lifecycle with diverge-based verification."
+---
 
 Research, then draft a response, then critique the draft, then revise. The critic forks from the draft's live branch. The reviser forks from the critic's branch. No re-prompting -- each phase continues from the physical KV state of the previous phase.
 
@@ -226,7 +229,7 @@ The key architectural difference is that reflection manages branches as first-cl
 
 ## Related pages
 
-- [Branch Lifecycle](../concepts/branch-lifecycle.md) -- `Branch.create`, `forkSync`, and how KV cells are shared
-- [Thinking in lloyal](../learn/thinking-in-lloyal.md) -- the generator model and structured concurrency
-- [Sessions](../learn/sessions.md) -- `buildUserDelta` and warm continuation
-- [Grammar Constraining](../concepts/grammar-constraining.md) -- how `diverge` samples are scored and selected
+- [Branch Lifecycle](/reference/branch-lifecycle) -- `Branch.create`, `forkSync`, and how KV cells are shared
+- [Thinking in lloyal](/learn/thinking-in-lloyal) -- the generator model and structured concurrency
+- [Sessions](/learn/sessions) -- `buildUserDelta` and warm continuation
+- [Grammar & Tool Ordering](/reference/grammar-and-ordering) -- how `diverge` samples are scored and selected

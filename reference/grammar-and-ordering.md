@@ -1,4 +1,7 @@
-# Grammar Constraining
+---
+title: "Grammar & Tool Ordering"
+description: "GBNF grammar constraining, lazy vs eager activation, trigger types, and how tool ordering affects agent behavior."
+---
 
 When agents make tool calls, the output must be structurally valid -- a malformed XML tag or broken JSON means a parse failure and a wasted turn. Grammar constraining solves this at the token level: a GBNF grammar masks invalid tokens from the sampler before they can be produced, making malformed tool calls structurally impossible while the grammar is active.
 
@@ -181,4 +184,4 @@ const result = yield* generate({
 
 `jsonSchemaToGrammar` converts a JSON Schema into a GBNF grammar string. The grammar constrains generation from the first token, so the output is guaranteed to be valid JSON conforming to the schema. No retry logic, no post-hoc validation.
 
-This is the mechanism behind scratchpad extraction (see [Scratchpad Extraction](scratchpad-extraction.md)) -- fork a branch, attend to content, grammar-constrain a compact summary, prune the fork.
+This is the mechanism behind scratchpad extraction (see [Scratchpad Extraction](/reference/scratchpad-extraction)) -- fork a branch, attend to content, grammar-constrain a compact summary, prune the fork.

@@ -36,20 +36,19 @@
     "url": "https://www.npmjs.com/package/@lloyal-labs/lloyal-agents"
   },
   "tabs": [
-    { "name": "Learn", "url": "learn" },
-    { "name": "RIG", "url": "rig" },
-    { "name": "Concepts", "url": "concepts" },
+    { "name": "Get Started", "url": "learn" },
+    { "name": "Reference", "url": "reference" },
     { "name": "Guides", "url": "guides" },
     { "name": "Examples", "url": "examples" },
     { "name": "API", "url": "https://lloyal-ai.github.io/sdk/" }
   ],
   "navigation": [
     {
-      "group": "Learn",
+      "group": "Get Started",
       "pages": [
         "learn/introduction",
-        "learn/thinking-in-lloyal",
         "learn/quick-start",
+        "learn/thinking-in-lloyal",
         "learn/tools",
         "learn/agents",
         "learn/sources",
@@ -59,26 +58,25 @@
       ]
     },
     {
-      "group": "RIG",
+      "group": "Core",
       "pages": [
-        "rig/overview",
-        "rig/corpus-source",
-        "rig/web-source",
-        "rig/custom-sources",
-        "rig/bridges",
-        "rig/deep-research"
+        "reference/concurrency",
+        "reference/kv-pressure",
+        "reference/prefix-sharing",
+        "reference/grammar-and-ordering",
+        "reference/scratchpad-extraction",
+        "reference/branch-lifecycle"
       ]
     },
     {
-      "group": "Concepts",
+      "group": "RIG",
       "pages": [
-        "concepts/concurrency",
-        "concepts/prefix-sharing",
-        "concepts/kv-pressure",
-        "concepts/grammar-constraining",
-        "concepts/scratchpad-extraction",
-        "concepts/sources-and-bridges",
-        "concepts/branch-lifecycle"
+        "reference/rig/overview",
+        "reference/rig/corpus-source",
+        "reference/rig/web-source",
+        "reference/rig/custom-sources",
+        "reference/rig/bridges",
+        "reference/rig/deep-research"
       ]
     },
     {
@@ -87,8 +85,7 @@
         "guides/custom-tool",
         "guides/custom-source",
         "guides/custom-pipeline",
-        "guides/deployment",
-        "guides/debugging"
+        "guides/deployment"
       ]
     },
     {

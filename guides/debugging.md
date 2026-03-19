@@ -1,4 +1,7 @@
-# Debugging
+---
+title: "Debugging"
+description: "Common failure modes, trace event analysis, and systematic debugging workflow."
+---
 
 This guide covers common failure modes in lloyal-agents pipelines and how to diagnose them using trace events. Enable tracing with `--trace` to write structured JSONL trace files, or inspect runtime events via the `events` channel.
 

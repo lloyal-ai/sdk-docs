@@ -36,25 +36,9 @@ When a sub-agent forks from a parent, it inherits every tool call, every tool re
 
 ## What emerges from this
 
-Attention continuity changes what agents do with tools. We observe a consistent pattern across runs — agents narrow, discover, hypothesize, then verify — without being prompted to do so:
+Attention continuity changes what agents do with tools. We observe agents forming and testing hypotheses through iterative tool use — narrowing, discovering, hypothesizing, then verifying — not prompted, but emergent from the attention mechanics. Later search queries reference concepts **absent from the original question**, discovered during earlier reads and still physically present in the KV cache.
 
-```
-grep(/narrow pattern/)     → locates where the topic appears
-search("broad query")      → routes to the relevant section
-read_file(section)         → discovers an unexpected connection
-grep(/discovered concept/) → verifies that connection across the corpus
-```
-
-That final grep targets concepts **absent from the original question** — discovered during reads and still present in the KV cache at their original positions.
-
-<Note>
-  This emerges from the decision boundary. Between each tool result prefill and
-  the next generation step, the model gets a clean pause: complete KV state,
-  grammar reset, fresh next-token distribution. Hypothesis formation is the
-  natural outcome when the attention window contains both the question and a
-  surprising discovery. Under concurrent dispatch — where results arrive
-  mid-generation — this collapses to single-hop retrieval.
-</Note>
+See [Concurrency Model — The Decision Boundary](/reference/concurrency#the-decision-boundary) for the full mechanism with receipts from real pipeline runs.
 
 ## Why this runs on your laptop
 

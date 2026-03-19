@@ -85,13 +85,13 @@ for e in (json.loads(l) for l in sys.stdin):
 
 <CardGroup cols={2}>
   <Card title="Early termination" icon="circle-stop">
-    Check `toolIndex` in `tool:dispatch` events. If the terminal tool (`report`) has the highest index, recency bias may cause premature termination. See [tool ordering](/concepts/grammar-constraining#tool-ordering).
+    Check `toolIndex` in `tool:dispatch` events. If the terminal tool (`report`) has the highest index, recency bias may cause premature termination. See [tool ordering](/reference/grammar-and-ordering#tool-ordering-sensitivity).
   </Card>
   <Card title="Agents killed by pressure" icon="gauge-high">
-    Filter `pool:agentDrop` events. The `reason` field tells you exactly where: init pressure, SETTLE rejection, or PRODUCE soft-cut. See [KV pressure](/concepts/kv-pressure).
+    Filter `pool:agentDrop` events. The `reason` field tells you exactly where: init pressure, SETTLE rejection, or PRODUCE soft-cut. See [KV pressure](/reference/kv-pressure).
   </Card>
   <Card title="Scratchpad failures" icon="code-branch">
-    Look for `generate:start` events with `hasParent: true`. If the matching `generate:end` has no `parsed` field, the extraction failed. See [scratchpad extraction](/concepts/scratchpad-extraction).
+    Look for `generate:start` events with `hasParent: true`. If the matching `generate:end` has no `parsed` field, the extraction failed. See [scratchpad extraction](/reference/scratchpad-extraction).
   </Card>
   <Card title="Wrong prompt content" icon="file-lines">
     Check `prompt:format` events with `role: "agentSuffix"`. The `taskContent` field shows the raw filled template. The `promptText` field shows what the model physically sees.
@@ -121,7 +121,7 @@ The `TraceParent` Effection context automatically connects inner pools to the ou
   <Card title="Debugging guide" icon="bug" href="/guides/debugging">
     Systematic debugging workflow with real trace analysis examples.
   </Card>
-  <Card title="KV Pressure" icon="gauge-high" href="/concepts/kv-pressure">
+  <Card title="KV Pressure" icon="gauge-high" href="/reference/kv-pressure">
     Deep dive into the budget model that governs agent lifecycle.
   </Card>
 </CardGroup>

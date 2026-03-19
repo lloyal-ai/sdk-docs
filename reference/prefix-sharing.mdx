@@ -1,4 +1,7 @@
-# Prefix Sharing
+---
+title: "Prefix Sharing"
+description: "How agent pools share a common KV cache prefix across multiple agents — from API to GPU decode."
+---
 
 Agent pools amortize prompt tokenization across multiple agents by sharing a common KV cache prefix. This document covers how it works at every layer of the stack — from the TypeScript API through the C++ branch store to GPU decode — and explains why the apparent duplication in `setupAgent` is by design.
 
@@ -77,6 +80,7 @@ The suffix tokens are placed at positions 866, 867, 868, etc. The GPU attends to
 
 ## Why `setupAgent` formats the full message array
 
+<Note>
 Looking at `setupAgent` in `agent-pool.ts`, the agent calls `formatChatSync` with `[{system, systemPrompt}, {user, content}]` — which includes the system prompt and tools even though the shared root already has them. This looks like duplication, but it's intentional:
 
 ```typescript
@@ -96,6 +100,7 @@ The full format call serves two purposes that cannot be separated:
 2. **Root-agnostic setup.** Agents within the same pool can have different system prompts. The evaluator agent uses a different system prompt from the research agent, which differs from the synthesis agent. Each `setupAgent` call independently formats its own messages so the format/grammar is correct for that agent's specific configuration.
 
 The CPU cost of tokenizing the system+tools text (~866 tokens) once per agent is negligible — a few milliseconds. The GPU cost of decoding those tokens is zero because the prefill starts at the fork position.
+</Note>
 
 ## Measuring prefix savings
 
@@ -142,7 +147,7 @@ Outer pool:
     └── Agent A2 (fork at 866, suffix 866..895)
 ```
 
-Inner and outer pools share the same `BranchStore` and the same physical KV cache. `ContextPressure` snapshots `cells_used` across all branches to enforce headroom limits. See [Concurrency](concurrency.md) for details on how nested pools interact with KV pressure.
+Inner and outer pools share the same `BranchStore` and the same physical KV cache. `ContextPressure` snapshots `cells_used` across all branches to enforce headroom limits. See [Concurrency Model](/reference/concurrency) for details on how nested pools interact with KV pressure.
 
 ## `cells_used` accounting
 
@@ -207,6 +212,7 @@ Prefix sharing operates at the KV cache level, below the API layer:
 
 ### Measured savings from a real pipeline run
 
+<Tip>
 The following numbers come from a traced corpus research run (6 agents, 26 total turns, 5 corpus tools) comparing actual GPU decode operations under prefix sharing against the equivalent token count a prompt-rebuilding approach would process.
 
 In a rebuild approach each turn is an independent API call that re-sends: system prompt + tool schemas + user message + the full tool call/result history from all prior turns. As the conversation deepens the re-sent history grows, compounding the cost.
@@ -232,3 +238,4 @@ The 78% savings come from two compounding effects:
 The deeper an agent's trajectory, the larger the savings. Agent 5 (7 turns, 5,607 tokens of tool results) sees a 4.8× reduction. A single-turn agent sees minimal savings — the overhead is the same shared root decode either way.
 
 This is a conservative estimate. It does not account for the fixed per-request overhead that cloud APIs add (e.g. ~346 tokens for Anthropic's tool system prompt on every call), nor for generation tokens which also grow per turn as the model produces longer outputs with more accumulated context.
+</Tip>

@@ -1,4 +1,7 @@
-# Custom Pipeline
+---
+title: "Build a Custom Pipeline"
+description: "Fork the reference harness, add/remove stages, modify routing, and configure sources."
+---
 
 This guide walks through forking the reference deep-research harness and customizing it. The harness in `examples/deep-research-web/harness.ts` implements a five-stage pipeline:
 

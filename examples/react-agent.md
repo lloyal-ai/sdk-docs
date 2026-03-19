@@ -1,4 +1,7 @@
-# React Agent
+---
+title: "React Agent"
+description: "Single agent with corpus tools — the simplest example of ReAct (Reason + Act) with lloyal-agents."
+---
 
 The simplest example: one agent with corpus tools answers a question using the ReAct (Reason + Act) pattern. The agent searches a local knowledge base, reads matching sections, and reports findings with evidence.
 
@@ -236,8 +239,8 @@ The prompt guides the agent through a specific research workflow: broad search f
 
 ## Related pages
 
-- [Quick Start](../learn/quick-start.md) -- minimal standalone version of this example
-- [Adding Tools](../learn/adding-tools.md) -- how tools work under the hood
-- [Concurrency](../concepts/concurrency.md) -- the four-phase tick loop that drives agent execution
-- [Prefix Sharing](../concepts/prefix-sharing.md) -- how `withSharedRoot` shares KV prefix across agents
-- [KV Pressure](../concepts/kv-pressure.md) -- how `pressure` settings affect agent lifecycle
+- [Quick Start](/learn/quick-start) -- minimal standalone version of this example
+- [Tools](/learn/tools) -- how tools work under the hood
+- [Concurrency Model](/reference/concurrency) -- the four-phase tick loop that drives agent execution
+- [Prefix Sharing](/reference/prefix-sharing) -- how `withSharedRoot` shares KV prefix across agents
+- [KV Pressure](/reference/kv-pressure) -- how `pressure` settings affect agent lifecycle

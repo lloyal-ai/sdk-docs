@@ -1,4 +1,7 @@
-# Custom Tool
+---
+title: "Build a Custom Tool"
+description: "Create tools for agents — extend Tool<TArgs>, handle async work, build recursive tools, and register with createToolkit()."
+---
 
 This guide walks through creating tools for agents to use during generation. Tools extend the `Tool<TArgs>` base class and are registered via `createToolkit()`.
 

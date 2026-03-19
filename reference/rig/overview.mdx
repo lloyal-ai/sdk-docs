@@ -31,31 +31,12 @@ The last search -- `"pool drain connection lifecycle interaction"` -- is the sig
 The pattern is not fixed at four beats. Agents naturally alternate between **narrow tools** (grep, read_file) and **broad tools** (search) based on what they find. Depth scales with `maxTurns`.
 </Tip>
 
-## Why It Emerges from the Tick Loop
+## Why It Emerges
 
-This behavior is not prompted or engineered. It emerges from the [concurrency semantics](/concepts/concurrency) of `lloyal-agents`.
-
-The four-phase tick loop creates a clean decision boundary between each tool call and the next generation step:
-
-<Steps>
-  <Step title="Generate">
-    Agent generates tokens, hits a stop token. Tool call is extracted.
-  </Step>
-  <Step title="Execute">
-    Tool runs to completion. Agent is suspended.
-  </Step>
-  <Step title="Prefill">
-    Tool result is fully prefilled into the agent's KV cache.
-  </Step>
-  <Step title="Resume">
-    Grammar state resets. Agent resumes generating with the complete result as the last thing in context.
-  </Step>
-</Steps>
-
-Step 4 is the critical moment. The model's next-token prediction operates on a context where the tool result is fully present and the grammar is clean. The model makes a fresh decision: call another tool, call the same tool with different arguments, or report findings.
+This behavior is not prompted or engineered. It emerges from the [sequential dispatch model](/reference/concurrency#the-decision-boundary) — each tool result is fully prefilled before the agent generates its next action, creating a clean decision point where the model can form hypotheses from accumulated evidence.
 
 <Note>
-Under concurrent dispatch (where tool results arrive mid-generation), the agent is already producing tokens when results land. Sequential dispatch produces progressively more specific queries. Concurrent dispatch produces variations on the original question.
+Under concurrent dispatch (where tool results arrive mid-generation), later queries are variations on the original question. Sequential dispatch produces progressively more specific queries informed by earlier results.
 </Note>
 
 ## Depth Scales with Turns
@@ -69,17 +50,17 @@ The quality difference is in the later tool call inputs. Early queries mirror th
 `@lloyal-labs/rig` provides two built-in `Source` implementations:
 
 <CardGroup cols={2}>
-  <Card title="CorpusSource" href="/rig/corpus-source">
+  <Card title="CorpusSource" href="/reference/rig/corpus-source">
     Local files with grep, semantic search, read_file, and recursive research tools. Agents investigate a knowledge base by pattern matching and reading sections in context.
   </Card>
-  <Card title="WebSource" href="/rig/web-source">
+  <Card title="WebSource" href="/reference/rig/web-source">
     Web search via Tavily, page fetching with content extraction, and recursive web_research tools. Scratchpad extraction keeps KV pressure low.
   </Card>
 </CardGroup>
 
-Sources are composable. Use one, both, or [build your own](/rig/custom-sources). When multiple sources run, they execute sequentially -- each source gets the full KV budget. After source N completes, its branches are pruned and KV is freed for source N+1.
+Sources are composable. Use one, both, or [build your own](/reference/rig/custom-sources). When multiple sources run, they execute sequentially -- each source gets the full KV budget. After source N completes, its branches are pruned and KV is freed for source N+1.
 
-Between sources, a [bridge](/rig/bridges) structures discoveries into durable context for the next source.
+Between sources, a [bridge](/reference/rig/bridges) structures discoveries into durable context for the next source.
 
 ## Install
 

@@ -1,4 +1,7 @@
-# Supervisor
+---
+title: "Supervisor"
+description: "Grammar-constrained routing, heterogeneous agent pools, and warm trunk synthesis."
+---
 
 Classify a query, route it to specialist agents, run them in parallel, and synthesize their findings on the warm session trunk. This example demonstrates grammar-constrained routing decisions and heterogeneous agent pools where different agents receive different system prompts within the same `withSharedRoot`.
 
@@ -226,8 +229,8 @@ The supervisor example is the first to combine multiple framework primitives in 
 
 ## Related pages
 
-- [Grammar Constraining](../concepts/grammar-constraining.md) -- how JSON schemas become GBNF grammars
-- [Concurrency](../concepts/concurrency.md) -- how the agent pool batch-decodes multiple specialists
-- [Prefix Sharing](../concepts/prefix-sharing.md) -- why the shared root matters for multi-agent efficiency
-- [Sessions](../learn/sessions.md) -- `session.prefillUser` and warm trunk continuation
-- [KV Pressure](../concepts/kv-pressure.md) -- how pressure settings govern specialist lifecycle
+- [Grammar & Tool Ordering](/reference/grammar-and-ordering) -- how JSON schemas become GBNF grammars
+- [Concurrency Model](/reference/concurrency) -- how the agent pool batch-decodes multiple specialists
+- [Prefix Sharing](/reference/prefix-sharing) -- why the shared root matters for multi-agent efficiency
+- [Sessions](/learn/sessions) -- `session.prefillUser` and warm trunk continuation
+- [KV Pressure](/reference/kv-pressure) -- how pressure settings govern specialist lifecycle

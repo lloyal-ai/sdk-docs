@@ -1,4 +1,7 @@
-# KV Pressure
+---
+title: "KV Pressure"
+description: "Budget model, enforcement points, and sizing softLimit for nested pools."
+---
 
 Agent pools share a single KV cache. As agents generate tokens and prefill tool results, the cache fills. `ContextPressure` tracks how much room remains and enforces shutdown thresholds at four points in the tick loop to prevent out-of-memory crashes and ensure downstream work has room to complete.
 
@@ -132,11 +135,13 @@ The `headroom` variable is decremented as results are accepted, so ordering matt
 
 ## `cellsUsed` is monotonic during a pool run
 
+<Note>
 `cellsUsed` increments on every `decode_each` (COMMIT) and `decode_scatter` (SETTLE prefill). It does not decrement on individual branch prune. It resets only on bulk operations like `retainOnly` and `drain`.
 
 This means `remaining` is a conservative lower bound that becomes increasingly pessimistic as branches are pruned during a run. If agent A completes and its branch is pruned, the cells it freed are not reflected in the next `ContextPressure` snapshot. The pressure system overestimates usage and may drop agents earlier than strictly necessary.
 
 This is a deliberate design choice. Accurate per-branch cell tracking would require walking the branch tree on every snapshot. The monotonic counter is O(1) -- read a single integer. The pessimism is bounded: it triggers pressure sooner, which is safe (agents get dropped or denied), never later (which could crash).
+</Note>
 
 ## Sizing `softLimit` for nested pools
 
@@ -149,7 +154,9 @@ The outer pool's `softLimit` must reserve enough headroom for the inner pool's e
 | Tool results per agent turn (search, fetch, read) | 500-6000 tokens each |
 | Agent generation output before reporting | 100-300 tokens each |
 
-For a single-level recursive tool with up to 3 inner agents and `maxTurns: 6`:
+<Tip>
+For a single-level recursive tool with up to 3 inner agents and `maxTurns: 6`, a `softLimit` of 2048-3072 provides adequate headroom for one level of nesting. For deeper recursion (a tool that itself calls a tool that spawns agents), each level needs its own budget reserved by the level above.
+</Tip>
 
 ```typescript
 yield* useAgentPool({
@@ -159,8 +166,6 @@ yield* useAgentPool({
   pressure: { softLimit: 3072 },  // reserve for inner pool
 });
 ```
-
-A `softLimit` of 2048-3072 provides adequate headroom for one level of nesting. For deeper recursion (a tool that itself calls a tool that spawns agents), each level needs its own budget reserved by the level above.
 
 Monitor with `trace: true` -- the `[SETTLE]` and `[PRODUCE]` pressure logs print `remaining`, `headroom`, `cellsUsed`, and `nCtx` at each tick:
 
@@ -174,15 +179,20 @@ Monitor with `trace: true` -- the `[SETTLE]` and `[PRODUCE]` pressure logs print
 
 The four enforcement points create a pressure-driven agent lifecycle:
 
-```
-Pool setup:
-  prefill gate drops agents that don't fit above softLimit
-
-Each tick:
-  PRODUCE: kill agents below hardLimit (critical)
-  PRODUCE: deny non-terminal tool calls when headroom < 0 (soft-cut)
-  SETTLE:  reject tool results that exceed headroom
-```
+<Steps>
+  <Step title="Pool setup">
+    Prefill gate drops agents that don't fit above softLimit.
+  </Step>
+  <Step title="Each tick: PRODUCE critical check">
+    Kill agents below hardLimit (critical).
+  </Step>
+  <Step title="Each tick: PRODUCE soft-cut">
+    Deny non-terminal tool calls when headroom &lt; 0.
+  </Step>
+  <Step title="Each tick: SETTLE rejection">
+    Reject tool results that exceed headroom.
+  </Step>
+</Steps>
 
 Agents that survive the prefill gate will generate tokens until one of three things happens: they complete naturally (stop token + no tool call, or terminal tool call), they hit `maxTurns`, or pressure enforcement kills them at the next PRODUCE or SETTLE.
 

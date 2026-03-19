@@ -1,4 +1,7 @@
-# Branch Lifecycle
+---
+title: "Branch Lifecycle"
+description: "Create, fork, prefill, produce/commit, prune — the full lifecycle of an inference branch."
+---
 
 `Branch` is the fundamental inference handle. It owns everything needed for independent generation: a KV cache sequence, sampler chain, logits snapshot, and perplexity tracker. Every agent, every scratchpad extraction, every diverge attempt -- all are branches. Understanding the branch lifecycle is prerequisite to understanding prefix sharing, multi-agent pools, and KV pressure.
 
@@ -270,10 +273,10 @@ Whether generation succeeds, fails, or is cancelled, the branch is pruned. For s
 
 Everything in the agent framework builds on Branch:
 
-- **Prefix sharing**: `withSharedRoot` creates a root branch, prefills the shared prompt, agents fork from it. See [Prefix Sharing](prefix-sharing.md).
-- **Agent pools**: Each agent is a forked branch. The tick loop calls `produceSync()` and `store.commit()` on branch arrays. See [Concurrency](concurrency.md).
-- **KV pressure**: `ContextPressure` reads `cellsUsed` which is incremented by branch decode operations. See [KV Pressure](kv-pressure.md).
-- **Scratchpad extraction**: `generate({ parent })` forks a temporary branch for grammar-constrained extraction. See [Scratchpad Extraction](scratchpad-extraction.md).
-- **Grammar constraining**: `setGrammar()` and `setGrammarLazy()` are branch methods. Grammar state is cloned on fork. See [Grammar Constraining](grammar-constraining.md).
+- **Prefix sharing**: `withSharedRoot` creates a root branch, prefills the shared prompt, agents fork from it. See [Prefix Sharing](/reference/prefix-sharing).
+- **Agent pools**: Each agent is a forked branch. The tick loop calls `produceSync()` and `store.commit()` on branch arrays. See [Concurrency Model](/reference/concurrency).
+- **KV pressure**: `ContextPressure` reads `cellsUsed` which is incremented by branch decode operations. See [KV Pressure](/reference/kv-pressure).
+- **Scratchpad extraction**: `generate({ parent })` forks a temporary branch for grammar-constrained extraction. See [Scratchpad Extraction](/reference/scratchpad-extraction).
+- **Grammar constraining**: `setGrammar()` and `setGrammarLazy()` are branch methods. Grammar state is cloned on fork. See [Grammar & Tool Ordering](/reference/grammar-and-ordering).
 
 The produce/commit separation, O(1) fork, and scope-tree cleanup are the primitives that make multi-agent generation on shared GPU compute possible.

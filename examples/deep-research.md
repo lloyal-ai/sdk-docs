@@ -1,4 +1,7 @@
-# Deep Research
+---
+title: "Deep Research"
+description: "The reference pipeline — planning, parallel research, source bridging, synthesis, and convergence evaluation."
+---
 
 The reference implementation. Source-agnostic deep research across web, local corpus, or both -- with planning, parallel research, source bridging, synthesis with grounding tools, and multi-sample convergence evaluation.
 
@@ -533,12 +536,12 @@ This is critical for web research where pages can be 6,000+ tokens. Without scra
 
 ## Related pages
 
-- [Your First Pipeline](../learn/your-first-pipeline.md) -- gentler walkthrough of the same pipeline
-- [Sources and Bridges](../concepts/sources-and-bridges.md) -- the `Source` abstraction and bridge pass pattern
-- [Scratchpad Extraction](../concepts/scratchpad-extraction.md) -- `generate({ parent })` and `ScratchpadParent`
-- [Grammar Constraining](../concepts/grammar-constraining.md) -- how PlanTool and eval grammars work
-- [Concurrency](../concepts/concurrency.md) -- agent pool tick loop and batch decoding
-- [KV Pressure](../concepts/kv-pressure.md) -- pressure settings and agent drops
-- [Branch Lifecycle](../concepts/branch-lifecycle.md) -- fork, prune, and the promote/append pattern
-- [Tracing](../learn/tracing.md) -- JSONL trace output and `JsonlTraceWriter`
-- [Multi-Source](../learn/multi-source.md) -- configuring multiple research backends
+- [Pipelines](/learn/pipelines) -- gentler walkthrough of pipeline concepts
+- [Sources](/learn/sources) -- the `Source` abstraction
+- [RIG Bridges](/reference/rig/bridges) -- bridge pass pattern between sources
+- [Scratchpad Extraction](/reference/scratchpad-extraction) -- `generate({ parent })` and `ScratchpadParent`
+- [Grammar & Tool Ordering](/reference/grammar-and-ordering) -- how PlanTool and eval grammars work
+- [Concurrency Model](/reference/concurrency) -- agent pool tick loop and batch decoding
+- [KV Pressure](/reference/kv-pressure) -- pressure settings and agent drops
+- [Branch Lifecycle](/reference/branch-lifecycle) -- fork, prune, and the promote/append pattern
+- [Tracing](/learn/tracing) -- JSONL trace output and `JsonlTraceWriter`

@@ -1,4 +1,7 @@
-# Scratchpad Extraction
+---
+title: "Scratchpad Extraction"
+description: "Fork-attend-extract-prune pattern for compressing large tool results with zero net KV cost."
+---
 
 Tool results are often large -- a fetched web page can be 6,000+ tokens, a search result set 2,000+. Prefilling the full result into an agent's branch inflates `cellsUsed` and accelerates KV pressure, causing downstream agents to be dropped. Scratchpad extraction addresses this: fork from the shared root, attend to the full content in a temporary branch, grammar-constrain a compact summary, prune the fork. The agent receives the compact summary instead of the raw content. Zero net KV cost after the fork is pruned.
 

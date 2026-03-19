@@ -1,4 +1,7 @@
-# Deployment
+---
+title: "Deployment"
+description: "Model selection, context sizing, KV quantization, and runtime configuration."
+---
 
 This guide covers model selection, context sizing, KV quantization, and runtime configuration for deploying a lloyal-agents pipeline.
 

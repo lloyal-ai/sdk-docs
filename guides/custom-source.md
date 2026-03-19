@@ -1,4 +1,7 @@
-# Custom Source
+---
+title: "Build a Custom Source"
+description: "Implement Source<TCtx, TChunk> to plug any data backend into the research pipeline."
+---
 
 This guide walks through implementing a custom `Source` for the research pipeline. A source is a self-contained data backend -- it provides its own research tool (an agent swarm with source-specific prompts and toolkit), grounding tools for synthesis verification, and post-research chunks for reranking.
 

@@ -11,7 +11,7 @@ The deep-research example is the reference RIG pipeline. It chains five operatio
 Plan → Research → [Bridge →] Synthesize → Eval
 ```
 
-Each stage runs inside the [tick loop](/concepts/concurrency). All agent coordination uses the same primitives: `withSharedRoot`, `useAgentPool`, `generate`, `diverge`.
+Each stage runs inside the [tick loop](/reference/concurrency). All agent coordination uses the same primitives: `withSharedRoot`, `useAgentPool`, `generate`, `diverge`.
 
 ## Stage Walkthrough
 
@@ -64,7 +64,7 @@ Each stage runs inside the [tick loop](/concepts/concurrency). All agent coordin
   <Step title="Bridge">
     Runs between sources when multiple sources are configured and the completed source produced findings.
 
-    A single agent structures discoveries into three tiers: what was established, where evidence is incomplete, what was not covered. These discoveries condition the next source's sub-questions. See [Bridges](/rig/bridges) for details.
+    A single agent structures discoveries into three tiers: what was established, where evidence is incomplete, what was not covered. These discoveries condition the next source's sub-questions. See [Bridges](/reference/rig/bridges) for details.
   </Step>
   <Step title="Synthesize">
     A synthesis agent integrates findings from all sources into a structured report with source attribution.
@@ -140,7 +140,7 @@ Three configurations depending on your data sources:
       --query "Compare our implementation with the latest research"
     ```
 
-    Sources run sequentially: corpus first, then web. A [bridge](/rig/bridges) structures corpus discoveries before web research begins.
+    Sources run sequentially: corpus first, then web. A [bridge](/reference/rig/bridges) structures corpus discoveries before web research begins.
   </Tab>
 </Tabs>
 
