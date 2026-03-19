@@ -9,8 +9,8 @@ The simplest example: one agent with corpus tools answers a question using the R
 
 ## Prerequisites
 
-- A GGUF instruction-tuned model with tool calling support (e.g. [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-Q4_K_M-GGUF))
-- A GGUF reranker model for semantic search (e.g. [Qwen3-Reranker-0.6B](https://huggingface.co/llamaindex/qwen3-reranker-0.6b-gguf))
+- A GGUF instruction-tuned model with tool calling support (e.g. [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF))
+- A GGUF reranker model for semantic search (e.g. [Qwen3-Reranker-0.6B](https://huggingface.co/QuantFactory/Qwen3-Reranker-0.6B-GGUF))
 - A text corpus (directory of `.md`/`.txt` files, or a single file)
 
 ## Run it

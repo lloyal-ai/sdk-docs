@@ -8,9 +8,10 @@ You'll create an agent that uses tools, reasons about results, and produces find
 
 ## Prerequisites
 
-One file: a **GGUF model** with tool calling support.
+Two files:
 
-Recommended: [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-Q4_K_M-GGUF) (~2.5 GB)
+- **Inference model** (GGUF, tool calling support): [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF) (~2.5 GB at Q4_K_M)
+- **Reranker model** (GGUF, for semantic search): [Qwen3-Reranker-0.6B](https://huggingface.co/QuantFactory/Qwen3-Reranker-0.6B-GGUF) (~400 MB at Q4_K_M)
 
 <Tip>
 Any instruction-tuned GGUF model with native tool support works — Qwen3, Llama 3.x, Mistral, and more. The framework detects the model's chat template and generates grammar constraints automatically.
