@@ -15,7 +15,7 @@ description: "Local file research with grep, semantic search, read_file, and rec
       loadResources,
       chunkResources,
       createReranker,
-    } from "@lloyal-labs/rig";
+    } from "@lloyal-labs/rig/node";
 
     const resources = loadResources("./docs");
     const chunks = chunkResources(resources);
@@ -77,12 +77,14 @@ Hard-cut agents (those that exhaust their turn limit without calling `report`) g
 ```typescript
 import { call } from "effection";
 import {
+  reportTool,
+} from "@lloyal-labs/rig";
+import {
   CorpusSource,
   loadResources,
   chunkResources,
   createReranker,
-  reportTool,
-} from "@lloyal-labs/rig";
+} from "@lloyal-labs/rig/node";
 import { initAgents, withSharedRoot, useAgentPool, createToolkit } from "@lloyal-labs/lloyal-agents";
 
 // Load corpus
@@ -113,7 +115,8 @@ const result = yield* source.researchTool.execute({
 For simpler cases where you do not need the full `CorpusSource` lifecycle, use the `createTools` function to build a toolkit directly:
 
 ```typescript
-import { createTools, createReranker } from "@lloyal-labs/rig";
+import { createTools } from "@lloyal-labs/rig";
+import { createReranker } from "@lloyal-labs/rig/node";
 
 const toolkit = createTools({
   resources,

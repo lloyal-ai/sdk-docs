@@ -8,7 +8,8 @@ description: "Web search and page fetching with scratchpad extraction"
 ## Setup
 
 ```typescript
-import { WebSource, TavilyProvider } from "@lloyal-labs/rig";
+import { TavilyProvider } from "@lloyal-labs/rig";
+import { WebSource } from "@lloyal-labs/rig/node";
 
 const source = new WebSource(new TavilyProvider());
 ```

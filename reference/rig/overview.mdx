@@ -67,3 +67,5 @@ Between sources, a [bridge](/reference/rig/bridges) structures discoveries into 
 ```bash
 npm i @lloyal-labs/rig @lloyal-labs/lloyal-agents @lloyal-labs/lloyal.node
 ```
+
+The default `@lloyal-labs/rig` import is platform-agnostic (no Node.js or native dependencies). Node-specific exports (`createReranker`, `WebSource`, `CorpusSource`, `FetchPageTool`, `loadResources`, `chunkResources`) are available via `@lloyal-labs/rig/node` and require `@lloyal-labs/lloyal.node`.

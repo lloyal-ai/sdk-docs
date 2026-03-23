@@ -151,7 +151,7 @@ You can mix K and V quantization (`typeK: 'q8_0', typeV: 'q4_0'`), but this is r
 The reranker scores chunks against queries for post-research passage selection. It runs on a separate model context with its own `nCtx` and `nSeqMax`:
 
 ```typescript
-import { createReranker } from '@lloyal-labs/rig';
+import { createReranker } from '@lloyal-labs/rig/node';
 
 const reranker = yield* call(() =>
   createReranker(rerankModelPath, { nSeqMax: 8, nCtx: 4096 }),
@@ -216,8 +216,9 @@ A complete deployment configuration:
 ```typescript
 import { createContext } from '@lloyal-labs/lloyal.node';
 import { initAgents } from '@lloyal-labs/lloyal-agents';
-import { createReranker, WebSource, CorpusSource, TavilyProvider,
-         loadResources, chunkResources } from '@lloyal-labs/rig';
+import { TavilyProvider } from '@lloyal-labs/rig';
+import { createReranker, WebSource, CorpusSource,
+         loadResources, chunkResources } from '@lloyal-labs/rig/node';
 
 const nCtx = parseInt(process.env.LLAMA_CTX_SIZE || '32768', 10);
 const AGENT_COUNT = 3;
