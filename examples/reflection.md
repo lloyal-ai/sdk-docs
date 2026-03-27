@@ -78,8 +78,9 @@ function* research(query: string, opts: HarnessOpts): Operation<{
         terminalTool: 'report',
         trace: opts.trace,
         pressure: { softLimit: 2048 },
+        reportPrompt: REPORT,
+        pruneOnReport: true,
       });
-      yield* reportPass(pool, opts);
       return { result: pool };
     },
   );

@@ -25,10 +25,21 @@ description: "Local file research with grep, semantic search, read_file, and rec
   </Step>
   <Step title="Create the source">
     ```typescript
-    const source = new CorpusSource(resources, chunks);
+    const source = new CorpusSource(resources, chunks, {
+      grep: {
+        maxResults: 50,       // max matches returned (default 50)
+        lineMaxChars: 200,    // max chars per matched line (default 200)
+      },
+      readFile: {
+        defaultMaxLines: 100, // default range when no endLine specified (default 100)
+      },
+      research: {
+        pressure: { softLimit: 2048 }, // inner research pool pressure
+      },
+    });
     ```
 
-    At construction, `CorpusSource` wires up `ReadFileTool` and `GrepTool` immediately. These tools work without a reranker.
+    All options are optional with sensible defaults. The simplest form is `new CorpusSource(resources, chunks)`. At construction, `CorpusSource` wires up `ReadFileTool` and `GrepTool` immediately. These tools work without a reranker.
   </Step>
   <Step title="Bind the reranker">
     ```typescript

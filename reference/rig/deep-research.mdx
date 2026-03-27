@@ -3,12 +3,12 @@ title: "Deep Research Pipeline"
 description: "Reference architecture walkthrough — Plan, Research, Bridge, Synthesize, Eval"
 ---
 
-The deep-research example is the reference RIG pipeline. It chains five operations into a complete research workflow: decompose the query, investigate with source-specific agents, bridge between sources, synthesize findings, and verify convergence.
+The deep-research example is the reference RIG pipeline. It chains six operations into a complete research workflow: decompose the query, investigate with source-specific agents, bridge between sources, evaluate findings convergence, synthesize (with grounding tools when agents disagree), and verify convergence.
 
 ## Pipeline Overview
 
 ```
-Plan → Research → [Bridge →] Synthesize → Eval
+Plan → Research → [Bridge →] Findings Eval → Synthesize → Eval
 ```
 
 Each stage runs inside the [tick loop](/reference/concurrency). All agent coordination uses the same primitives: `withSharedRoot`, `useAgentPool`, `generate`, `diverge`.
@@ -59,23 +59,36 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
     );
     ```
 
-    Agents that get cut by context pressure are recovered via scratchpad extraction. A grammar-constrained `generate({ parent: agent.branch })` attends over the agent's accumulated KV and extracts findings. The agent paid the KV cost of reasoning; the extraction recovers the value.
+    Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`reportPrompt`). A grammar-constrained generation forks from the agent's accumulated KV and extracts findings. A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
+
+    Recursive tools return both primary findings and `supportingFindings` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report. These are included as supporting research in the synthesis prompt.
   </Step>
   <Step title="Bridge">
     Runs between sources when multiple sources are configured and the completed source produced findings.
 
     A single agent structures discoveries into three tiers: what was established, where evidence is incomplete, what was not covered. These discoveries condition the next source's sub-questions. See [Bridges](/reference/rig/bridges) for details.
   </Step>
+  <Step title="Findings Eval">
+    Grammar-constrained evaluation of whether research agents agree on key claims. Returns `{converged, conflicts[]}`.
+
+    A contradiction exists when one agent claims something IS the case with specific evidence while another claims it is NOT the case. Different coverage angles are complementary, not contradictory. An agent with direct quotes makes a stronger claim than one reporting "not found."
+
+    ```typescript
+    const findingsEval = yield* evaluateFindings(res.agentFindings, opts);
+    // { converged: false, conflicts: ["Agent 1 claims X with quotes. Agent 2 found no X."] }
+    ```
+
+    This drives the next step — when findings converge, synthesis is straightforward. When they diverge, the synthesizer gets tools to verify.
+  </Step>
   <Step title="Synthesize">
     A synthesis agent integrates findings from all sources into a structured report with source attribution.
 
-    The synthesizer receives two inputs:
-    - **Agent findings** -- analytical notes from each research agent
-    - **Reranked passages** -- top passages from all sources scored against the original query
+    The synthesizer's prompt and tools adapt to inference state via an [Eta template](/reference/prompt-composition):
 
-    Research notes provide analytical structure. Reranked passages provide ground truth for citation. The synthesizer cross-references both.
-
-    Grounding tools from all sources are available during synthesis for independent verification. The synthesizer can spot-check claims by running its own searches.
+    - **Converged findings** — report-only toolkit, standard synthesis prompt. No grounding needed.
+    - **Diverged findings** — grounding tools (search, read_file, grep) added to toolkit, conflicts section in prompt. The synthesizer reads the source directly to resolve each conflict. It determines which agent's interpretation is supported by the text — no majority voting.
+    - **Multi-source** — source passages section included with citation instructions.
+    - **Single-source** — source passages section omitted entirely, not filled with "(none)".
   </Step>
   <Step title="Eval">
     Multi-branch semantic comparison via `diverge()`.

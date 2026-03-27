@@ -271,7 +271,7 @@ const pool = yield* useAgentPool({
 
 Higher `softLimit` means agents are cut earlier, preserving room for synthesis and eval. Lower `softLimit` lets agents run longer but risks synthesis running out of KV.
 
-For reporter sub-pools (bridge, reportPass), use tight limits since they only need one `report()` call:
+For reporter sub-pools (bridge agents), use tight limits since they only need one `report()` call:
 
 ```typescript
 pressure: { softLimit: 200, hardLimit: 64 },

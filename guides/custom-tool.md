@@ -337,15 +337,41 @@ if (matches.length === 0) {
 
 This helps the model adjust its strategy on the next turn rather than repeating the same failing call.
 
-## ToolContext for progress reporting
+## ToolContext
 
-`execute()` receives an optional `ToolContext` with a progress callback:
+`execute()` receives an optional `ToolContext` with the calling agent's branch and a progress callback:
+
+```typescript
+interface ToolContext {
+  agentId: number;
+  branch: Branch;                                    // calling agent's branch
+  onProgress?: (p: { filled: number; total: number }) => void;
+}
+```
+
+### Recursive forking
+
+If your tool spawns sub-agents, pass `context.branch` to `withSharedRoot` for [warm path forking](/reference/prefix-sharing#warm-path-fork-from-parent). Sub-agents inherit the calling agent's full attention state:
+
+```typescript
+*execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
+  return yield* withSharedRoot(
+    { systemPrompt, tools: toolsJson, parent: context?.branch },
+    function*(root) {
+      return yield* runAgents({ tasks, tools: toolMap, parent: root, ... });
+    },
+  );
+}
+```
+
+### Progress reporting
+
+Report progress for long-running operations:
 
 ```typescript
 *execute(args: { query: string }, ctx?: ToolContext): Operation<unknown> {
   const chunks = this._chunks;
   for (let i = 0; i < chunks.length; i++) {
-    // Report progress for long-running operations
     ctx?.onProgress?.({ filled: i + 1, total: chunks.length });
     // ... process chunk
   }

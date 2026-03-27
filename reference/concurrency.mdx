@@ -164,26 +164,31 @@ Every node is an Effection [scope][scope]. Effection enforces one rule: ["no ope
 
 ### Context propagation
 
-`Ctx`, `Store`, and `Events` are Effection [Contexts][context] — set once at `initAgents()`, inherited by every child scope automatically:
+`Ctx`, `Store`, `Events`, and `CallingAgent` are Effection [Contexts][context]. The first three are set once at `initAgents()`, inherited by every child scope automatically. `CallingAgent` is set during each DISPATCH before the tool executes:
 
 ```typescript
-export const Ctx    = createContext<SessionContext>('lloyal.ctx');
-export const Store  = createContext<BranchStore>('lloyal.store');
-export const Events = createContext<Channel<AgentEvent, void>>('lloyal.events');
+export const Ctx          = createContext<SessionContext>('lloyal.ctx');
+export const Store        = createContext<BranchStore>('lloyal.store');
+export const Events       = createContext<Channel<AgentEvent, void>>('lloyal.events');
+export const CallingAgent = createContext<Agent>('lloyal.callingAgent');
 ```
 
 When the inner `useAgentPool` does `yield* Ctx.expect()`, it gets the same `SessionContext`. Same `BranchStore`. Same event `Channel`. No argument drilling. A child scope can override context locally without affecting ancestors.
 
+`CallingAgent` propagates lineage. During DISPATCH, the pool sets `CallingAgent` to the agent that made the tool call. When the tool spawns an inner pool, each inner agent reads `CallingAgent` and records it as its parent. This enables `walkLineage()` — traversing from inner agent up through the calling chain to the outermost agent.
+
 ### Inner pool execution
 
-The inner `withSharedRoot` formats the inner system prompt and tools, creates a root branch, prefills the shared tokens, then calls the body. The inner `useAgentPool` runs the same four-phase tick loop as the outer pool. Inner agents share the same `BranchStore` and compete for the same KV cache slots.
+The inner `withSharedRoot` forks from the calling agent's branch (warm path) or creates a fresh root (cold path). Inner agents inherit the calling agent's full attention state — every prior tool call, every tool result, every token generated. The inner `useAgentPool` runs the same four-phase tick loop as the outer pool. Inner agents share the same `BranchStore` and compete for the same KV cache slots.
 
 ```typescript
-*execute(args: { questions: string[] }): Operation<unknown> {
+*execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
   const { toolMap, toolsJson } = this._toolkit;
 
   return yield* withSharedRoot(
-    { systemPrompt, tools: toolsJson },
+    { systemPrompt, tools: toolsJson, parent: context?.branch },
+    //                                 ^^^^^^^^^^^^^^^^^^^^^^
+    // Warm path: fork from calling agent's branch (2 tokens vs ~760)
     function*(root) {
       const pool = yield* useAgentPool({
         tasks: args.questions.map(q => ({
@@ -194,28 +199,23 @@ The inner `withSharedRoot` formats the inner system prompt and tools, creates a 
         })),
         tools: toolMap,
         terminalTool: 'report',
+        pruneOnReport: true,     // free KV mid-pool
         maxTurns: 6,
+        reportPrompt: REPORT,    // scratchpad extraction for hard-cut agents
       });
 
-      // Hard-cut recovery — agents with no findings get a reporter pass
-      const hardCut = pool.agents.filter(a => !a.findings && !a.branch.disposed);
-      if (hardCut.length > 0) {
-        const reporters = yield* runAgents({
-          tasks: hardCut.map(a => ({
-            systemPrompt: reporterPrompt,
-            content: 'Report your findings.',
-            parent: a.branch,
-          })),
-          tools: new Map([['report', reportTool]]),
-          terminalTool: 'report',
-        });
-        // ...merge reporter findings back...
-      }
-
-      return { findings: pool.agents.map(a => a.findings).filter(Boolean) };
+      return {
+        findings: pool.agents.map(a => a.findings).filter(Boolean),
+        supportingFindings: pool.agents.flatMap(a => a.childFindings ?? []),
+      };
     },
   );
 }
+```
+
+When `parent` is provided, the shared root forks from the parent branch and prefills only the turn separator — **2 tokens** instead of ~760 for the full system prompt. The system prompt is already in the parent's KV. Sub-agents attend over the same physical key-value pairs at shared positions.
+
+Hard-cut recovery is now built into the pool via `reportPrompt`. When agents are killed by KV pressure before calling `report()`, the pool forks from their branch, generates with a grammar-constrained schema, and captures partial findings. A confabulation guard (fewer than 100 tokens or fewer than 2 tool calls) prevents extraction from agents with insufficient context.
 ```
 
 ### Result propagation
@@ -234,27 +234,19 @@ Effection defines [three ways an operation exits][scope]: return (completes with
 
 ### Model-level vs harness-level recursion
 
-Harness-level recursion is prescribed — the developer writes the pipeline stages:
-
-```typescript
-// Harness decides when to recurse
-const hardCut = pool.agents.filter(a => !a.findings && !a.branch.disposed);
-if (hardCut.length > 0) {
-  const reporters = yield* runAgents({
-    tasks: hardCut.map(a => ({
-      systemPrompt: reporterPrompt,
-      content: 'Report your findings.',
-      parent: a.branch,
-    })),
-    tools: new Map([['report', reportTool]]),
-    terminalTool: 'report',
-  });
-}
-```
+Harness-level recursion is prescribed — the developer writes the pipeline stages. The harness decides the workflow: plan, then research, then synthesize.
 
 Model-level recursion is emergent — the model calls a tool that spawns sub-agents when it needs deeper investigation, calls it again if the first pass was insufficient, or skips it entirely if it can answer directly. The structured concurrency guarantees are identical in both cases — the difference is who controls the workflow.
 
 A tool that spawns agents is not special. It's a regular `Tool` subclass whose `execute()` method calls framework primitives — the same primitives the harness uses. The tool doesn't know it's being called by an agent. The inner agents don't know they were spawned by a tool. Each level sees its own task prompt and its own set of tools.
+
+### Recursion discipline
+
+Declarative [Tool Guards](/learn/agents#tool-guards) enforce research-before-delegation. Before dispatching `web_research` or `research`, the guard checks the agent's **local** tool history — not the full lineage. Each agent must have done at least one search AND one fetch/read before it can delegate to sub-agents.
+
+<Note>
+The local-history requirement exists because of Continuous Context. When sub-agents fork from the calling agent's branch, they inherit the parent's full KV — including all search and fetch results. A lineage-based guard would let children bypass the research requirement by counting the parent's history. This produces blind relay chains — the question passes through multiple levels verbatim with zero hypothesis refinement. The local-history guard forces each agent to do its own research, discover concepts from the source material, and only then delegate with refined sub-questions.
+</Note>
 
 Same tools at every level — the **prompt** is the differentiator, not the toolkit:
 

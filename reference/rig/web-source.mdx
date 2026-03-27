@@ -11,8 +11,21 @@ description: "Web search and page fetching with scratchpad extraction"
 import { TavilyProvider } from "@lloyal-labs/rig";
 import { WebSource } from "@lloyal-labs/rig/node";
 
-const source = new WebSource(new TavilyProvider());
+const source = new WebSource(new TavilyProvider(), {
+  topN: 3,                          // search results returned to agents (default 8)
+  fetch: {
+    maxChars: 6000,                 // full-content fallback truncation (default 6000)
+    topK: 5,                        // reranked chunks returned (default 5)
+    timeout: 10_000,                // fetch timeout in ms (default 10000)
+    tokenBudget: 2048,              // reranker chunk selection budget (default 2048)
+  },
+  research: {
+    pressure: { softLimit: 2048 },  // inner research pool pressure (default 1024)
+  },
+});
 ```
+
+All options are optional with sensible defaults. The simplest form is `new WebSource(new TavilyProvider())` with no opts.
 
 Pass your API key via constructor or environment variable:
 

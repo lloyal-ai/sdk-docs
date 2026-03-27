@@ -65,6 +65,7 @@
         "reference/prefix-sharing",
         "reference/grammar-and-ordering",
         "reference/scratchpad-extraction",
+        "reference/prompt-composition",
         "reference/branch-lifecycle"
       ]
     },

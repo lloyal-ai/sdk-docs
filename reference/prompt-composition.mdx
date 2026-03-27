@@ -1,0 +1,128 @@
+---
+title: "Prompt Composition"
+description: "Dynamic prompt assembly with Eta templates — templates own text, code owns tools."
+---
+
+Prompts in production pipelines are rarely static. The synthesis prompt needs different instructions depending on whether source passages are available, whether agents disagreed, and what tools the synthesizer has. A fixed template with `(none)` placeholders wastes the model's attention on capabilities it doesn't have.
+
+Prompt composition solves this. The framework provides two complementary primitives:
+
+1. **`renderTemplate`** — Eta-powered template rendering for dynamic prompt text
+2. **`composePrompt` / `renderPrompt`** — reducer pattern for tool composition
+
+Templates own the text. Code owns the tools. The prompt engineer edits `.eta` files. The developer edits steps.
+
+## Eta templates
+
+Templates use [Eta](https://eta.js.org) syntax — standard JS expressions inside `<% %>` tags. Auto-escaping is disabled (prompts are text, not HTML).
+
+```
+<%= it.variable %>          // interpolation
+<% if (it.x) { %>          // conditional block
+<% } %>                     // end conditional
+<% it.arr.forEach(...) %>   // iteration
+<%- %>                      // trim trailing newline
+```
+
+### Example: `synthesize.eta`
+
+```
+You are a research synthesizer. You will receive<% if (it.sourcePassages) { %> two types of<% } %> input:
+
+1. **Research notes** — analysis from research agents.
+<% if (it.sourcePassages) { -%>
+2. **Source passages** — verbatim text ranked by relevance. Cite with markdown links.
+<% } -%>
+<% if (it.conflicts) { %>
+You have tools to read source material. Resolve each conflict by reading the source directly.
+<% } %>
+Your job:
+<% var step = 1 -%>
+<%= step++ %>. Read all inputs carefully
+<% if (it.conflicts) { -%>
+<%= step++ %>. Resolve each conflict using your tools before writing the report
+<% } -%>
+<%= step++ %>. Write a detailed markdown report with sections and citations
+<%= step++ %>. Call report() with the full report
+---
+Research notes:
+
+<%= it.agentFindings %>
+<% if (it.conflicts) { %>
+---
+
+Conflicts for grounded resolution with tools:
+
+<%= it.conflicts.map(function(c, i) { return (i + 1) + '. ' + c }).join('\n') %>
+
+<% } -%>
+<% if (it.sourcePassages) { %>
+---
+
+Source passages:
+
+<%= it.sourcePassages %>
+<% } %>
+Write a detailed research report answering: "<%= it.query %>"
+```
+
+When `conflicts` is null, the entire conflicts section — heading, list, separator — is excluded. When `sourcePassages` is null, that section is excluded. The model sees exactly what it has to work with. Numbered steps auto-increment correctly regardless of which conditionals fire.
+
+### Rendering
+
+```typescript
+import { renderTemplate } from "@lloyal-labs/lloyal-agents";
+
+const rendered = renderTemplate(template, {
+  agentFindings: "Agent 1 found X.\nAgent 2 found Y.",
+  sourcePassages: null,       // omitted from output
+  conflicts: null,             // omitted from output
+  query: "How does X relate to Y?",
+});
+```
+
+`renderTemplate` calls `Eta.renderString` with auto-escaping disabled. Variables are accessible as `it.*` in the template.
+
+## Tool composition
+
+While templates handle text, tools are code objects that can't live in template files. The `composePrompt` reducer handles conditional tool assembly:
+
+```typescript
+import { composePrompt } from "@lloyal-labs/lloyal-agents";
+import type { PromptStep } from "@lloyal-labs/lloyal-agents";
+
+const steps: PromptStep[] = [
+  (s) => conflicts
+    ? { ...s, tools: [...s.tools, ...groundingTools] }
+    : s,
+];
+
+const result = composePrompt(
+  { clauses: [], sections: [], tools: [reportTool] },
+  steps,
+);
+
+const toolkit = createToolkit(result.tools);
+```
+
+Each step is a pure function: receive state, return state (possibly with additions). Steps that return unchanged state are no-ops. Compose left-to-right via `reduce`.
+
+## The separation
+
+| Concern | Owner | Format |
+|---------|-------|--------|
+| System prompt wording | Prompt engineer | `.eta` template |
+| User content sections | Prompt engineer | `.eta` template |
+| Conditional structure | Prompt engineer | `<% if %>` in template |
+| Which tools are available | Developer | `PromptStep` in code |
+| When to add grounding tools | Developer | `PromptStep` condition |
+| Template variables | Developer | `renderTemplate(tpl, data)` call |
+
+A prompt engineer can restructure the synthesis prompt — reorder sections, change wording, add instructions — without touching TypeScript. A developer can change when grounding tools are added without editing prompt text.
+
+## File convention
+
+- `.eta` files for templates with conditionals
+- `.md` files for static prompts (system `---` user split via `loadTask`)
+
+Both live alongside the harness in the `tasks/` directory. Templates are loaded as raw strings at startup and rendered at call time.

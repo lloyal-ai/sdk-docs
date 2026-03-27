@@ -139,9 +139,10 @@ export function* handleQuery(query: string, opts: HarnessOpts): Operation<void> 
         terminalTool: 'report',
         trace: opts.trace,
         pressure: { softLimit: 2048 },
+        reportPrompt: REPORT,    // scratchpad extraction for hard-cut agents
+        pruneOnReport: true,     // free KV immediately when agent reports
       });
 
-      yield* reportPass(pool, opts);
       return { result: pool };
     },
   );
@@ -156,33 +157,9 @@ Two framework primitives do all the work:
 
 The `pressure: { softLimit: 2048 }` tells the pool to start considering context pressure when fewer than 2048 KV cells remain.
 
-**`reportPass` -- hard-cut recovery:**
+**`reportPrompt` -- hard-cut recovery:**
 
-```typescript
-function* reportPass(pool: AgentPoolResult, opts: HarnessOpts): Operation<void> {
-  const hardCut = pool.agents.filter(a => !a.findings && !a.branch.disposed);
-  if (hardCut.length === 0) return;
-
-  for (const a of pool.agents) {
-    if (a.findings && !a.branch.disposed) a.branch.pruneSync();
-  }
-
-  const reporters = yield* runAgents({
-    tasks: hardCut.map(a => ({
-      systemPrompt: 'You are a research reporter. Call the report tool...',
-      content: 'Report your findings.',
-      tools: reportOnlyTools,
-      parent: a.branch,
-    })),
-    tools: new Map([['report', reportTool]]),
-    terminalTool: 'report',
-    trace: opts.trace,
-    pressure: { softLimit: 200, hardLimit: 64 },
-  });
-}
-```
-
-If the agent hit the turn limit without calling `report`, `reportPass` recovers partial findings. It forks from the agent's existing branch (preserving everything the agent has seen and generated), gives it only the `report` tool, and runs a short extraction pass. The fork inherits the full KV context, so the reporter model can summarize everything the original agent discovered even though the agent never explicitly reported.
+If the agent exhausts `maxTurns` or is killed by KV pressure without calling `report`, the pool automatically recovers partial findings. It forks from the agent's branch, runs a grammar-constrained extraction (`{ findings: string }`), and records the result with `scratchpad` provenance. A confabulation guard skips agents with fewer than 100 tokens or 2 tool calls — insufficient context would produce hallucinated findings.
 
 ### `tasks/research.md` -- the system prompt
 

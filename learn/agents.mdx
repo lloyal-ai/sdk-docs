@@ -1,6 +1,6 @@
 ---
 title: Agents
-description: Parallel agents on shared GPU — the agent pool and shared root.
+description: Parallel agents on shared GPU — the Agent class, agent pool, policy, and shared root.
 ---
 
 
@@ -14,6 +14,56 @@ Shared root (system prompt + tool schemas): decoded once
 ```
 
 Every agent inherits the root's KV cache at zero cost — an O(1) metadata tag, not a copy. Each agent then generates independently, calls tools, and reports findings. The pool manages the entire lifecycle.
+
+## What is an Agent?
+
+An agent is a **branch with intent**. A Branch is a forkable KV cache sequence — it stores every token the model has seen and generated. An Agent adds: a task to accomplish, a policy for how to accomplish it, and a record of what it has done.
+
+The branch is the ground truth. The agent is the interpretation layer that gives meaning to what's in the branch and makes decisions about what to do next.
+
+```typescript
+import { Agent } from "@lloyal-labs/lloyal-agents";
+
+// The pool creates agents for you — you don't instantiate them directly.
+// After the pool completes, each AgentResult exposes:
+pool.agents[0].findings       // what the agent discovered (or null)
+pool.agents[0].toolCallCount  // how many tools it called
+pool.agents[0].tokenCount     // how many tokens it generated
+pool.agents[0].childFindings  // findings from recursive sub-agents
+pool.agents[0].ppl            // model-level perplexity at completion
+```
+
+### Status model
+
+Every agent transitions through a lifecycle:
+
+```
+idle → active → awaiting_tool → active → ... → idle → disposed
+```
+
+- **idle** — created but not yet generating, OR finished but branch still alive (extraction window)
+- **active** — generating tokens between stop boundaries
+- **awaiting_tool** — tool call parsed, waiting for result in SETTLE
+- **disposed** — branch pruned, agent no longer usable
+
+The pool enforces valid transitions. An agent cannot go backward or skip states.
+
+### Findings
+
+Agents produce findings through a single write path with provenance tracking:
+
+- `report_tool` — agent voluntarily called `report()`
+- `free_text` — agent emitted prose without a tool call
+- `scratchpad` — extracted post-idle via grammar-constrained fork
+- `tool_error` — tool threw, error captured as findings
+
+### Tool history
+
+Each agent records metadata for every tool invocation — tool name, summarized arguments, result token count, context available after settlement. The [Agent Policy](#agent-policy) reads this history for informed lifecycle decisions.
+
+### Parent lineage
+
+When a tool spawns sub-agents (recursive tools like `research` or `web_research`), each sub-agent records which agent called the tool that created it. `walkLineage()` traverses the chain — self → caller → caller's caller — collecting data from each ancestor. Tool guards use this for cross-level deduplication.
 
 ## The pattern
 
@@ -37,6 +87,8 @@ const pool = yield* withSharedRoot(
       tools: toolMap,
       terminalTool: "report",
       maxTurns: 6,
+      reportPrompt: REPORT,     // scratchpad extraction for hard-cut agents
+      pruneOnReport: true,       // free KV immediately when agents report
     });
   },
 );
@@ -48,13 +100,94 @@ const pool = yield* withSharedRoot(
 
 `runAgents` forks one branch per task from the root, runs them in parallel, and returns when all agents finish. Branches are pruned on exit.
 
+### `reportPrompt` — scratchpad extraction
+
+When agents are killed by KV pressure before calling `report()`, the pool can extract partial findings from their accumulated context. Pass a `reportPrompt` with system and user strings — the pool forks from the agent's branch, generates with a grammar-constrained schema, and captures whatever the agent learned.
+
+A confabulation guard skips agents that barely ran. The thresholds are configurable:
+
+```typescript
+reportPrompt: {
+  system: "You are a research reporter. Call report with all findings.",
+  user: "Report your findings.",
+  minTokens: 100,     // skip extraction below this (default 100)
+  minToolCalls: 2,     // skip extraction below this (default 2)
+},
+```
+
+An agent with insufficient context would produce hallucinated findings — the guard prevents this.
+
+### `pruneOnReport`
+
+When `true`, agents are pruned immediately after reporting. This frees KV mid-pool, giving remaining agents more headroom. Without it, all branches stay alive until the pool completes.
+
+## Agent Policy
+
+The pool consults an **AgentPolicy** at every decision boundary — when an agent hits a stop token, when a tool result doesn't fit in KV, and when checking tool guards before dispatch.
+
+```typescript
+interface AgentPolicy {
+  onProduced(agent, parsed, pressure, config): ProduceAction;
+  onSettleReject(agent, resultTokens, pressure, config): SettleAction;
+}
+```
+
+`DefaultAgentPolicy` handles all the default behavior:
+
+- **Terminal tool interception** — when the agent calls `report()`, extract findings and mark idle
+- **Budget enforcement** — deny non-terminal tool calls when over budget, nudge the agent to report
+- **Confabulation prevention** — reject premature reports from agents with fewer than 2 tool calls
+- **Tool guard checking** — run declarative guards before dispatching any tool call
+
+Customize thresholds and guards via the constructor:
+
+```typescript
+import { DefaultAgentPolicy } from "@lloyal-labs/lloyal-agents";
+
+const policy = new DefaultAgentPolicy({
+  minToolCallsBeforeReport: 3,   // require 3 tool calls before report (default 2)
+  extraGuards: [myCustomGuard],  // append to default guards
+});
+
+yield* runAgents({
+  tasks, tools: toolMap,
+  policy,                         // inject custom policy
+});
+```
+
+Or replace the default guards entirely with `guards: [...]`.
+
+The policy sees the agent's full state: status, tool history, findings, nudge count, pressure snapshot. It returns an action — `tool_call`, `report`, `nudge`, or `idle` — and the pool executes it.
+
+### Tool Guards
+
+Guards are declarative rejection rules checked before tool dispatch. Each guard specifies which tools it applies to and a reject function:
+
+```typescript
+interface ToolGuard {
+  tools: string[];
+  reject: (args, lineageHistory, agent) => boolean;
+  message: string;
+}
+```
+
+Three default guards ship with `DefaultAgentPolicy`:
+
+1. **Fetch dedup** — rejects `fetch_page` if the same URL was already fetched by the agent or any ancestor. Uses lineage history.
+2. **Search dedup** — rejects `web_search` if the same query (case-insensitive) was already searched in the lineage. Uses lineage history.
+3. **Research-before-delegation** — rejects `web_research` / `research` unless the agent has done at least one search AND one fetch/read itself. Uses **agent-local** history, not lineage.
+
+<Note>
+The research-before-delegation guard uses agent-local history deliberately. With lineage history, a child agent would inherit its parent's search and fetch records, letting it call `web_research` on turn 0 without doing any work. This produces blind relay chains — the question passes through multiple levels verbatim with zero hypothesis refinement. The local-history requirement forces each agent to do its own research before delegating.
+</Note>
+
 ## The four-phase tick loop
 
 All agents generate tokens together in a batched loop. Each tick has four phases:
 
 <Steps>
   <Step title="PRODUCE">
-    Every active agent samples one token via `produceSync()`. If the token is a stop token, the pool parses the output for tool calls or final content. No async gaps — pure synchronous sampling.
+    Every active agent samples one token via `produceSync()`. If the token is a stop token, the pool parses the output for tool calls or final content. The policy decides what to do — dispatch the tool, report findings, nudge the agent, or mark it idle. No async gaps — pure synchronous sampling.
   </Step>
 
   <Step title="COMMIT">
@@ -62,11 +195,11 @@ All agents generate tokens together in a batched loop. Each tick has four phases
   </Step>
 
   <Step title="SETTLE">
-    Tool results from the previous tick's dispatch are drained. Each result is tokenized and prefilled into the calling agent's branch. Agents resume generating with the tool result in their attention state.
+    Tool results from the previous tick's dispatch are drained. Each result is tokenized and prefilled into the calling agent's branch. Results that exceed available headroom are rejected — the policy decides whether to nudge the agent or kill it. Agents resume generating with the tool result in their attention state.
   </Step>
 
   <Step title="DISPATCH">
-    Collected tool calls execute sequentially — one at a time. Each tool runs inside a `scoped()` error boundary. When a tool spawns sub-agents (recursive tools), those sub-agents run their own tick loop within the dispatch phase.
+    Collected tool calls execute sequentially — one at a time. Each tool runs inside a `scoped()` error boundary. The pool sets `CallingAgent` context before each dispatch so recursive tools can identify their caller. When a tool returns findings arrays (from recursive sub-agents), the pool collects them as `childFindings` on the calling agent.
   </Step>
 </Steps>
 
@@ -86,9 +219,45 @@ Savings:         64% fewer decode operations
 
 In real pipelines with multi-turn agents, the savings compound further — tool results stay in KV as deltas, never re-sent. Measured savings reach **78% fewer tokens** across a full research run.
 
+### Warm path for recursive tools
+
+When a tool spawns sub-agents, `withSharedRoot` can fork from the calling agent's branch instead of creating a new root at position 0. The calling agent already has the system prompt in its KV, so the sub-agent pool only needs to prefill the turn separator — **2 tokens instead of ~760**.
+
+```typescript
+// Inside a tool's execute() method:
+yield* withSharedRoot(
+  { systemPrompt, tools: toolsJson, parent: context.branch },
+  //                                 ^^^^^^^^^^^^^^^^^^^^^^
+  // Forks from the calling agent's branch — inherits full attention state
+  function*(root) {
+    return yield* useAgentPool({ tasks, tools: toolMap, ... });
+  },
+);
+```
+
+Sub-agents inherit every tool call, every tool result, every token the parent generated. The sub-agent's first token attends over the parent's full accumulated state. This is [Continuous Context](/learn/introduction#continuous-context-agents-agents-branch-inherit-and-build-on-each-others-attention-state).
+
 <Tip>
 For the full picture — KV layout, position-aware decode, nested sharing, measured numbers — see [Prefix Sharing](/reference/prefix-sharing).
 </Tip>
+
+## Child findings
+
+When agents recurse — calling `web_research` or `research` from within a pool — inner sub-agent findings can get lost. The outer agent sees the inner results as text in its KV, but when it reports, it may cherry-pick one finding and drop the rest.
+
+`childFindings` solves this. During DISPATCH, the pool collects findings arrays from recursive tool results and stores them on the calling agent. These bubble up through `AgentResult`:
+
+```typescript
+const pool = yield* runAgents({ tasks, tools: toolMap, ... });
+
+// Primary findings — what each agent reported
+pool.agents[0].findings          // "The DOJ connects iPod to..."
+
+// Child findings — what inner sub-agents found (flattened from recursive tools)
+pool.agents[0].childFindings     // ["Sub-agent found X", "Sub-agent found Y"]
+```
+
+Any tool that returns `{ findings: string[] }` or `{ supportingFindings: string[] }` automatically participates — no tool-name hardcoding. The collection is tool-agnostic.
 
 ## Context pressure
 
@@ -107,8 +276,10 @@ yield* runAgents({
 });
 ```
 
+Tool results include `_contextAvailablePercent` — the percentage of KV remaining after each tool call. Agents see this in their attention window, enabling pressure-aware decisions.
+
 <Note>
-Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported findings keep them, agents that didn't are marked done.
+Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported findings keep them, agents that didn't get scratchpad extraction via `reportPrompt`.
 </Note>
 
 ## `useAgentPool` vs `runAgents`
@@ -126,7 +297,7 @@ Both create agent pools. The difference is branch lifetime.
   </Tab>
 
   <Tab title="useAgentPool">
-    Branches stay alive after the pool completes. Use this when you need to fork from agent branches — for verification, follow-up generation, or scratchpad extraction.
+    Branches stay alive after the pool completes. Use this when you need to fork from agent branches — for verification, follow-up generation, or additional extraction.
 
     ```typescript
     const pool = yield* useAgentPool({ tasks, tools: toolMap });
@@ -146,15 +317,15 @@ Outer pool:
   withSharedRoot (root, pos 0..866)
     ├── Agent A0 (fork at 866)
     │     └── tool dispatch: web_research
-    │           └── withSharedRoot (inner root, pos 0..750)
-    │                 ├── Sub-agent 0 (fork at 750)
-    │                 ├── Sub-agent 1 (fork at 750)
-    │                 └── Sub-agent 2 (fork at 750)
+    │           └── withSharedRoot (inner root, fork from A0's branch)
+    │                 ├── Sub-agent 0 (fork from inner root)
+    │                 ├── Sub-agent 1 (fork from inner root)
+    │                 └── Sub-agent 2 (fork from inner root)
     ├── Agent A1 (fork at 866)
     └── Agent A2 (fork at 866)
 ```
 
-Inner and outer pools share the same `BranchStore`. Context pressure is global — `cells_used` accounts for all branches across all nesting levels. When the inner pool exits, its branches are pruned and KV cells are freed for the outer pool.
+Inner and outer pools share the same `BranchStore`. Context pressure is global — `cells_used` accounts for all branches across all nesting levels. When the inner pool exits, its branches are pruned and KV cells are freed for the outer pool. Inner sub-agents inherit the calling agent's full attention state via the warm path.
 
 ## Events
 
@@ -163,7 +334,8 @@ The pool emits events through the `Events` channel for every lifecycle transitio
 - `agent:spawn` — agent created and prefilled
 - `agent:produce` — token generated (with optional entropy/surprisal)
 - `agent:tool_call` — tool invoked
-- `agent:tool_result` — tool result received
+- `agent:tool_result` — tool result received (with `contextAvailablePercent`)
+- `agent:tool_progress` — progressive tool feedback (e.g. reranker scoring)
 - `agent:report` — agent submitted findings via terminal tool
 - `agent:done` — agent completed
 - `agent:tick` — batch decode committed (with KV pressure snapshot)

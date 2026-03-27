@@ -87,7 +87,7 @@ Four primitives serve as stage implementations:
 
 ### Research pipeline
 
-Plan, dispatch agents across sources, rerank findings, synthesize an answer, verify with perplexity sampling.
+Plan, dispatch agents across sources, evaluate findings for convergence, synthesize (with grounding tools when agents disagree), verify with perplexity sampling.
 
 ```typescript
 function* researchPipeline(query: string): Operation<string> {
@@ -95,12 +95,16 @@ function* researchPipeline(query: string): Operation<string> {
   const questions = yield* plan(query);
 
   // Stage 2: Research agents search across sources
-  const findings = yield* research(questions, sources);
+  const res = yield* research(questions, sources);
 
-  // Stage 3: Synthesize with grounding tools for fact-checking
-  const answer = yield* synthesize(findings, query);
+  // Stage 3: Evaluate findings convergence — do agents agree?
+  const eval = yield* evaluateFindings(res.agentFindings);
 
-  // Stage 4: Verify with N parallel samples
+  // Stage 4: Synthesize — grounding tools only when conflicts detected
+  const conflicts = !eval.converged ? eval.conflicts : undefined;
+  const answer = yield* synthesize(res.agentFindings, res.sourcePassages, query, conflicts);
+
+  // Stage 5: Verify with N parallel samples
   const verified = yield* verify(answer, query);
 
   return verified.answer;
@@ -195,15 +199,40 @@ function* handleQuery(query: string): Operation<QueryResult> {
 There is no state machine, no DAG, no node connections to define. Conditional logic is an `if` statement. Looping is a `for` loop. Retry is calling the stage again. The generator pattern makes control flow explicit and readable.
 </Note>
 
+## Findings convergence
+
+When multiple agents investigate sub-questions, they may return contradictory findings. One agent discovers a connection with direct quotes; two others report "not found." A naive synthesizer majority-votes and produces the wrong conclusion.
+
+The findings convergence check solves this. After research, evaluate agent findings with a grammar-constrained generation that returns `{converged, conflicts[]}`:
+
+```typescript
+const eval = yield* evaluateFindings(agentFindings);
+
+if (!eval.converged) {
+  // Agents disagree — synthesize with grounding tools + conflicts
+  const answer = yield* synthesize(findings, passages, query, eval.conflicts);
+} else {
+  // Agents agree — synthesize directly, no grounding needed
+  const answer = yield* synthesize(findings, passages, query);
+}
+```
+
+When conflicts are detected, the synthesizer receives grounding tools (search, read_file, grep) to read the source material directly. It resolves each conflict by going to the text — not by splitting the difference between agents. When findings converge, the synthesizer gets `report` only — no wasted grounding.
+
+<Note>
+The prompt itself adapts to what's available. Using [Eta templates](/reference/prompt-composition), the system prompt only describes capabilities the agent actually has — no phantom "Source passages: (none)" sections. Conditionals in the template control which instructions, sections, and tools appear.
+</Note>
+
 ## KV lifecycle between stages
 
 Each stage that uses `withSharedRoot` creates and destroys branches within its scope. When the scope exits, branches are pruned and KV cells are freed.
 
 ```
-Stage 1: plan     → generate() uses ~500 KV cells → pruned
-Stage 2: research → withSharedRoot + runAgents uses ~8,000 cells → pruned
-Stage 3: synthesize → withSharedRoot + runAgents uses ~3,000 cells → pruned
-Stage 4: verify   → diverge() uses ~1,500 cells → pruned
+Stage 1: plan          → generate() uses ~500 KV cells → pruned
+Stage 2: research      → withSharedRoot + runAgents uses ~8,000 cells → pruned
+Stage 3: findings eval → generate() uses ~300 cells → pruned
+Stage 4: synthesize    → withSharedRoot + runAgents uses ~3,000 cells → pruned
+Stage 5: verify        → diverge() uses ~1,500 cells → pruned
 ```
 
 Stages don't compete for KV. Each stage gets the full context budget. This is why `withSharedRoot`'s cleanup is critical — it runs in `finally`, so KV is freed even if the stage throws.

@@ -241,8 +241,8 @@ if (i < opts.sources.length - 1 && sectionFindings) {
         maxTurns: effectiveMaxTurns,
         trace: opts.trace,
         pressure: { softLimit: 1024 },
+        reportPrompt: REPORT,
       });
-      yield* reportPass(pool, opts);
       return pool.agents[0]?.findings || '';
     },
   );
@@ -267,79 +267,59 @@ The structured discoveries are injected into the questions for the next source. 
 
 When the session already has a trunk (warm continuation), `warmResearch` is used instead. It skips `withSharedRoot` for the outer scope (the trunk already provides context) but still creates `withSharedRoot` scopes inside each source's research tool and bridge pass. The logic is otherwise identical.
 
-**`reportPass` -- scratchpad extraction for hard-cut agents:**
+**`reportPrompt` -- scratchpad extraction for hard-cut agents:**
+
+Hard-cut recovery is now built into the pool. Pass `reportPrompt` with system and user strings, and the pool handles extraction automatically:
 
 ```typescript
-function* reportPass(pool: AgentPoolResult, opts: WorkflowOpts): Operation<void> {
-  const hardCut = pool.agents.filter(a => !a.findings && !a.branch.disposed);
-  if (hardCut.length === 0) return;
-
-  for (const a of pool.agents) {
-    if (a.findings && !a.branch.disposed) a.branch.pruneSync();
-  }
-
-  const ctx: SessionContext = yield* Ctx.expect();
-  const grammar: string = yield* call(() => ctx.jsonSchemaToGrammar(JSON.stringify(schema)));
-
-  for (const a of hardCut) {
-    try {
-      const result = yield* generate<{ findings: string }>({
-        prompt,
-        grammar,
-        parse: (o: string) => JSON.parse(o),
-        parent: a.branch,
-      });
-      if (result.parsed?.findings) a.findings = result.parsed.findings;
-    } catch { /* extraction failure non-fatal */ }
-    if (!a.branch.disposed) a.branch.pruneSync();
-  }
-}
+const pool = yield* useAgentPool({
+  tasks, tools: toolMap,
+  terminalTool: 'report',
+  reportPrompt: {
+    system: 'You are a research reporter. Call the report tool with all findings.',
+    user: 'Report your findings.',
+  },
+  pruneOnReport: true,   // free KV mid-pool
+});
 ```
 
-Unlike the simpler examples' `reportPass` (which spawns a new agent pool), the deep-research version uses `generate({ parent })` -- scratchpad extraction. It forks from the agent's branch, grammar-constrains a findings JSON extraction, and prunes. This is cheaper than spawning a full agent and works even under heavy KV pressure because the fork is pruned immediately after extraction.
+After all agents finish or are killed, the pool forks from each unreported agent's branch, runs a grammar-constrained `{ findings }` extraction, and records the result with `scratchpad` provenance. A confabulation guard skips agents with fewer than 100 tokens or 2 tool calls — insufficient context would produce hallucinated findings. Extraction runs before the `pool:close` trace event, so findings are populated in trace output.
 
-### Stage 3: Synthesize (grounding tools from all sources)
+### Stage 3: Findings Eval + Synthesize
+
+Before synthesis, the pipeline evaluates whether research agents agree on key claims:
 
 ```typescript
-function* synthesize(
-  agentFindings: string, sourcePassages: string, query: string, opts: WorkflowOpts,
-): Operation<{ pool: AgentPoolResult; eval: {...}; timeMs: number }> {
-  const content = SYNTHESIZE.user
-    .replace('{{agentFindings}}', agentFindings || '(none)')
-    .replace('{{sourcePassages}}', sourcePassages || '(none)')
-    .replace('{{query}}', query);
+const findingsEval = yield* evaluateFindings(res.agentFindings, opts);
+const conflicts = !findingsEval.converged ? findingsEval.conflicts : undefined;
 
-  const groundingTools = opts.sources.flatMap(s => s.groundingTools);
-  const synthToolkit = createToolkit([...groundingTools, reportTool]);
-
-  const synthPool = yield* withSharedRoot(
-    { systemPrompt: SYNTHESIZE.system, tools: synthToolkit.toolsJson },
-    function*(root) {
-      const pool = yield* useAgentPool({
-        tasks: [{ systemPrompt: SYNTHESIZE.system, content, tools: synthToolkit.toolsJson, parent: root }],
-        tools: synthToolkit.toolMap,
-        terminalTool: 'report',
-        maxTurns: opts.maxTurns,
-        trace: opts.trace,
-        pressure: { softLimit: 1024 },
-      });
-      yield* reportPass(pool, opts);
-      return pool;
-    },
-  );
-  // withSharedRoot's finally has pruned the shared root -- KV freed
+const s = yield* synthesize(res.agentFindings, res.sourcePassages, query, opts, conflicts);
 ```
 
-The synthesizer receives two inputs:
+The `evaluateFindings` function uses a grammar-constrained generation that returns `{converged: boolean, conflicts: string[]}`. A contradiction exists when one agent claims something IS the case with evidence while another claims it is NOT the case. Different coverage angles are complementary, not contradictory.
 
-- **Agent findings** -- analysis notes from research agents (structured by source and agent)
-- **Source passages** -- reranked verbatim text from all sources (ground truth for citations)
+**Synthesis adapts to inference state** via an [Eta template](synthesize.eta):
 
-It also receives **grounding tools** from all configured sources. For corpus research, this is `search`, `read_file`, `grep`. For web research, this is `web_search`, `fetch_page`. The synthesizer can independently verify claims by looking up source material, not just trusting research agent notes.
+```typescript
+const rendered = renderTemplate(SYNTHESIZE_TEMPLATE, {
+  agentFindings,
+  sourcePassages: sourcePassages || null,  // omitted when corpus-only
+  conflicts: conflicts || null,             // omitted when converged
+  query,
+});
 
-`createToolkit` builds both `toolMap` and `toolsJson` from the combined tool list. This is the canonical way to construct tool sets -- never manually build toolMap/toolsJson.
+const groundingTools = conflicts
+  ? opts.sources.flatMap(s => s.groundingTools)
+  : [];
+const synthToolkit = createToolkit([...groundingTools, reportTool]);
+```
 
-Note the comment: `withSharedRoot`'s finally block prunes the shared root when the callback exits, freeing KV cells before the eval phase needs them for `diverge` branches.
+- **Converged** -- report-only toolkit, standard prompt. No grounding needed.
+- **Diverged** -- grounding tools added (search, read_file, grep for corpus; web_search, fetch_page for web). The synthesizer reads the source directly to resolve each conflict.
+- **Multi-source** -- source passages section included with citation instructions.
+- **Single-source** -- source passages section omitted entirely, not filled with "(none)".
+
+The Eta template controls which system prompt clauses, user content sections, and numbered instructions appear based on which variables are truthy. No phantom sections, no wasted attention on absent capabilities.
 
 ### Stage 4: Eval (diverge for convergence)
 
@@ -467,7 +447,7 @@ User query
     |           bind(reranker, reportTool, ...)
     |           source.researchTool.execute({ questions })
     |             -> withSharedRoot + useAgentPool (parallel agents)
-    |             -> reportPass (scratchpad extraction for hard-cut agents)
+    |             -> reportPrompt (scratchpad extraction for hard-cut agents)
     |           if not last source:
     |             rerankChunks -> bridge agent -> inject discoveries
     |
@@ -475,8 +455,12 @@ User query
  [rerankChunks]  score all buffered chunks against original query
     |
     v
- [synthesize]  grounding tools from all sources + report
-    |            withSharedRoot + useAgentPool
+ [findingsEval]  grammar-constrained convergence check on agent findings
+    |              -> { converged: boolean, conflicts: string[] }
+    |
+    v
+ [synthesize]  report-only (converged) or grounding tools (diverged)
+    |            Eta template controls prompt/tools based on inference state
     |            -> cited markdown report
     |
     v

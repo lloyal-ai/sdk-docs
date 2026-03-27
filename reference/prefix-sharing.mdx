@@ -139,15 +139,38 @@ Outer pool:
   withSharedRoot (outer root, pos 0..866)
     ├── Agent A0 (fork at 866, suffix 866..896)
     │     └── [tool dispatch: research]
-    │           └── withSharedRoot (inner root, pos 0..750)
-    │                 ├── Agent A0.0 (fork at 750, suffix 750..780)
-    │                 ├── Agent A0.1 (fork at 750, suffix 750..785)
-    │                 └── Agent A0.2 (fork at 750, suffix 750..778)
+    │           └── withSharedRoot (inner root, fork from A0 + 2 token separator)
+    │                 ├── Agent A0.0 (fork from inner root)
+    │                 ├── Agent A0.1 (fork from inner root)
+    │                 └── Agent A0.2 (fork from inner root)
     ├── Agent A1 (fork at 866, suffix 866..903)
     └── Agent A2 (fork at 866, suffix 866..895)
 ```
 
 Inner and outer pools share the same `BranchStore` and the same physical KV cache. `ContextPressure` snapshots `cells_used` across all branches to enforce headroom limits. See [Concurrency Model](/reference/concurrency) for details on how nested pools interact with KV pressure.
+
+### Warm path: fork from parent
+
+When `withSharedRoot` receives a `parent` branch option, it forks from the parent instead of creating a new root at position 0. The parent already has the system prompt in its KV, so the inner root only needs to prefill the turn separator — **2 tokens instead of ~760**.
+
+```typescript
+yield* withSharedRoot(
+  { systemPrompt, tools: toolsJson, parent: context.branch },
+  function*(root) {
+    // Inner agents fork from root, which forked from the calling agent.
+    // They inherit the calling agent's full KV state:
+    // system prompt + tool schemas + all prior tool calls + all tool results.
+  },
+);
+```
+
+This is how [Continuous Context](/learn/introduction#continuous-context-agents-agents-branch-inherit-and-build-on-each-others-attention-state) works for recursive tools. Sub-agents attend over the same physical key-value pairs at the parent's shared positions — no information bottleneck, no re-encoding.
+
+```
+Without warm path: inner root decodes ~760 tokens (full system + tool schemas)
+With warm path:    inner root prefills 2 tokens (turn separator only)
+Savings:           ~758 tokens per recursive fork
+```
 
 ## `cells_used` accounting
 

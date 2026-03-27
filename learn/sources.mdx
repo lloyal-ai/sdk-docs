@@ -93,7 +93,7 @@ class MySource extends Source<MyContext, MyChunk> {
   </Step>
 
   <Step title="groundingTools">
-    Tools for independent verification. The synthesis agent gets these so it can fact-check findings against the source directly — without running a full research swarm.
+    Tools for independent verification. When research agents produce conflicting findings, the synthesis agent receives these tools so it can read the source directly to resolve contradictions — without running a full research swarm. When findings converge, grounding tools are not needed.
   </Step>
 </Steps>
 
@@ -176,9 +176,11 @@ class SlackResearchTool extends Tool<{ questions: string[] }> {
   readonly name = "slack_research";
   // ...
 
-  *execute(args: { questions: string[] }): Operation<unknown> {
+  *execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
     const pool = yield* withSharedRoot(
-      { systemPrompt: SLACK_PROMPT, tools: toolsJson },
+      { systemPrompt: SLACK_PROMPT, tools: toolsJson, parent: context?.branch },
+      //                                               ^^^^^^^^^^^^^^^^^^^^^^
+      // Warm path: fork from calling agent's branch (inherits full attention state)
       function*(root) {
         return yield* runAgents({
           tasks: args.questions.map(q => ({
@@ -189,10 +191,15 @@ class SlackResearchTool extends Tool<{ questions: string[] }> {
           })),
           tools: toolMap,
           terminalTool: "report",
+          pruneOnReport: true,    // free KV immediately when agents report
+          reportPrompt: REPORT,   // extract findings from hard-cut agents
         });
       },
     );
-    return { findings: pool.agents.map(a => a.findings).filter(Boolean) };
+    return {
+      findings: pool.agents.map(a => a.findings).filter(Boolean),
+      supportingFindings: pool.agents.flatMap(a => a.childFindings ?? []),
+    };
   }
 }
 ```

@@ -69,7 +69,7 @@ branch.setGrammarLazy(fmt.grammar, fmt.grammarTriggers);
 The agent pool applies lazy grammar at two moments: once during setup (after all agents are prefilled), and again in SETTLE after each tool result is prefilled. The `applyLazyGrammar` function handles both:
 
 ```typescript
-const applyLazyGrammar = (a: AgentInternal): void => {
+const applyLazyGrammar = (a: Agent): void => {
   if (a.fmt.grammar && a.fmt.grammarLazy && a.fmt.grammarTriggers.length > 0) {
     const triggers = a.fmt.grammarTriggers.map(t => {
       if (t.type === GrammarTriggerType.WORD) {

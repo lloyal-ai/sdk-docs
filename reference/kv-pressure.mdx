@@ -133,6 +133,16 @@ Tool results are the largest KV consumers. A `web_search` result can be 2,000+ t
 
 The `headroom` variable is decremented as results are accepted, so ordering matters. If three tool results are pending and only two fit, the third is rejected even if it is smaller than the first -- processing is sequential through the settled buffer.
 
+### `_contextAvailablePercent` in tool results
+
+After each tool executes, the pool injects `_contextAvailablePercent` into the tool result object before serialization. This is the percentage of KV remaining at that moment:
+
+```json
+{"matches": [...], "totalMatches": 4, "_contextAvailablePercent": 32}
+```
+
+The value is visible to the agent in its attention window — the model can see how much room remains after each tool call. The same value is emitted on the `agent:tool_result` event for TUI display.
+
 ## `cellsUsed` is monotonic during a pool run
 
 <Note>

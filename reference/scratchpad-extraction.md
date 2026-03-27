@@ -114,77 +114,45 @@ Key differences from cold-start:
 
 ## Concrete implementations
 
-### `BufferingFetchPage`
+### Pool-level idle extraction via `reportPrompt`
 
-Wraps `FetchPageTool` to intercept successful page fetches. The full page content is buffered for post-research reranking. Then an extraction scratchpad summarizes the page into `{ summary, links }`:
-
-```typescript
-// Buffer full content for reranking
-this._buffer.push({ url, title, text: content });
-
-// Fork from scratchpad parent, extract compact summary
-const parent = yield* ScratchpadParent.expect();
-const schema = {
-  type: 'object',
-  properties: {
-    summary: { type: 'string' },
-    links: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['summary', 'links'],
-};
-const grammar = yield* call(() => ctx.jsonSchemaToGrammar(JSON.stringify(schema)));
-
-const extracted = yield* generate({
-  prompt: extractPrompt,  // system + page content formatted as chat
-  grammar,
-  params: { temperature: 0.3 },
-  parse: o => JSON.parse(o),
-  parent,
-});
-
-return {
-  url, title,
-  summary: extracted.parsed.summary,
-  links: extracted.parsed.links,
-};
-```
-
-The calling agent receives a compact `{ url, title, summary, links }` object instead of the full page text. The summary might be 200 tokens; the full page would have been 4,000-6,000 tokens. The difference in KV cost to the agent is substantial -- especially when an agent fetches multiple pages across several turns.
-
-The full content is not lost. It sits in the `FetchedPage` buffer, available for post-research reranking via `getChunks()`. The agent reasons from the summary; the reranker scores from the full text.
-
-### `BufferingWebSearch`
-
-Same pattern for search results. Raw search results (title, URL, snippet per result) are distilled into `{ urls, summary }`:
+The most common use of scratchpad extraction is recovering findings from agents killed by KV pressure. When the pool receives a `reportPrompt` option, it automatically runs extraction on idle agents that didn't report:
 
 ```typescript
-const parent = yield* ScratchpadParent.expect();
-const schema = {
-  type: 'object',
-  properties: {
-    urls: { type: 'array', items: { type: 'string' } },
-    summary: { type: 'string' },
+const pool = yield* runAgents({
+  tasks,
+  tools: toolMap,
+  terminalTool: "report",
+  reportPrompt: {
+    system: "You are a research reporter. Call the report tool with all findings.",
+    user: "Report your findings.",
   },
-  required: ['urls', 'summary'],
-};
-const grammar = yield* call(() => ctx.jsonSchemaToGrammar(JSON.stringify(schema)));
-
-const extracted = yield* generate({
-  prompt: extractPrompt,  // system + formatted search results
-  grammar,
-  params: { temperature: 0.3 },
-  parse: o => JSON.parse(o),
-  parent,
 });
-
-return {
-  urls: extracted.parsed.urls,
-  summary: extracted.parsed.summary,
-  resultCount: results.length,
-};
 ```
 
-The agent receives a list of promising URLs and a summary instead of the full search result array. It uses the URLs to decide which pages to fetch and the summary to understand what the search found -- without paying the KV cost of 10-20 individual search result entries.
+After all agents finish or are killed, the pool:
+
+1. Prunes agents that already reported (frees KV for extraction)
+2. Generates a grammar-constrained `{ findings }` extraction from each remaining agent's branch
+3. Records the findings with `scratchpad` provenance
+
+A confabulation guard skips agents with fewer than 100 tokens or fewer than 2 tool calls — an agent with insufficient context would produce hallucinated findings. Better to return no findings than fabricated ones.
+
+This replaces the previous harness-level `reportPass()` pattern. Extraction now runs inside the pool, before the `pool:close` trace event, so findings are populated in trace output.
+
+### Reranker-based chunk selection in `FetchPageTool`
+
+When `FetchPageTool` has a reranker and the agent provides a `query` argument, fetched pages are structurally chunked on heading boundaries and scored against the query. Only the top-K most relevant chunks within a 2048-token budget are returned — reducing KV pressure without lossy summarization:
+
+```typescript
+const tool = new FetchPageTool(6000, 5);  // maxChars fallback, topK
+tool.setReranker(reranker);               // inject cross-encoder
+
+// Agent calls: fetch_page({ url: "...", query: "what about X?" })
+// Returns: top 5 chunks ranked by relevance to "what about X?"
+```
+
+If the top chunk exceeds the token budget, it's truncated on the nearest paragraph boundary — the agent gets the most relevant section rather than an arbitrary prefix. Without a reranker or query, the tool falls back to returning the full content truncated to `maxChars`.
 
 ## KV budget impact
 
@@ -211,19 +179,9 @@ Scratchpad extraction is unnecessary when:
 
 ## Fallback behavior
 
-Both `BufferingFetchPage` and `BufferingWebSearch` handle failure gracefully. If `ScratchpadParent.expect()` throws (no active `withSharedRoot` scope), or if the parent branch is disposed, or if the extraction generation fails, the tool returns the raw unextracted result:
+Both pool-level extraction and reranker-based chunking handle failure gracefully:
 
-```typescript
-let parent: Branch | undefined;
-try { parent = yield* ScratchpadParent.expect(); } catch { /* no parent */ }
-if (!parent || parent.disposed) return result;
+- **Pool extraction**: If the grammar-constrained generation fails or produces empty output, the agent's findings remain `null`. The pipeline continues — other agents' findings are still available.
+- **Reranker chunking**: If no reranker is set or no query is provided, `FetchPageTool` falls back to returning the full page content truncated to `maxChars`. The agent gets a larger tool result (consuming more KV), but the pipeline does not fail.
 
-try {
-  const extracted = yield* generate({ /* ... */ parent });
-  return { summary: extracted.parsed.summary, /* ... */ };
-} catch {
-  return result;  // fallback to full result
-}
-```
-
-The agent gets larger tool results (consuming more KV), but the pipeline does not fail. Scratchpad extraction is an optimization, not a requirement.
+Scratchpad extraction is an optimization, not a requirement.

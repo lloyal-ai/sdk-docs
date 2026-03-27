@@ -334,11 +334,13 @@ get groundingTools(): Tool[] {
 }
 ```
 
-The harness aggregates grounding tools from all sources:
+Grounding tools are added to the synthesis toolkit **conditionally**. When a [findings convergence check](/learn/pipelines#findings-convergence) detects contradictions between agents, the synthesizer receives grounding tools to read the source directly and resolve the conflicts. When findings converge, the synthesizer gets report-only — no wasted grounding.
 
 ```typescript
-const groundingTools = opts.sources.flatMap(s => s.groundingTools);
+const groundingTools = conflicts
+  ? opts.sources.flatMap(s => s.groundingTools)
+  : [];
 const synthToolkit = createToolkit([...groundingTools, reportTool]);
 ```
 
-This gives the synthesis agent direct access to all data backends for cross-referencing claims against primary sources.
+This ensures the synthesis agent can adjudicate when agents disagree — and avoids unnecessary tool calls when they agree.
