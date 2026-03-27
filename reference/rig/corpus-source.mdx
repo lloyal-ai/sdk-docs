@@ -43,16 +43,10 @@ description: "Local file research with grep, semantic search, read_file, and rec
   </Step>
   <Step title="Bind the reranker">
     ```typescript
-    yield* source.bind({
-      reranker,
-      reporterPrompt: REPORT,
-      reportTool,
-      maxTurns: 20,
-      trace: false,
-    });
+    yield* source.bind({ reranker });
     ```
 
-    `bind()` tokenizes all chunks through the reranker, prepends a `SearchTool` to the tool list, and constructs the self-referential `ResearchTool`. Call it once before using the source.
+    `bind()` tokenizes all chunks through the reranker and prepends a `SearchTool` to the tool list. Call it once before using the source.
   </Step>
 </Steps>
 
@@ -67,7 +61,7 @@ description: "Local file research with grep, semantic search, read_file, and rec
 | `search` | Semantic search via reranker scoring. Returns ranked chunks with file names, headings, scores, and line ranges. | First tool agents reach for. Broad semantic matching. |
 | `grep` | Exhaustive regex scan across all files. Returns matching lines with file names and line numbers, capped at 50. | When the agent needs exact pattern matches -- specific identifiers, error codes, function names. |
 | `read_file` | Read file content at specific line ranges. Tracks per-agent read state to skip already-read lines. | After search or grep reveals a relevant section. Agents read the surrounding context. |
-| `research` | Spawn a parallel sub-agent pool. Each sub-question gets its own agent with the full toolkit. | When an agent discovers a sub-topic that needs deeper investigation. Self-referential recursion. |
+| (recursive delegate) | When `spawnAgents()` is called with `recursive: true`, a delegate tool is added to the toolkit. Sub-agents can spawn their own sub-agents for deeper investigation. | Configured by the harness, not the source. |
 
 <Tip>
 `search` is ordered first in the toolkit deliberately. The model prefers tools listed earlier, so agents default to semantic search before falling back to grep or read_file.
@@ -77,11 +71,11 @@ description: "Local file research with grep, semantic search, read_file, and rec
 
 `ReadFileTool` tracks which lines each agent has already read, keyed by `agentId:filename`. When an agent requests a range it has already seen, the tool returns only the unread portions. This prevents redundant context inflation.
 
-### Research recursion
+### Recursion via `spawnAgents()`
 
-`ResearchTool` is self-referential. It spawns sub-agents that have access to the full toolkit -- including `research` itself. Sub-agents can spawn their own sub-agents for arbitrarily deep investigation.
+When the harness calls `spawnAgents()` with `recursive: true`, a delegate tool is added to the agents' toolkit. Sub-agents can call it to spawn their own sub-agents for deeper investigation. The recursion shape (tool name, args schema, task extraction) is configured by the harness, not by the source.
 
-Hard-cut agents (those that exhaust their turn limit without calling `report`) get a forced extraction pass. The research tool forks from the agent's branch and runs a grammar-constrained generation to recover partial findings.
+Hard-cut agents (those that exhaust their turn limit without calling the terminal tool) get a forced extraction pass via `reportPrompt`. The pool forks from the agent's branch and runs a grammar-constrained generation to recover partial findings.
 
 ## Quick Start
 
@@ -107,17 +101,16 @@ const source = new CorpusSource(resources, chunks);
 // Inside an Effection scope:
 const { session, events } = yield* initAgents(ctx);
 
-yield* source.bind({
-  reranker,
-  reporterPrompt: { system: "...", user: "..." },
-  reportTool,
-  maxTurns: 20,
-  trace: false,
-});
+yield* source.bind({ reranker });
 
-// Use the research tool directly
-const result = yield* source.researchTool.execute({
-  questions: ["How does the allocation pool handle cleanup?"],
+// Use spawnAgents with the source's tools
+const pool = yield* spawnAgents({
+  tools: source.tools,
+  systemPrompt: CORPUS_RESEARCH_PROMPT,
+  tasks: ["How does the allocation pool handle cleanup?"],
+  terminalTool: { name: "report", tool: reportTool },
+  recursive: { name: "research", extractTasks: (a) => a.questions as string[] },
+  reportPrompt: REPORT,
 });
 ```
 
@@ -138,4 +131,4 @@ const toolkit = createTools({
 // toolkit.toolsJson has the JSON schemas for the model
 ```
 
-This builds a flat toolkit with `SearchTool`, `ReadFileTool`, `GrepTool`, and `ReportTool`. No `ResearchTool` -- use this when you want corpus tools without recursive sub-agents.
+This builds a flat toolkit with `SearchTool`, `ReadFileTool`, `GrepTool`, and `ReportTool`. Use this when you want corpus tools in a custom toolkit without the `Source` abstraction.

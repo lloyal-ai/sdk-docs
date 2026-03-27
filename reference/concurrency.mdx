@@ -175,7 +175,7 @@ export const CallingAgent = createContext<Agent>('lloyal.callingAgent');
 
 When the inner `useAgentPool` does `yield* Ctx.expect()`, it gets the same `SessionContext`. Same `BranchStore`. Same event `Channel`. No argument drilling. A child scope can override context locally without affecting ancestors.
 
-`CallingAgent` propagates lineage. During DISPATCH, the pool sets `CallingAgent` to the agent that made the tool call. When the tool spawns an inner pool, each inner agent reads `CallingAgent` and records it as its parent. This enables `walkLineage()` — traversing from inner agent up through the calling chain to the outermost agent.
+`CallingAgent` propagates lineage. During DISPATCH, the pool sets `CallingAgent` to the agent that made the tool call. When the tool spawns an inner pool, each inner agent reads `CallingAgent` and records it as its parent. This enables `walkAncestors()` — traversing from inner agent up through the calling chain to the outermost agent.
 
 ### Inner pool execution
 
@@ -205,8 +205,8 @@ The inner `withSharedRoot` forks from the calling agent's branch (warm path) or 
       });
 
       return {
-        findings: pool.agents.map(a => a.findings).filter(Boolean),
-        supportingFindings: pool.agents.flatMap(a => a.childFindings ?? []),
+        results: pool.agents.map(a => a.findings).filter(Boolean),
+        nestedResults: pool.agents.flatMap(a => a.nestedResults ?? []),
       };
     },
   );
@@ -263,16 +263,16 @@ Level 2: Deeper research agents (if a level-1 agent calls research)
          Same prompt. Same tools. Same prescribed process.
 ```
 
-One toolkit at every level:
+One toolkit at every level — composed by `spawnAgents()`:
 
 ```typescript
-const toolkit = createToolkit([
-  new SearchTool(chunks, reranker),
-  new ReadFileTool(resources),
-  new GrepTool(resources),
-  new ReportTool(),
-]);
-researchTool.setToolkit(toolkit);
+const pool = yield* spawnAgents({
+  tools: source.tools,               // search, read_file, grep
+  systemPrompt: RESEARCH_PROMPT,
+  tasks: questions,
+  terminalTool: { name: 'report', tool: reportTool },
+  recursive: { name: 'research' },   // self-referential delegation
+});
 ```
 
 ## Depth

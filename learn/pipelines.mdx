@@ -247,7 +247,7 @@ When a pipeline uses multiple sources, research stages can chain with bridge sta
 
 ```typescript
 for (let i = 0; i < sources.length; i++) {
-  const result = yield* sources[i].researchTool.execute({ questions });
+  const pool = yield* spawnAgents({ tools: sources[i].tools, systemPrompt, tasks: questions, ... });
   findings.push(result);
 
   // Between sources: structure discoveries as context for the next source

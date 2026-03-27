@@ -6,7 +6,7 @@ description: The Source abstraction — any system with searchable content.
 
 A source is any system your agents can search. File system. Web. Vector database. Email inbox. JIRA. Internal wiki. Anything with content and a way to find it.
 
-You define how to search. The framework handles agent orchestration, tool dispatch, and result collection.
+You define the tools. The harness orchestrates agents with those tools via [spawnAgents()](/learn/agents#spawnagents).
 
 ## What sources can wrap
 
@@ -39,7 +39,7 @@ You define how to search. The framework handles agent orchestration, tool dispat
 
 ## The contract
 
-Every source implements five members:
+A source is a data backend. It provides tools and chunks — not orchestration.
 
 ```typescript
 import { Source } from "@lloyal-labs/lloyal-agents";
@@ -50,38 +50,30 @@ class MySource extends Source<MyContext, MyChunk> {
   // 1. Human-readable label for this source
   readonly name = "jira";
 
-  // 2. The research tool — an atomic swarm that searches this source
-  get researchTool(): Tool {
-    return this._researchTool;
+  // 2. Data access tools this source provides
+  get tools(): Tool[] {
+    return [this._searchTool, this._readTool];
   }
 
   // 3. Late-bind runtime dependencies not available at construction
   *bind(ctx: MyContext): Operation<void> {
-    this._reranker = ctx.reranker;
-    this._researchTool = new JiraResearchTool(this._reranker);
+    this._searchTool = new JiraSearchTool(this._client, ctx.reranker);
   }
 
-  // 4. Post-research chunks for reranking
+  // 4. Post-use chunks for reranking
   getChunks(): MyChunk[] {
     return this._buffer.getAll();
-  }
-
-  // 5. Grounding tools for independent verification
-  get groundingTools(): Tool[] {
-    return [new JiraSearchTool(this._client)];
   }
 }
 ```
 
 <Steps>
   <Step title="name">
-    A label. Used in findings to attribute which source produced what. Keep it short — `"web"`, `"corpus"`, `"jira"`.
+    A label. Used in output to attribute which source produced what. Keep it short — `"web"`, `"corpus"`, `"jira"`.
   </Step>
 
-  <Step title="researchTool">
-    The main tool. When called, it spawns agents that search this source and return findings. This is typically a recursive tool — it creates a `withSharedRoot` + `runAgents` internally.
-
-    The orchestrator doesn't know how your source works. It calls `researchTool.execute({ questions })` and gets back findings.
+  <Step title="tools">
+    The data access tools this source provides. The harness passes these to `spawnAgents()` along with its own prompt and orchestration config. The source doesn't decide how agents use the tools — the harness does.
   </Step>
 
   <Step title="bind(ctx)">
@@ -89,33 +81,43 @@ class MySource extends Source<MyContext, MyChunk> {
   </Step>
 
   <Step title="getChunks()">
-    Returns buffered content for post-research reranking. During research, agents fetch content (pages, documents, code files). The source buffers it. After research completes, the orchestrator calls `getChunks()` and reranks against the original query to select the best passages for synthesis.
-  </Step>
-
-  <Step title="groundingTools">
-    Tools for independent verification. When research agents produce conflicting findings, the synthesis agent receives these tools so it can read the source directly to resolve contradictions — without running a full research swarm. When findings converge, grounding tools are not needed.
+    Returns buffered content for post-use reranking. During agent execution, tools fetch content (pages, documents, code files). The source buffers it. After agents complete, the harness calls `getChunks()` and reranks against the original query to select the best passages for synthesis.
   </Step>
 </Steps>
 
 ## How sources compose
 
-A pipeline can use multiple sources. The orchestrator iterates through them:
+A pipeline can use multiple sources. The harness iterates through them, using `spawnAgents()` to orchestrate agents with each source's tools:
 
 ```typescript
+import { spawnAgents } from "@lloyal-labs/lloyal-agents";
+
 const sources = [
-  new CorpusSource(resources),  // Search local files first
-  new WebSource(tavilyKey),     // Then search the web
+  new CorpusSource(resources, chunks),
+  new WebSource(new TavilyProvider()),
 ];
 
-// In the pipeline:
 for (const source of sources) {
-  yield* source.bind(ctx);
-  const result = yield* source.researchTool.execute({ questions });
-  findings.push(result);
+  yield* source.bind({ reranker });
+
+  const pool = yield* spawnAgents({
+    tools: source.tools,
+    systemPrompt: RESEARCH_PROMPT,    // harness owns the prompt
+    tasks: questions,
+    terminalTool: { name: "report", tool: reportTool },
+    recursive: {                       // optional self-referential recursion
+      name: "research",
+      extractTasks: (args) => args.questions as string[],
+    },
+    reportPrompt: REPORT,
+    pruneOnReport: true,
+  });
+
+  findings.push(pool.agents.map(a => a.findings).filter(Boolean));
 }
 ```
 
-Each source is independent. It builds its own tools, manages its own agents, and returns its own findings. The orchestrator sees a uniform interface.
+Each source is independent. It provides tools. The harness provides prompts, orchestration config, and recursion shape. The same `spawnAgents()` call works with any source — web, corpus, database, API.
 
 <Tip>
 Sources are ordered deliberately. Put high-confidence sources first (local corpus, verified databases). Web or broad API sources go last. Between sources, a bridge stage can structure early findings as context for later sources.
@@ -127,83 +129,62 @@ lloyal ships two source implementations in `@lloyal-labs/rig`:
 
 <CardGroup cols={2}>
   <Card title="CorpusSource" icon="folder-open" href="/reference/rig/corpus-source">
-    Local file system research. Grep, read file, semantic search over indexed content. Agents search your codebase or document corpus.
+    Local file system. Grep, read file, semantic search over indexed content.
   </Card>
   <Card title="WebSource" icon="globe" href="/reference/rig/web-source">
-    Web research with Tavily search, page fetching, content buffering, and recursive sub-agents. Agents search the web and extract relevant passages.
+    Web search with Tavily, page fetching with reranking, content buffering.
   </Card>
 </CardGroup>
 
-These are reference implementations. They show how to wire up `researchTool`, `bind`, `getChunks`, and `groundingTools` for real use cases. Use them directly or as templates for your own sources.
+Both are platform-agnostic — no `node:fs` dependency. They work identically on Node.js and React Native. Import from `@lloyal-labs/rig` on any platform.
 
 ## Building your own source
 
 Start with the question: what can you search, and what do you get back?
 
 ```typescript
-class SlackSource extends Source<SourceContext, SlackChunk> {
+class SlackSource extends Source<{ reranker: Reranker }, SlackChunk> {
   readonly name = "slack";
   private _client: SlackClient;
   private _buffer: SlackChunk[] = [];
-  private _researchTool!: Tool;
+  private _searchTool!: SlackSearchTool;
+  private _threadTool!: SlackThreadTool;
 
   constructor(token: string) {
     super();
     this._client = new SlackClient(token);
   }
 
-  get researchTool(): Tool { return this._researchTool; }
+  get tools(): Tool[] {
+    return [this._searchTool, this._threadTool];
+  }
 
-  *bind(ctx: SourceContext): Operation<void> {
-    // Build a tool that searches Slack channels and threads
-    this._researchTool = new SlackResearchTool(
-      this._client, this._buffer, ctx.reranker
-    );
+  *bind(ctx: { reranker: Reranker }): Operation<void> {
+    this._searchTool = new SlackSearchTool(this._client, ctx.reranker);
+    this._threadTool = new SlackThreadTool(this._client);
   }
 
   getChunks(): SlackChunk[] { return this._buffer; }
-
-  get groundingTools(): Tool[] {
-    return [new SlackSearchTool(this._client)];
-  }
 }
 ```
 
-The research tool is where the work happens. It's a regular `Tool` subclass that spawns agents:
+The harness orchestrates agents with the source's tools:
 
 ```typescript
-class SlackResearchTool extends Tool<{ questions: string[] }> {
-  readonly name = "slack_research";
-  // ...
+yield* source.bind({ reranker });
 
-  *execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
-    const pool = yield* withSharedRoot(
-      { systemPrompt: SLACK_PROMPT, tools: toolsJson, parent: context?.branch },
-      //                                               ^^^^^^^^^^^^^^^^^^^^^^
-      // Warm path: fork from calling agent's branch (inherits full attention state)
-      function*(root) {
-        return yield* runAgents({
-          tasks: args.questions.map(q => ({
-            systemPrompt: SLACK_PROMPT,
-            content: q,
-            tools: toolsJson,
-            parent: root,
-          })),
-          tools: toolMap,
-          terminalTool: "report",
-          pruneOnReport: true,    // free KV immediately when agents report
-          reportPrompt: REPORT,   // extract findings from hard-cut agents
-        });
-      },
-    );
-    return {
-      findings: pool.agents.map(a => a.findings).filter(Boolean),
-      supportingFindings: pool.agents.flatMap(a => a.childFindings ?? []),
-    };
-  }
-}
+const pool = yield* spawnAgents({
+  tools: source.tools,
+  systemPrompt: SLACK_RESEARCH_PROMPT,
+  tasks: questions,
+  terminalTool: { name: "report", tool: reportTool },
+  recursive: { name: "investigate", extractTasks: (args) => args.tasks as string[] },
+  reportPrompt: REPORT,
+});
 ```
 
+The source provides data access. The harness provides the prompt, the recursion shape, and the orchestration policy. The same source can be used in a research pipeline, a support triage pipeline, or a monitoring pipeline — with different prompts and different orchestration for each.
+
 <Note>
-The source abstraction is intentionally thin. Five members. No configuration framework, no registration system, no plugin lifecycle. You subclass `Source`, implement the contract, and pass instances to your pipeline.
+The source abstraction is intentionally thin. Three members: `name`, `tools`, `bind`. No orchestration, no prompts, no policy. You subclass `Source`, implement the contract, and pass instances to your harness.
 </Note>

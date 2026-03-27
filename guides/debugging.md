@@ -171,7 +171,7 @@ If the parent was pruned before the fork, the scratchpad has no context to atten
 - Grammar schema mismatch -- the extraction grammar does not match what the model can produce given the context
 - Insufficient KV remaining for the scratchpad prompt itself
 
-The hard-cut recovery in `ResearchTool` and `WebResearchTool` handles this gracefully -- extraction failures are caught and treated as non-fatal:
+The hard-cut recovery via `reportPrompt` in `spawnAgents()` handles this gracefully — extraction failures are caught and treated as non-fatal:
 
 ```typescript
 try {
@@ -220,7 +220,7 @@ A synthesis agent with grounding tools (search, read_file, grep, query) can make
 
 **Solutions:**
 - Ensure research agents produced findings: check earlier `pool:close` events for non-null `findings` in the agents array
-- Give synthesis grounding tools: `createToolkit([...groundingTools, reportTool])`
+- Give synthesis grounding tools when conflicts detected: `createToolkit([...source.tools, reportTool])`
 - Increase reranker passage count for more source material in the synthesis prompt
 
 ## Problem: Plan produces poor sub-questions

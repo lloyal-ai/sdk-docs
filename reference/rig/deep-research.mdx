@@ -39,29 +39,31 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
     Passthrough queries get double `maxTurns` since they run as a single focused agent.
   </Step>
   <Step title="Research">
-    Each source's research tool spawns a pool of agents. Agents interleave retrieval and generation -- searching, reading, forming hypotheses, searching again.
+    The harness calls `spawnAgents()` for each source. Agents interleave retrieval and generation — searching, reading, forming hypotheses, searching again.
 
-    All agents within a source run concurrently on shared GPU compute via `useAgentPool`. Sources run sequentially, each getting the full KV budget.
+    All agents within a source run concurrently on shared GPU compute. Sources run sequentially, each getting the full KV budget.
 
     ```typescript
-    const result = yield* withSharedRoot(
-      { systemPrompt: ROOT.system },
-      function*(root) {
-        for (const source of opts.sources)
-          yield* source.bind({ reranker, reporterPrompt, reportTool, maxTurns, trace });
+    for (const source of opts.sources)
+      yield* source.bind({ reranker });
 
-        for (const source of opts.sources) {
-          yield* source.researchTool.execute({ questions: activeQuestions });
-          // Bridge between sources (see next step)
-        }
-        return opts.sources.flatMap(s => s.getChunks());
-      },
-    );
+    for (const source of opts.sources) {
+      const pool = yield* spawnAgents({
+        tools: source.tools,
+        systemPrompt: RESEARCH_PROMPT,
+        tasks: activeQuestions,
+        terminalTool: { name: 'report', tool: reportTool },
+        recursive: { name: 'web_research', extractTasks: (a) => a.questions as string[] },
+        reportPrompt: REPORT,
+        pruneOnReport: true,
+      });
+      // Bridge between sources (see next step)
+    }
     ```
 
     Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`reportPrompt`). A grammar-constrained generation forks from the agent's accumulated KV and extracts findings. A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
 
-    Recursive tools return both primary findings and `supportingFindings` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report. These are included as supporting research in the synthesis prompt.
+    Recursive delegation returns both primary results and `nestedResults` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report. These are included as supporting context in the synthesis prompt.
   </Step>
   <Step title="Bridge">
     Runs between sources when multiple sources are configured and the completed source produced findings.

@@ -148,80 +148,31 @@ class GrepTool extends Tool<{ pattern: string; ignoreCase?: boolean }> {
 
 Tools can spawn sub-agents using `withSharedRoot` + `useAgentPool`. The research tool pattern: include yourself in the toolkit so agents can delegate sub-questions.
 
-```typescript
-import { withSharedRoot, useAgentPool, createToolkit } from '@lloyal-labs/lloyal-agents';
-import type { Toolkit } from '@lloyal-labs/lloyal-agents';
+Instead of writing a custom recursive tool, use `spawnAgents()` with `recursive: true`. It handles the circular toolkit wiring internally:
 
-class ResearchTool extends Tool<{ questions: string[] }> {
-  readonly name = 'research';
-  readonly description = 'Spawn parallel agents to investigate sub-questions';
-  readonly parameters: JsonSchema = {
-    type: 'object',
-    properties: {
-      questions: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Sub-questions to research',
-      },
+```typescript
+import { spawnAgents } from '@lloyal-labs/lloyal-agents';
+
+const pool = yield* spawnAgents({
+  tools: [searchTool, grepTool, readFileTool],
+  systemPrompt: RESEARCH_PROMPT,
+  tasks: questions,
+  terminalTool: { name: 'report', tool: reportTool },
+  maxTurns: 20,
+  recursive: {
+    name: 'research',
+    description: 'Spawn parallel sub-agents to investigate sub-questions.',
+    argsSchema: {
+      type: 'object',
+      properties: { questions: { type: 'array', items: { type: 'string' } } },
+      required: ['questions'],
     },
-    required: ['questions'],
-  };
-
-  private _systemPrompt: string;
-  private _maxTurns: number;
-  private _toolkit: Toolkit | null = null;
-
-  constructor(opts: { systemPrompt: string; maxTurns: number }) {
-    super();
-    this._systemPrompt = opts.systemPrompt;
-    this._maxTurns = opts.maxTurns;
-  }
-
-  /** Must be called after createToolkit to close the circular reference */
-  setToolkit(toolkit: Toolkit): void {
-    this._toolkit = toolkit;
-  }
-
-  *execute(args: { questions: string[] }): Operation<unknown> {
-    if (!this._toolkit)
-      throw new Error('ResearchTool: call setToolkit() first');
-
-    const toolkit = this._toolkit;
-    const systemPrompt = this._systemPrompt;
-
-    return yield* withSharedRoot(
-      { systemPrompt, tools: toolkit.toolsJson },
-      function*(root) {
-        const pool = yield* useAgentPool({
-          tasks: args.questions.map(q => ({
-            systemPrompt,
-            content: q,
-            tools: toolkit.toolsJson,
-            parent: root,
-          })),
-          tools: toolkit.toolMap,
-          terminalTool: 'report',
-          maxTurns: this._maxTurns,
-        });
-
-        return {
-          findings: pool.agents.map(a => a.findings).filter(Boolean),
-          agentCount: pool.agents.length,
-          totalTokens: pool.totalTokens,
-        };
-      }.bind(this),
-    );
-  }
-}
+    extractTasks: (args) => args.questions as string[],
+  },
+});
 ```
 
-The circular reference pattern:
-
-```typescript
-const research = new ResearchTool({ systemPrompt, maxTurns: 20 });
-const toolkit = createToolkit([searchTool, grepTool, reportTool, research]);
-research.setToolkit(toolkit);
-```
+`spawnAgents()` creates the recursive delegate tool, adds it to the toolkit, and wires the circular reference. Agents see `research` as a callable tool. When they call it, another `spawnAgents()` runs internally with the same config. Recursion to arbitrary depth, bounded by KV.
 
 ## Step 5: Register with createToolkit
 
@@ -235,11 +186,12 @@ const { toolMap, toolsJson } = createToolkit([
   new ReadFileTool(resources),
   new GrepTool(resources),
   reportTool,
-  researchTool,
 ]);
 ```
 
 `toolMap` is a `Map<string, Tool>` used by `useAgentPool` for runtime dispatch. `toolsJson` is the JSON-serialized schema array passed to `formatChat()` via task specs.
+
+When using `spawnAgents()` with `recursive: true`, the recursive delegate tool is added to the toolkit automatically — you don't include it in the `createToolkit` call.
 
 Pass both to the agent pool:
 

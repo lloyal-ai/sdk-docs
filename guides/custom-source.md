@@ -1,11 +1,11 @@
 ---
 title: "Build a Custom Source"
-description: "Implement Source<TCtx, TChunk> to plug any data backend into the research pipeline."
+description: "Implement Source<TCtx, TChunk> to plug any data backend into an agent pipeline."
 ---
 
-This guide walks through implementing a custom `Source` for the research pipeline. A source is a self-contained data backend -- it provides its own research tool (an agent swarm with source-specific prompts and toolkit), grounding tools for synthesis verification, and post-research chunks for reranking.
+This guide walks through implementing a custom `Source`. A source is a data backend -- it provides tools for agents to interact with your data. The harness orchestrates agents with those tools via `spawnAgents()`.
 
-The harness sees sources as interchangeable. It calls `source.bind()`, executes `source.researchTool`, collects `source.getChunks()` for reranking, and uses `source.groundingTools` during synthesis. Your custom source plugs into this contract without changes to the harness.
+Sources don't own prompts or orchestration. The harness decides the prompt, the recursion shape, and the agent policy. Your source just provides tools and chunks.
 
 ## The Source base class
 
@@ -14,23 +14,21 @@ From `packages/agents/src/source.ts`:
 ```typescript
 export abstract class Source<TCtx, TChunk> {
   abstract readonly name: string;
-  abstract get researchTool(): Tool;
+  abstract get tools(): Tool[];
 
   *bind(_ctx: TCtx): Operation<void> {}
   getChunks(): TChunk[] { return []; }
-  get groundingTools(): Tool[] { return []; }
 }
 ```
 
 | Member | Required | Purpose |
 |--------|----------|---------|
-| `name` | Yes | Labels findings in the research output (e.g. "database", "api") |
-| `researchTool` | Yes | The tool the harness executes -- spawns an agent pool internally |
-| `bind(ctx)` | Optional | Late-binds runtime deps (reranker, reporter prompt) not available at construction |
-| `getChunks()` | Optional | Returns buffered chunks for post-research reranking |
-| `groundingTools` | Optional | Tools available during synthesis for independent verification |
+| `name` | Yes | Labels output to attribute which source produced what (e.g. "database", "api") |
+| `tools` | Yes | Data access tools the harness passes to `spawnAgents()` |
+| `bind(ctx)` | Optional | Late-binds runtime deps (reranker, API clients) not available at construction |
+| `getChunks()` | Optional | Returns buffered chunks for post-use reranking |
 
-The type parameters: `TCtx` is the context type passed to `bind()`, `TChunk` is the chunk type returned by `getChunks()`. The built-in sources use `SourceContext` and `Chunk` from `@lloyal-labs/rig`.
+The type parameters: `TCtx` is the context type passed to `bind()`, `TChunk` is the chunk type returned by `getChunks()`.
 
 ## Step-by-step implementation
 
@@ -39,7 +37,7 @@ The type parameters: `TCtx` is the context type passed to `bind()`, `TChunk` is 
 ```typescript
 import type { Tool } from '@lloyal-labs/lloyal-agents';
 import { Source } from '@lloyal-labs/lloyal-agents';
-import type { SourceContext, Chunk } from '@lloyal-labs/rig';
+import type { Chunk } from '@lloyal-labs/rig';
 
 interface DatabaseRow {
   id: string;
@@ -48,9 +46,9 @@ interface DatabaseRow {
 }
 ```
 
-### 2. Create grounding tools
+### 2. Create data access tools
 
-These are the tools research agents use to interact with your data. See the [Custom Tool](./custom-tool.md) guide for full details. At minimum you need a retrieval tool:
+These are the tools agents use to interact with your data. See the [Custom Tool](./custom-tool.md) guide for full details. At minimum you need a retrieval tool:
 
 ```typescript
 class QueryTool extends Tool<{ sql: string }> {
@@ -100,107 +98,16 @@ class DescribeTool extends Tool<{ table: string }> {
 }
 ```
 
-### 3. Create the research tool
-
-The research tool spawns an agent pool with `withSharedRoot` + `useAgentPool`. It is self-referential -- it includes itself in the toolkit so agents can spawn sub-agents for deeper investigation.
+### 3. Implement the Source class
 
 ```typescript
-import { createToolkit, withSharedRoot, useAgentPool } from '@lloyal-labs/lloyal-agents';
-import type { Toolkit, PressureThresholds } from '@lloyal-labs/lloyal-agents';
-
-class DatabaseResearchTool extends Tool<{ questions: string[] }> {
-  readonly name = 'research';
-  readonly description = 'Spawn parallel agents to investigate database questions';
-  readonly parameters = {
-    type: 'object',
-    properties: {
-      questions: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Questions to investigate in parallel',
-      },
-    },
-    required: ['questions'],
-  };
-
-  private _systemPrompt: string;
-  private _maxTurns: number;
-  private _trace: boolean;
-  private _toolkit: Toolkit | null = null;
-
-  constructor(opts: { systemPrompt: string; maxTurns: number; trace: boolean }) {
-    super();
-    this._systemPrompt = opts.systemPrompt;
-    this._maxTurns = opts.maxTurns;
-    this._trace = opts.trace;
-  }
-
-  setToolkit(toolkit: Toolkit): void {
-    this._toolkit = toolkit;
-  }
-
-  *execute(args: { questions: string[] }): Operation<unknown> {
-    if (!this._toolkit)
-      throw new Error('DatabaseResearchTool: call setToolkit() first');
-    const questions = args.questions;
-    if (!Array.isArray(questions) || questions.length === 0)
-      return { error: 'questions must be a non-empty array' };
-
-    const toolkit = this._toolkit;
-    const systemPrompt = this._systemPrompt;
-
-    return yield* withSharedRoot(
-      { systemPrompt, tools: toolkit.toolsJson },
-      function*(root) {
-        const pool = yield* useAgentPool({
-          tasks: questions.map(q => ({
-            systemPrompt,
-            content: q,
-            tools: toolkit.toolsJson,
-            parent: root,
-          })),
-          tools: toolkit.toolMap,
-          terminalTool: 'report',
-          maxTurns: this._maxTurns,
-          trace: this._trace,
-        });
-
-        return {
-          findings: pool.agents.map(a => a.findings).filter(Boolean),
-          agentCount: pool.agents.length,
-          totalTokens: pool.totalTokens,
-          totalToolCalls: pool.totalToolCalls,
-        };
-      }.bind(this),
-    );
-  }
-}
-```
-
-### 4. Wire the toolkit with correct ordering
-
-Tool ordering in the toolkit array affects model behavior. Terminal tools (`report`) must not be last in the array -- place them before any self-referential tool that shares a name prefix. This prevents LLM recency bias from favoring early termination.
-
-```typescript
-// Correct: report before research
-const toolkit = createToolkit([queryTool, describeTool, reportTool, researchTool]);
-
-// Wrong: report last -- model favors "report" over "research" at decision boundaries
-const toolkit = createToolkit([queryTool, describeTool, researchTool, reportTool]);
-```
-
-### 5. Implement the Source class
-
-```typescript
-class DatabaseSource extends Source<SourceContext, Chunk> {
+class DatabaseSource extends Source<{ reranker: Reranker }, Chunk> {
   readonly name = 'database';
 
   private _db: Database;
   private _queryTool: QueryTool;
   private _describeTool: DescribeTool;
-  private _researchTool: DatabaseResearchTool | null = null;
   private _results: Chunk[] = [];
-  private _bound = false;
 
   constructor(db: Database) {
     super();
@@ -209,37 +116,13 @@ class DatabaseSource extends Source<SourceContext, Chunk> {
     this._describeTool = new DescribeTool(db);
   }
 
-  get researchTool(): Tool {
-    if (!this._researchTool)
-      throw new Error('DatabaseSource: bind() must be called first');
-    return this._researchTool;
-  }
-
-  get groundingTools(): Tool[] {
+  get tools(): Tool[] {
     return [this._queryTool, this._describeTool];
   }
 
-  *bind(ctx: SourceContext): Operation<void> {
-    if (this._bound) return;
-
-    const systemPrompt = `You are a database research agent. Use query() to run SQL and describe() to inspect table schemas. Report your findings when you have enough information.`;
-
-    const research = new DatabaseResearchTool({
-      systemPrompt,
-      maxTurns: ctx.maxTurns,
-      trace: ctx.trace,
-    });
-
-    // Tool ordering: grounding tools, then report, then research
-    const toolkit = createToolkit([
-      this._queryTool,
-      this._describeTool,
-      ctx.reportTool,
-      research,
-    ]);
-    research.setToolkit(toolkit);
-    this._researchTool = research;
-    this._bound = true;
+  *bind(ctx: { reranker: Reranker }): Operation<void> {
+    // Wire reranker if you have chunks to tokenize
+    // For a database source, this might be a no-op
   }
 
   getChunks(): Chunk[] {
@@ -248,46 +131,80 @@ class DatabaseSource extends Source<SourceContext, Chunk> {
 }
 ```
 
-### 6. Use in a pipeline
+### 4. Use in a pipeline with `spawnAgents()`
+
+The harness orchestrates agents with your source's tools:
 
 ```typescript
-const sources: Source<SourceContext, Chunk>[] = [];
+import { spawnAgents } from '@lloyal-labs/lloyal-agents';
+
+const db = await connectDatabase(connectionString);
+const source = new DatabaseSource(db);
+yield* source.bind({ reranker });
+
+const pool = yield* spawnAgents({
+  tools: source.tools,
+  systemPrompt: `You are a database analyst. Use query() to run SQL
+    and describe() to inspect table schemas. Report your findings.`,
+  tasks: questions,
+  terminalTool: { name: 'report', tool: reportTool },
+  maxTurns: 10,
+  recursive: {
+    name: 'investigate',
+    description: 'Delegate sub-questions to parallel agents.',
+    extractTasks: (args) => args.questions as string[],
+  },
+  reportPrompt: REPORT,
+  pruneOnReport: true,
+});
+```
+
+The source provides tools. The harness provides the prompt, the recursion shape, and the orchestration config. The same source works in any pipeline -- research, code review, support triage -- with different prompts for each.
+
+### 5. Combine with other sources
+
+```typescript
+const sources = [];
 
 const db = await connectDatabase(connectionString);
 sources.push(new DatabaseSource(db));
 
-// Optionally combine with other sources
 if (process.env.TAVILY_API_KEY) {
   sources.push(new WebSource(new TavilyProvider()));
 }
 
-const result = yield* handleQuery(query, { ...opts, sources });
+// In the pipeline:
+for (const source of sources) {
+  yield* source.bind({ reranker });
+  const pool = yield* spawnAgents({
+    tools: source.tools,
+    systemPrompt: PROMPTS[source.name] ?? DEFAULT_PROMPT,
+    tasks: questions,
+    ...opts,
+  });
+}
 ```
 
 ## The bind lifecycle
 
-`bind()` is called by the harness before research starts. It receives a `SourceContext`:
+`bind()` is called by the harness before agents start. It receives whatever context the source needs -- typically just the reranker:
 
 ```typescript
-interface SourceContext {
-  reranker: Reranker;
-  reporterPrompt: { system: string; user: string };
-  reportTool: Tool;
-  maxTurns: number;
-  trace: boolean;
+*bind(ctx: { reranker: Reranker }): Operation<void> {
+  yield* call(() => ctx.reranker.tokenizeChunks(this._chunks));
+  this._searchTool = new SearchTool(this._chunks, ctx.reranker);
 }
 ```
 
 Use `bind()` to:
 - Initialize the reranker with your chunks (if using semantic search)
-- Build the research toolkit with the shared `reportTool`
 - Set up any runtime state that depends on pipeline configuration
 
 Make `bind()` idempotent -- the harness may call it multiple times across warm queries. Guard with a `_bound` flag.
 
 ## Buffering chunks for reranking
 
-`getChunks()` is called after research completes. The harness passes chunks through the reranker to select the most relevant passages for synthesis.
+`getChunks()` is called after agents complete. The harness passes chunks through the reranker to select the most relevant passages for synthesis.
 
 The `Chunk` type:
 
@@ -302,14 +219,14 @@ interface Chunk {
 }
 ```
 
-Buffer data during research (in tool execute methods) and return it from `getChunks()`. The WebSource pattern: `BufferingFetchPage` pushes fetched pages into a buffer during research, `getChunks()` converts the buffer to chunks via `chunkFetchedPages()`.
+Buffer data during agent execution (in tool execute methods) and return it from `getChunks()`. The WebSource pattern: `BufferingFetchPage` pushes fetched pages into a buffer during execution, `getChunks()` converts the buffer to chunks via `chunkFetchedPages()`.
 
 For a database source, you might buffer query results:
 
 ```typescript
 *execute(args: { sql: string }): Operation<unknown> {
   const rows = yield* call(() => this._db.query(args.sql));
-  // Buffer for post-research reranking
+  // Buffer for post-use reranking
   for (const row of rows) {
     this._resultBuffer.push({
       resource: `${row.table}/${row.id}`,
@@ -326,21 +243,13 @@ For a database source, you might buffer query results:
 
 ## Grounding tools for synthesis
 
-`groundingTools` returns tools the synthesis agent can use to independently verify research findings. These are typically the same retrieval tools your research agents use, minus the research tool itself (synthesis does not spawn sub-agents).
-
-```typescript
-get groundingTools(): Tool[] {
-  return [this._queryTool, this._describeTool];
-}
-```
-
-Grounding tools are added to the synthesis toolkit **conditionally**. When a [findings convergence check](/learn/pipelines#findings-convergence) detects contradictions between agents, the synthesizer receives grounding tools to read the source directly and resolve the conflicts. When findings converge, the synthesizer gets report-only — no wasted grounding.
+When agents produce conflicting findings, the synthesis agent may need to verify claims by reading the source directly. The harness passes `source.tools` to the synthesizer conditionally:
 
 ```typescript
 const groundingTools = conflicts
-  ? opts.sources.flatMap(s => s.groundingTools)
+  ? opts.sources.flatMap(s => s.tools)
   : [];
 const synthToolkit = createToolkit([...groundingTools, reportTool]);
 ```
 
-This ensures the synthesis agent can adjudicate when agents disagree — and avoids unnecessary tool calls when they agree.
+This gives the synthesis agent direct access to your data tools when needed -- without running a full agent swarm. When findings converge, grounding tools are not added.

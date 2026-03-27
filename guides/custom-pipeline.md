@@ -107,7 +107,7 @@ function* factCheck(
   const t = performance.now();
 
   const toolkit = createToolkit([
-    ...opts.sources.flatMap(s => s.groundingTools),
+    ...opts.sources.flatMap(s => s.tools),
     reportTool,
   ]);
 

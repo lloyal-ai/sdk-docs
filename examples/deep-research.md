@@ -70,7 +70,7 @@ if (hasTavily) {
 }
 ```
 
-`CorpusSource` wraps local file tools (`search`, `grep`, `read_file`) and a self-referential `ResearchTool` that spawns sub-agents with corpus-specific prompts. `WebSource` wraps web tools (`web_search`, `fetch_page`) and a `WebResearchTool` that spawns sub-agents with web-specific prompts. Both implement the same `Source` interface, so the harness code is identical regardless of which sources are active.
+`CorpusSource` provides local file tools (`search`, `grep`, `read_file`). `WebSource` provides web tools (`web_search`, `fetch_page`). Both implement the same `Source` interface — the harness calls `spawnAgents()` with `source.tools` for each, using source-specific prompts and recursion config. Orchestration lives in the harness, not the source.
 
 Source order matters: sources are researched sequentially, and bridge passes carry discoveries from earlier sources into later ones. The convention is corpus first (fast, local) then web (slower, broader).
 
@@ -193,7 +193,7 @@ function* research(
       // Research each source sequentially
       for (let i = 0; i < opts.sources.length; i++) {
         const source = opts.sources[i];
-        const result = (yield* source.researchTool.execute({
+        const result = (yield* spawnAgents({
           questions: activeQuestions,
         })) as SourceResearchResult;
 
@@ -213,7 +213,7 @@ Key details:
 
 2. **`source.bind(ctx)`** late-binds runtime dependencies. For `CorpusSource`, this tokenizes chunks through the reranker and builds a `SearchTool`. For `WebSource`, this constructs `BufferingWebSearch` and `BufferingFetchPage` wrappers with scratchpad extraction.
 
-3. **`source.researchTool.execute({ questions })`** spawns parallel agents internally. Each source creates its own `withSharedRoot` and `useAgentPool` inside its research tool, with source-specific prompts and tools:
+3. **`spawnAgents({ questions })`** spawns parallel agents internally. Each source creates its own `withSharedRoot` and `useAgentPool` inside its research tool, with source-specific prompts and tools:
    - **Corpus agents** get: `search` (semantic via reranker), `read_file`, `grep`, `report`, and a recursive `research` tool
    - **Web agents** get: `web_search` (Tavily), `fetch_page` (with scratchpad extraction), `report`, and a recursive `web_research` tool
 
@@ -309,7 +309,7 @@ const rendered = renderTemplate(SYNTHESIZE_TEMPLATE, {
 });
 
 const groundingTools = conflicts
-  ? opts.sources.flatMap(s => s.groundingTools)
+  ? opts.sources.flatMap(s => s.tools)
   : [];
 const synthToolkit = createToolkit([...groundingTools, reportTool]);
 ```
@@ -445,7 +445,7 @@ User query
     v
  [research]  for each source:
     |           bind(reranker, reportTool, ...)
-    |           source.researchTool.execute({ questions })
+    |           spawnAgents({ questions })
     |             -> withSharedRoot + useAgentPool (parallel agents)
     |             -> reportPrompt (scratchpad extraction for hard-cut agents)
     |           if not last source:
@@ -478,35 +478,27 @@ User query
 
 ### `CorpusSource`
 
-- **Research tool**: `ResearchTool` -- spawns parallel agents with corpus-specific prompts. Each agent gets `search`, `read_file`, `grep`, `report`, plus a self-referential `research` tool for recursive investigation.
-- **Grounding tools**: `search`, `read_file`, `grep` -- available to the synthesizer for independent verification.
+- **Tools**: `search` (semantic via reranker), `read_file`, `grep`
 - **Chunks**: Pre-split paragraph-level chunks from loaded resources. Available immediately after construction.
 - **Bind**: Tokenizes chunks through the reranker and prepends a `SearchTool` to the tool list.
 
 ### `WebSource`
 
-- **Research tool**: `WebResearchTool` -- spawns parallel agents with web-specific prompts. Each agent gets `web_search`, `fetch_page`, `report`, plus a self-referential `web_research` tool for recursive sub-agent spawning.
-- **Grounding tools**: `web_search` (via `BufferingWebSearch`), `fetch_page` (via `BufferingFetchPage`) -- both use scratchpad extraction to compress large tool results into compact summaries, reducing KV pressure on the calling agent.
-- **Chunks**: Populated during research as agents fetch pages. `getChunks()` converts the `FetchedPage` buffer into paragraph-level chunks via `chunkFetchedPages` for post-research reranking.
-- **Bind**: Clears the page buffer and constructs the `WebResearchTool` with its self-referential toolkit.
+- **Tools**: `web_search` (via Tavily or custom provider), `fetch_page` (with optional reranker-based chunk scoring)
+- **Chunks**: Populated as agents fetch pages. `getChunks()` converts the `FetchedPage` buffer into paragraph-level chunks via `chunkFetchedPages` for post-use reranking.
+- **Bind**: Clears the page buffer and wires the reranker to `FetchPageTool`.
 
-### Scratchpad extraction in web tools
+Both sources are platform-agnostic — no `node:fs` dependency. They work identically on Node.js and React Native.
 
-`BufferingFetchPage` and `BufferingWebSearch` intercept tool results and use scratchpad extraction to reduce KV cost:
+### Reranker-based chunk scoring in FetchPageTool
 
-1. The raw result (full page content or search results) is buffered for post-research reranking
-2. A fork from `ScratchpadParent` (the innermost `withSharedRoot`'s root branch) attends to the full content
-3. A grammar-constrained generation extracts a compact summary + links
-4. The fork is pruned -- zero net KV cost
-5. The compact summary is returned to the calling agent instead of the raw content
-
-This is critical for web research where pages can be 6,000+ tokens. Without scratchpad extraction, every fetched page inflates `cellsUsed`, accelerating KV pressure and causing downstream agent drops.
+When `FetchPageTool` has a reranker and the agent provides a `query` argument, fetched pages are structurally chunked on heading boundaries and scored against the query. Only the top-K most relevant chunks within a 2048-token budget are returned — reducing KV pressure without lossy summarization.
 
 ## Customization
 
-**Change sources**: Remove or add sources in `main.ts`. The harness code is source-agnostic -- it iterates `opts.sources` regardless of what they are.
+**Change sources**: Remove or add sources in `main.ts`. The harness code is source-agnostic — it iterates `opts.sources` and calls `spawnAgents()` for each.
 
-**Create a custom source**: Implement `Source<SourceContext, Chunk>` with a `researchTool`, `groundingTools`, `bind()`, and `getChunks()`. See [Custom Source](../guides/custom-source.md).
+**Create a custom source**: Implement `Source` with `name`, `tools`, `bind()`, and `getChunks()`. See [Custom Source](../guides/custom-source.md).
 
 **Adjust agent count**: Change `AGENT_COUNT` in `main.ts`. This bounds `PlanTool`'s `maxQuestions` and affects how many parallel research agents run per source.
 

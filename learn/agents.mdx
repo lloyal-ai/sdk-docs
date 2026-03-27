@@ -29,7 +29,7 @@ import { Agent } from "@lloyal-labs/lloyal-agents";
 pool.agents[0].findings       // what the agent discovered (or null)
 pool.agents[0].toolCallCount  // how many tools it called
 pool.agents[0].tokenCount     // how many tokens it generated
-pool.agents[0].childFindings  // findings from recursive sub-agents
+pool.agents[0].nestedResults  // findings from recursive sub-agents
 pool.agents[0].ppl            // model-level perplexity at completion
 ```
 
@@ -63,7 +63,7 @@ Each agent records metadata for every tool invocation — tool name, summarized 
 
 ### Parent lineage
 
-When a tool spawns sub-agents (recursive tools like `research` or `web_research`), each sub-agent records which agent called the tool that created it. `walkLineage()` traverses the chain — self → caller → caller's caller — collecting data from each ancestor. Tool guards use this for cross-level deduplication.
+When a tool spawns sub-agents (recursive tools like `research` or `web_research`), each sub-agent records which agent called the tool that created it. `walkAncestors()` traverses the chain — self → caller → caller's caller — collecting data from each ancestor. Tool guards use this for cross-level deduplication.
 
 ## The pattern
 
@@ -199,7 +199,7 @@ All agents generate tokens together in a batched loop. Each tick has four phases
   </Step>
 
   <Step title="DISPATCH">
-    Collected tool calls execute sequentially — one at a time. Each tool runs inside a `scoped()` error boundary. The pool sets `CallingAgent` context before each dispatch so recursive tools can identify their caller. When a tool returns findings arrays (from recursive sub-agents), the pool collects them as `childFindings` on the calling agent.
+    Collected tool calls execute sequentially — one at a time. Each tool runs inside a `scoped()` error boundary. The pool sets `CallingAgent` context before each dispatch so recursive tools can identify their caller. When a tool returns findings arrays (from recursive sub-agents), the pool collects them as `nestedResults` on the calling agent.
   </Step>
 </Steps>
 
@@ -241,23 +241,23 @@ Sub-agents inherit every tool call, every tool result, every token the parent ge
 For the full picture — KV layout, position-aware decode, nested sharing, measured numbers — see [Prefix Sharing](/reference/prefix-sharing).
 </Tip>
 
-## Child findings
+## Nested results
 
-When agents recurse — calling `web_research` or `research` from within a pool — inner sub-agent findings can get lost. The outer agent sees the inner results as text in its KV, but when it reports, it may cherry-pick one finding and drop the rest.
+When agents delegate to sub-agents (via `spawnAgents` with `recursive: true`), inner results can get lost. The outer agent sees the inner results as text in its KV, but when it reports, it may cherry-pick one and drop the rest.
 
-`childFindings` solves this. During DISPATCH, the pool collects findings arrays from recursive tool results and stores them on the calling agent. These bubble up through `AgentResult`:
+`nestedResults` solves this. During DISPATCH, the pool collects result arrays from recursive tool returns and stores them on the calling agent. These bubble up through `AgentResult`:
 
 ```typescript
-const pool = yield* runAgents({ tasks, tools: toolMap, ... });
+const pool = yield* spawnAgents({ tools, systemPrompt, tasks, ... });
 
 // Primary findings — what each agent reported
 pool.agents[0].findings          // "The DOJ connects iPod to..."
 
-// Child findings — what inner sub-agents found (flattened from recursive tools)
-pool.agents[0].childFindings     // ["Sub-agent found X", "Sub-agent found Y"]
+// Nested results — what inner sub-agents found (flattened from recursive tools)
+pool.agents[0].nestedResults     // ["Sub-agent found X", "Sub-agent found Y"]
 ```
 
-Any tool that returns `{ findings: string[] }` or `{ supportingFindings: string[] }` automatically participates — no tool-name hardcoding. The collection is tool-agnostic.
+Any tool that returns `{ results: string[] }` or `{ nestedResults: string[] }` automatically participates — no tool-name hardcoding. The collection is tool-agnostic.
 
 ## Context pressure
 

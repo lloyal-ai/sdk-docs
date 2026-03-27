@@ -3,7 +3,7 @@ title: "Custom Sources"
 description: "Build your own Source for databases, vector stores, APIs, or anything else"
 ---
 
-The `Source` base class defines the contract every data source implements. Extend it to plug any backend into the RIG pipeline.
+The `Source` base class defines the contract every data source implements. Extend it to plug any backend into an agent pipeline.
 
 ## The Source Contract
 
@@ -15,24 +15,21 @@ abstract class Source<TCtx, TChunk> {
   /** Human-readable name (e.g. 'database', 'pinecone') */
   abstract readonly name: string;
 
-  /** The self-contained research tool -- an atomic swarm with source-specific toolkit */
-  abstract get researchTool(): Tool;
+  /** Data access tools this source provides */
+  abstract get tools(): Tool[];
 
   /** Late-bind runtime deps not available at construction time */
   *bind(_ctx: TCtx): Operation<void> {}
 
-  /** Post-research chunks for reranking. Called after research completes. */
+  /** Post-use chunks for reranking. Called after agents complete. */
   getChunks(): TChunk[] { return []; }
-
-  /** Grounding tools for independent verification (search, grep, etc.) */
-  get groundingTools(): Tool[] { return []; }
 }
 ```
 
-Five extension points. Only `name` and `researchTool` are required. The rest have sensible defaults.
+Three extension points. Only `name` and `tools` are required. Sources provide data access — the harness orchestrates agents with those tools via `spawnAgents()`.
 
 <Note>
-`bind()` is called before tools are used. Use it to set up anything that depends on runtime context -- reranker instances, database connections, authentication tokens.
+`bind()` is called before tools are used. Use it to set up anything that depends on runtime context — reranker instances, database connections, authentication tokens.
 </Note>
 
 ## Skeleton Implementations
@@ -81,13 +78,13 @@ Five extension points. Only `name` and `researchTool` are required. The rest hav
     class DatabaseSource extends Source<SourceContext, Row> {
       readonly name = "database";
       private _results: Row[] = [];
-      private _researchTool: Tool | null = null;
+      private _tools: Tool | null = null;
 
       constructor(private db: any) { super(); }
 
-      get researchTool(): Tool {
-        if (!this._researchTool) throw new Error("bind() first");
-        return this._researchTool;
+      get tools(): Tool {
+        if (!this._tools) throw new Error("bind() first");
+        return this._tools;
       }
 
       *bind(ctx: SourceContext) {
@@ -95,7 +92,7 @@ Five extension points. Only `name` and `researchTool` are required. The rest hav
         const schemaTool = new SchemaTool(this.db);
         const toolkit = createToolkit([queryTool, schemaTool, ctx.reportTool]);
 
-        this._researchTool = new DatabaseResearchTool(toolkit, this._results);
+        this._tools = new DatabaseResearchTool(toolkit, this._results);
       }
 
       getChunks(): Row[] { return this._results; }
@@ -143,19 +140,19 @@ Five extension points. Only `name` and `researchTool` are required. The rest hav
     class VectorDBSource extends Source<SourceContext, VectorChunk> {
       readonly name = "vectordb";
       private _results: VectorChunk[] = [];
-      private _researchTool: Tool | null = null;
+      private _tools: Tool | null = null;
 
       constructor(
         private client: any,
         private collection: string,
       ) { super(); }
 
-      get researchTool(): Tool {
-        if (!this._researchTool) throw new Error("bind() first");
-        return this._researchTool;
+      get tools(): Tool {
+        if (!this._tools) throw new Error("bind() first");
+        return this._tools;
       }
 
-      get groundingTools(): Tool[] {
+      get tools(): Tool[] {
         return [new VectorSearchTool(this.client, this.collection)];
       }
 
@@ -163,7 +160,7 @@ Five extension points. Only `name` and `researchTool` are required. The rest hav
         const searchTool = new VectorSearchTool(this.client, this.collection);
         const toolkit = createToolkit([searchTool, ctx.reportTool]);
 
-        this._researchTool = new VectorResearchTool(toolkit, this._results);
+        this._tools = new VectorResearchTool(toolkit, this._results);
       }
 
       getChunks(): VectorChunk[] { return this._results; }
@@ -233,19 +230,19 @@ Five extension points. Only `name` and `researchTool` are required. The rest hav
     class APISource extends Source<SourceContext, ApiResult> {
       readonly name = "api";
       private _results: ApiResult[] = [];
-      private _researchTool: Tool | null = null;
+      private _tools: Tool | null = null;
 
       constructor(
         private baseUrl: string,
         private headers: Record<string, string> = {},
       ) { super(); }
 
-      get researchTool(): Tool {
-        if (!this._researchTool) throw new Error("bind() first");
-        return this._researchTool;
+      get tools(): Tool {
+        if (!this._tools) throw new Error("bind() first");
+        return this._tools;
       }
 
-      get groundingTools(): Tool[] {
+      get tools(): Tool[] {
         return [
           new ApiSearchTool(this.baseUrl, this.headers),
           new ApiDetailTool(this.baseUrl, this.headers),
@@ -257,7 +254,7 @@ Five extension points. Only `name` and `researchTool` are required. The rest hav
         const detailTool = new ApiDetailTool(this.baseUrl, this.headers);
         const toolkit = createToolkit([searchTool, detailTool, ctx.reportTool]);
 
-        this._researchTool = new ApiResearchTool(toolkit, this._results);
+        this._tools = new ApiResearchTool(toolkit, this._results);
       }
 
       getChunks(): ApiResult[] { return this._results; }
@@ -279,7 +276,7 @@ Every custom source follows the same structure:
 4. **Late-bind in `bind()`.** Set up anything that depends on runtime context: reranker, report tool, pressure thresholds. Construction happens early; binding happens when the pipeline is ready.
 
 <Tip>
-The `groundingTools` getter is optional but valuable. It exposes your source's tools for independent verification during the synthesis phase. The synthesizer can use them to spot-check claims without re-running the full research pipeline.
+The `tools` getter is optional but valuable. It exposes your source's tools for independent verification during the synthesis phase. The synthesizer can use them to spot-check claims without re-running the full research pipeline.
 </Tip>
 
 ## Plugging Into the Pipeline
