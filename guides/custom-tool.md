@@ -27,7 +27,7 @@ abstract class Tool<TArgs = Record<string, unknown>> {
 
 The `schema` getter (inherited) auto-generates the OpenAI-compatible function schema from these fields. You never construct the schema manually.
 
-## Step 1: Extend Tool<TArgs>
+## Step 1: Extend Tool
 
 Define your argument type as the generic parameter:
 
