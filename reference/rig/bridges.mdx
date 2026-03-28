@@ -66,7 +66,7 @@ const discoveries = yield* withSharedRoot(
       trace: opts.trace,
       pressure: { softLimit: 1024 },
     });
-    return pool.agents[0]?.findings || "";
+    return pool.agents[0]?.result || "";
   },
 );
 ```

@@ -118,7 +118,7 @@ await main(function* () {
     },
   );
 
-  console.log(pool.agents[0]?.findings ?? pool.agents[0]?.rawOutput ?? "No output");
+  console.log(pool.agents[0]?.result ?? pool.agents[0]?.rawOutput ?? "No output");
 });
 ```
 

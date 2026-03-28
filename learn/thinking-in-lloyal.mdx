@@ -43,7 +43,7 @@ function* research(query: string): Operation<string> {
     })),
     tools: toolMap,
   });
-  return pool.agents.map(a => a.findings);
+  return pool.agents.map(a => a.result);
 }
 ```
 
@@ -129,7 +129,7 @@ lloyal uses five Effection primitives. That's the entire concurrency surface are
         return yield* call(() => tool.execute(args));
       });
     } catch (err) {
-      agent.findings = `Tool error: ${err.message}`;
+      agent.result = `Tool error: ${err.message}`;
       // Other agents survive
     }
     ```

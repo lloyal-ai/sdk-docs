@@ -54,7 +54,7 @@ The harness implements four sequential phases. Each is a standalone generator fu
 ```typescript
 export function* handleQuery(query: string, opts: HarnessOpts): Operation<void> {
   const r = yield* research(query, opts);
-  const d = yield* draft(r.findings, query, opts);
+  const d = yield* draft(r.result, query, opts);
   const cr = yield* critique(d.branch, opts);
   const v = yield* revise(cr.branch, opts);
 }
@@ -78,14 +78,14 @@ function* research(query: string, opts: HarnessOpts): Operation<{
         terminalTool: 'report',
         trace: opts.trace,
         pressure: { softLimit: 2048 },
-        reportPrompt: REPORT,
+        extractionPrompt: REPORT,
         pruneOnReport: true,
       });
       return { result: pool };
     },
   );
 
-  const findings = pool.agents[0]?.findings ?? '(no findings)';
+  const findings = pool.agents[0]?.result ?? '(no findings)';
   return { findings, pool, timeMs };
 }
 ```

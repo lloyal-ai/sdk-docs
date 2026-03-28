@@ -132,7 +132,7 @@ function* factCheck(
   const timeMs = performance.now() - t;
   yield* opts.events.send({ type: 'factcheck:done', timeMs });
 
-  return { verified: pool.agents[0]?.findings || '', timeMs };
+  return { verified: pool.agents[0]?.result || '', timeMs };
 }
 ```
 
@@ -147,13 +147,13 @@ const s = yield* synthesize(res.agentFindings, res.sourcePassages, query, opts);
 
 // New stage
 const fc = yield* factCheck(
-  s.pool.agents[0]?.findings || '',
+  s.pool.agents[0]?.result || '',
   res.sourcePassages,
   opts,
 );
 
 // Use fact-checked output for eval and trunk promotion
-const findings = fc.verified || s.pool.agents[0]?.findings || '';
+const findings = fc.verified || s.pool.agents[0]?.result || '';
 ```
 
 ### 5. Add event types
@@ -173,7 +173,7 @@ To skip the eval stage, remove the `diverge` + `evaluate` calls from `handleQuer
 
 ```typescript
 const s = yield* synthesize(res.agentFindings, res.sourcePassages, query, opts);
-const findings = s.pool.agents[0]?.findings || '';
+const findings = s.pool.agents[0]?.result || '';
 
 // Skip eval, go straight to finalize
 if (warm) {

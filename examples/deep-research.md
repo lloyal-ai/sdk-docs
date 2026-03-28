@@ -224,7 +224,7 @@ Key details:
 ```typescript
 if (i < opts.sources.length - 1 && sectionFindings) {
   const sourceChunks = source.getChunks();
-  const passages = yield* rerankChunks(sourceChunks, query, opts.reranker, 10, opts.findingsMaxChars);
+  const passages = yield* rerankChunks(sourceChunks, query, opts.reranker, 10, opts.resultMaxChars);
 
   const bridgeContent = BRIDGE.user
     .replace('{{agentFindings}}', sectionFindings)
@@ -241,9 +241,9 @@ if (i < opts.sources.length - 1 && sectionFindings) {
         maxTurns: effectiveMaxTurns,
         trace: opts.trace,
         pressure: { softLimit: 1024 },
-        reportPrompt: REPORT,
+        extractionPrompt: REPORT,
       });
-      return pool.agents[0]?.findings || '';
+      return pool.agents[0]?.result || '';
     },
   );
 
@@ -267,15 +267,15 @@ The structured discoveries are injected into the questions for the next source. 
 
 When the session already has a trunk (warm continuation), `warmResearch` is used instead. It skips `withSharedRoot` for the outer scope (the trunk already provides context) but still creates `withSharedRoot` scopes inside each source's research tool and bridge pass. The logic is otherwise identical.
 
-**`reportPrompt` -- scratchpad extraction for hard-cut agents:**
+**`extractionPrompt` -- scratchpad extraction for hard-cut agents:**
 
-Hard-cut recovery is now built into the pool. Pass `reportPrompt` with system and user strings, and the pool handles extraction automatically:
+Hard-cut recovery is now built into the pool. Pass `extractionPrompt` with system and user strings, and the pool handles extraction automatically:
 
 ```typescript
 const pool = yield* useAgentPool({
   tasks, tools: toolMap,
   terminalTool: 'report',
-  reportPrompt: {
+  extractionPrompt: {
     system: 'You are a research reporter. Call the report tool with all findings.',
     user: 'Report your findings.',
   },
@@ -449,7 +449,7 @@ User query
     |           spawnAgents({ tools: source.tools, scorer, ... })
     |             -> withSharedRoot + useAgentPool (parallel agents)
     |             -> entailment scoring at steering boundaries
-    |             -> reportPrompt (scratchpad extraction for hard-cut agents)
+    |             -> extractionPrompt (scratchpad extraction for hard-cut agents)
     |           if not last source:
     |             rerankChunks -> bridge agent -> inject discoveries
     |

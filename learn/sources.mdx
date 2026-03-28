@@ -109,11 +109,11 @@ for (const source of sources) {
       name: "research",
       extractTasks: (args) => args.questions as string[],
     },
-    reportPrompt: REPORT,
+    extractionPrompt: REPORT,
     pruneOnReport: true,
   });
 
-  findings.push(pool.agents.map(a => a.findings).filter(Boolean));
+  findings.push(pool.agents.map(a => a.result).filter(Boolean));
 }
 ```
 
@@ -179,7 +179,7 @@ const pool = yield* spawnAgents({
   tasks: questions,
   terminalTool: { name: "report", tool: reportTool },
   recursive: { name: "investigate", extractTasks: (args) => args.tasks as string[] },
-  reportPrompt: REPORT,
+  extractionPrompt: REPORT,
 });
 ```
 

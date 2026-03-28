@@ -36,7 +36,7 @@ Key event types from `packages/agents/src/trace-types.ts`:
 | `branch:prefill` | Tokens injected into a branch | `branchHandle`, `tokenCount`, `role` |
 | `pool:open` | Agent pool starts | `agentCount`, `taskSuffixTokens`, `pressure` |
 | `pool:agentDrop` | Agent killed by pressure or turn limit | `agentId`, `reason` |
-| `pool:close` | Agent pool ends | `agents[]` (each with `tokenCount`, `toolCallCount`, `findings`) |
+| `pool:close` | Agent pool ends | `agents[]` (each with `tokenCount`, `toolCallCount`, `result`) |
 | `agent:turn` | Agent completes a generation segment | `rawOutput`, `parsedToolCalls` |
 | `tool:dispatch` | Tool call starts | `tool`, `toolIndex`, `toolkitSize`, `args` |
 | `tool:result` | Tool call returns | `result`, `prefillTokenCount`, `durationMs` |
@@ -171,16 +171,16 @@ If the parent was pruned before the fork, the scratchpad has no context to atten
 - Grammar schema mismatch -- the extraction grammar does not match what the model can produce given the context
 - Insufficient KV remaining for the scratchpad prompt itself
 
-The hard-cut recovery via `reportPrompt` in `spawnAgents()` handles this gracefully — extraction failures are caught and treated as non-fatal:
+The hard-cut recovery via `extractionPrompt` in `spawnAgents()` handles this gracefully — extraction failures are caught and treated as non-fatal:
 
 ```typescript
 try {
-  const result = yield* generate<{ findings: string }>({
+  const result = yield* generate<{ result: string }>({
     prompt, grammar,
     parse: (o: string) => JSON.parse(o),
     parent: a.branch,
   });
-  if (result.parsed?.findings) a.findings = result.parsed.findings;
+  if (result.parsed?.result) a.result = result.parsed.result;
 } catch { /* extraction failure non-fatal */ }
 ```
 
@@ -219,7 +219,7 @@ If all research agents were dropped by pressure, both `agentFindings` and `sourc
 A synthesis agent with grounding tools (search, read_file, grep, query) can make 4-6 verification calls before reporting. One with only `report` must rely entirely on the content in its prompt.
 
 **Solutions:**
-- Ensure research agents produced findings: check earlier `pool:close` events for non-null `findings` in the agents array
+- Ensure research agents produced results: check earlier `pool:close` events for non-null `result` in the agents array
 - Give synthesis grounding tools when conflicts detected: `createToolkit([...source.tools, reportTool])`
 - Increase reranker passage count for more source material in the synthesis prompt
 
@@ -260,7 +260,7 @@ A systematic approach for investigating unexpected behavior:
 
 6. **Check prompt:format events** for correct `taskContent` and `tools` -- is the model seeing the right context?
 
-7. **Check pool:close events** for aggregate statistics -- how many agents produced findings? What was the total token count?
+7. **Check pool:close events** for aggregate statistics -- how many agents produced results? What was the total token count?
 
 For comparing two runs (e.g., before and after a change), extract the tool call sequences and compare:
 

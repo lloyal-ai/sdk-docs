@@ -32,7 +32,7 @@ try {
   settledBuffer.push({ agentId, prefillTokens, toolName });
 } catch (err) {
   agent.state = 'done';
-  agent.findings = `Tool error: ${err.message}`;
+  agent.result = `Tool error: ${err.message}`;
 }
 ```
 
@@ -201,11 +201,11 @@ The inner `withSharedRoot` forks from the calling agent's branch (warm path) or 
         terminalTool: 'report',
         pruneOnReport: true,     // free KV mid-pool
         maxTurns: 6,
-        reportPrompt: REPORT,    // scratchpad extraction for hard-cut agents
+        extractionPrompt: REPORT,    // scratchpad extraction for hard-cut agents
       });
 
       return {
-        results: pool.agents.map(a => a.findings).filter(Boolean),
+        results: pool.agents.map(a => a.result).filter(Boolean),
         nestedResults: pool.agents.flatMap(a => a.nestedResults ?? []),
       };
     },
@@ -215,7 +215,7 @@ The inner `withSharedRoot` forks from the calling agent's branch (warm path) or 
 
 When `parent` is provided, the shared root forks from the parent branch and prefills only the turn separator — **2 tokens** instead of ~760 for the full system prompt. The system prompt is already in the parent's KV. Sub-agents attend over the same physical key-value pairs at shared positions.
 
-Hard-cut recovery is now built into the pool via `reportPrompt`. When agents are killed by KV pressure before calling `report()`, the pool forks from their branch, generates with a grammar-constrained schema, and captures partial findings. A confabulation guard (fewer than 100 tokens or fewer than 2 tool calls) prevents extraction from agents with insufficient context.
+Hard-cut recovery is now built into the pool via `extractionPrompt`. When agents are killed by KV pressure before calling `report()`, the pool forks from their branch, generates with a grammar-constrained schema, and captures partial findings. A confabulation guard (fewer than 100 tokens or fewer than 2 tool calls) prevents extraction from agents with insufficient context.
 ```
 
 ### Result propagation

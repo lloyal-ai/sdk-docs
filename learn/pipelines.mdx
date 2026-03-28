@@ -29,7 +29,7 @@ function* research(questions: string[]): Operation<string[]> {
       });
     },
   );
-  return pool.agents.map(a => a.findings).filter(Boolean);
+  return pool.agents.map(a => a.result).filter(Boolean);
 }
 
 function* synthesize(findings: string[], query: string): Operation<string> {
@@ -43,7 +43,7 @@ function* synthesize(findings: string[], query: string): Operation<string> {
       });
     },
   );
-  return pool.agents[0]?.findings || "";
+  return pool.agents[0]?.result || "";
 }
 ```
 
@@ -137,7 +137,7 @@ function* codeReview(diff: string): Operation<string> {
   );
 
   // Stage 3: Synthesize per-file reviews into summary
-  const summary = yield* synthesize(reviews.agents.map(a => a.findings), diff);
+  const summary = yield* synthesize(reviews.agents.map(a => a.result), diff);
   return summary;
 }
 ```
@@ -164,7 +164,7 @@ function* supportTicket(ticket: string): Operation<{ response: string; confident
   );
 
   // Stage 3: Confidence check — low perplexity = model is confident
-  const samples = yield* diverge({ prompt: draftPrompt(pool.agents[0]?.findings, ticket), attempts: 3 });
+  const samples = yield* diverge({ prompt: draftPrompt(pool.agents[0]?.result, ticket), attempts: 3 });
   const confident = samples.best.ppl < 2.0;
 
   return { response: samples.best.output, confident };
@@ -252,7 +252,7 @@ for (let i = 0; i < sources.length; i++) {
 
   // Between sources: structure discoveries as context for the next source
   if (i < sources.length - 1) {
-    const bridged = yield* bridge(result.findings, query);
+    const bridged = yield* bridge(result.result, query);
     questions = questions.map(q => `${q}\n\nPrior discoveries:\n${bridged}`);
   }
 }

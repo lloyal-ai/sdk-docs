@@ -114,16 +114,16 @@ Key differences from cold-start:
 
 ## Concrete implementations
 
-### Pool-level idle extraction via `reportPrompt`
+### Pool-level idle extraction via `extractionPrompt`
 
-The most common use of scratchpad extraction is recovering findings from agents killed by KV pressure. When the pool receives a `reportPrompt` option, it automatically runs extraction on idle agents that didn't report:
+The most common use of scratchpad extraction is recovering findings from agents killed by KV pressure. When the pool receives a `extractionPrompt` option, it automatically runs extraction on idle agents that didn't report:
 
 ```typescript
 const pool = yield* runAgents({
   tasks,
   tools: toolMap,
   terminalTool: "report",
-  reportPrompt: {
+  extractionPrompt: {
     system: "You are a research reporter. Call the report tool with all findings.",
     user: "Report your findings.",
   },

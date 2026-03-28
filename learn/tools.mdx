@@ -91,18 +91,18 @@ Use `call()` to bridge to Promises. The framework suspends the generator until t
 A terminal tool signals the agent is done. The agent pool intercepts the call, extracts findings, and marks the agent complete. No further generation.
 
 ```typescript
-class ReportTool extends Tool<{ findings: string }> {
+class ReportTool extends Tool<{ result: string }> {
   readonly name = "report";
   readonly description = "Submit your final findings.";
   readonly parameters = {
     type: "object" as const,
     properties: {
-      findings: { type: "string", description: "Your research findings" },
+      result: { type: "string", description: "Your research findings" },
     },
-    required: ["findings"],
+    required: ["result"],
   };
 
-  *execute(args: { findings: string }): Operation<unknown> {
+  *execute(args: { result: string }): Operation<unknown> {
     return { status: "reported" };
   }
 }
@@ -145,7 +145,7 @@ A tool can spawn sub-agents. `execute()` runs inside the pool's Effection scope,
     },
   );
   return {
-    findings: pool.agents.map(a => a.findings).filter(Boolean),
+    findings: pool.agents.map(a => a.result).filter(Boolean),
   };
 }
 ```

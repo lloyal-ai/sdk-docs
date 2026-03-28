@@ -139,7 +139,7 @@ export function* handleQuery(query: string, opts: HarnessOpts): Operation<void> 
         terminalTool: 'report',
         trace: opts.trace,
         pressure: { softLimit: 2048 },
-        reportPrompt: REPORT,    // scratchpad extraction for hard-cut agents
+        extractionPrompt: REPORT,    // scratchpad extraction for hard-cut agents
         pruneOnReport: true,     // free KV immediately when agent reports
       });
 
@@ -157,9 +157,9 @@ Two framework primitives do all the work:
 
 The `pressure: { softLimit: 2048 }` tells the pool to start considering context pressure when fewer than 2048 KV cells remain.
 
-**`reportPrompt` -- hard-cut recovery:**
+**`extractionPrompt` -- hard-cut recovery:**
 
-If the agent exhausts `maxTurns` or is killed by KV pressure without calling `report`, the pool automatically recovers partial findings. It forks from the agent's branch, runs a grammar-constrained extraction (`{ findings: string }`), and records the result with `scratchpad` provenance. A confabulation guard skips agents with fewer than 100 tokens or 2 tool calls — insufficient context would produce hallucinated findings.
+If the agent exhausts `maxTurns` or is killed by KV pressure without calling `report`, the pool automatically recovers partial findings. It forks from the agent's branch, runs a grammar-constrained extraction (`{ result: string }`), and records the result with `scratchpad` provenance. A confabulation guard skips agents with fewer than 100 tokens or 2 tool calls — insufficient context would produce hallucinated findings.
 
 ### `tasks/research.md` -- the system prompt
 

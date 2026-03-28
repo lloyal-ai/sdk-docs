@@ -55,7 +55,7 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
         tasks: activeQuestions,
         terminalTool: { name: 'report', tool: reportTool },
         recursive: { name: 'web_research', extractTasks: (a) => a.questions as string[] },
-        reportPrompt: REPORT,
+        extractionPrompt: REPORT,
         pruneOnReport: true,
         scorer,
       });
@@ -70,7 +70,7 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
 
     Content boundaries (fetch_page chunks, corpus search results) are scored against the **agent's local query only** — preserving serendipitous discovery of bridging content that connects the investigation to the answer.
 
-    Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`reportPrompt`). A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
+    Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`extractionPrompt`). A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
 
     Recursive delegation returns both primary results and `nestedResults` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report.
   </Step>

@@ -154,7 +154,7 @@ const pool = yield* spawnAgents({
     description: 'Delegate sub-questions to parallel agents.',
     extractTasks: (args) => args.questions as string[],
   },
-  reportPrompt: REPORT,
+  extractionPrompt: REPORT,
   pruneOnReport: true,
 });
 ```

@@ -230,15 +230,15 @@ This was the root cause of a real regression where agents lost depth-first inves
 A terminal tool signals agent completion. The agent pool intercepts the call, extracts findings, and marks the agent done. The tool's `execute()` is never called.
 
 ```typescript
-class ReportTool extends Tool<{ findings: string }> {
+class ReportTool extends Tool<{ result: string }> {
   readonly name = 'report';
   readonly description = 'Submit your final research findings';
   readonly parameters: JsonSchema = {
     type: 'object',
     properties: {
-      findings: { type: 'string', description: 'Your findings and answer' },
+      result: { type: 'string', description: 'Your findings and answer' },
     },
-    required: ['findings'],
+    required: ['result'],
   };
 
   *execute(): Operation<unknown> { return {}; }

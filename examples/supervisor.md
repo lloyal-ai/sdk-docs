@@ -141,7 +141,7 @@ function* dispatch(
         terminalTool: 'report',
         trace: opts.trace,
         pressure: { softLimit: 2048 },
-        reportPrompt: REPORT,
+        extractionPrompt: REPORT,
         pruneOnReport: true,
       });
 
@@ -170,7 +170,7 @@ function* synthesize(
   pool: AgentPoolResult, routes: string[], query: string, opts: HarnessOpts,
 ): Operation<{ tokenCount: number; timeMs: number }> {
   const findings = pool.agents
-    .map((a, i) => `[${routes[i]}] ${(a.findings || '').trim()}`)
+    .map((a, i) => `[${routes[i]}] ${(a.result || '').trim()}`)
     .join('\n\n');
 
   yield* call(() => opts.session.prefillUser(
