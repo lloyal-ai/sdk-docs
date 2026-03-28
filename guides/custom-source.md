@@ -246,10 +246,10 @@ For a database source, you might buffer query results:
 When agents produce conflicting findings, the synthesis agent may need to verify claims by reading the source directly. The harness passes `source.tools` to the synthesizer conditionally:
 
 ```typescript
-const groundingTools = conflicts
+const sourceTools = conflicts
   ? opts.sources.flatMap(s => s.tools)
   : [];
-const synthToolkit = createToolkit([...groundingTools, reportTool]);
+const synthToolkit = createToolkit([...sourceTools, reportTool]);
 ```
 
 This gives the synthesis agent direct access to your data tools when needed -- without running a full agent swarm. When findings converge, grounding tools are not added.

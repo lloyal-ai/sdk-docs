@@ -93,7 +93,7 @@ import type { PromptStep } from "@lloyal-labs/lloyal-agents";
 
 const steps: PromptStep[] = [
   (s) => conflicts
-    ? { ...s, tools: [...s.tools, ...groundingTools] }
+    ? { ...s, tools: [...s.tools, ...sourceTools] }
     : s,
 ];
 

@@ -211,11 +211,11 @@ Key details:
 
 1. **`withSharedRoot({ systemPrompt: ROOT.system })`** creates a minimal shared prefix. Note: no tools in the root prompt. Tools are provided per-source by the research tool implementations.
 
-2. **`source.bind(ctx)`** late-binds runtime dependencies. For `CorpusSource`, this tokenizes chunks through the reranker and builds a `SearchTool`. For `WebSource`, this constructs `BufferingWebSearch` and `BufferingFetchPage` wrappers with scratchpad extraction.
+2. **`source.bind({ reranker })`** late-binds runtime dependencies. For `CorpusSource`, this tokenizes chunks through the reranker and builds a `SearchTool`. For `WebSource`, this wires the reranker to `FetchPageTool` for chunk scoring.
 
-3. **`spawnAgents({ questions })`** spawns parallel agents internally. Each source creates its own `withSharedRoot` and `useAgentPool` inside its research tool, with source-specific prompts and tools:
-   - **Corpus agents** get: `search` (semantic via reranker), `read_file`, `grep`, `report`, and a recursive `research` tool
-   - **Web agents** get: `web_search` (Tavily), `fetch_page` (with scratchpad extraction), `report`, and a recursive `web_research` tool
+3. **`spawnAgents({ tools: source.tools, ... })`** orchestrates parallel agents with the source's tools. The harness provides the system prompt, recursion shape, and entailment scorer:
+   - **Corpus agents** get: `search` (semantic via reranker), `read_file`, `grep`, `report`, and an optional recursive delegate tool
+   - **Web agents** get: `web_search` (Tavily), `fetch_page` (with reranker chunk scoring + `alsoOnPage` discovery headings), `report`, and an optional recursive delegate tool
 
 4. The `result` contains findings from each agent plus token/tool-call counts.
 
@@ -308,10 +308,10 @@ const rendered = renderTemplate(SYNTHESIZE_TEMPLATE, {
   query,
 });
 
-const groundingTools = conflicts
+const sourceTools = conflicts
   ? opts.sources.flatMap(s => s.tools)
   : [];
-const synthToolkit = createToolkit([...groundingTools, reportTool]);
+const synthToolkit = createToolkit([...sourceTools, reportTool]);
 ```
 
 - **Converged** -- report-only toolkit, standard prompt. No grounding needed.
@@ -444,9 +444,11 @@ User query
     |
     v
  [research]  for each source:
-    |           bind(reranker, reportTool, ...)
-    |           spawnAgents({ questions })
+    |           source.bind({ reranker })
+    |           scorer = source.createScorer(query)
+    |           spawnAgents({ tools: source.tools, scorer, ... })
     |             -> withSharedRoot + useAgentPool (parallel agents)
+    |             -> entailment scoring at steering boundaries
     |             -> reportPrompt (scratchpad extraction for hard-cut agents)
     |           if not last source:
     |             rerankChunks -> bridge agent -> inject discoveries

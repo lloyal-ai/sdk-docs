@@ -259,6 +259,36 @@ pool.agents[0].nestedResults     // ["Sub-agent found X", "Sub-agent found Y"]
 
 Any tool that returns `{ results: string[] }` or `{ nestedResults: string[] }` automatically participates — no tool-name hardcoding. The collection is tool-agnostic.
 
+## Entailment scoring
+
+When agents recurse, their local hypotheses can drift from the original query. An agent reads about "speculative execution in Apple Silicon" (CPU architecture), extracts domain terms, and delegates about them — following the wrong thread for 4 levels. The model can't distinguish lexical similarity from semantic relevance.
+
+The reranker (a 0.6B cross-encoder with its own context, zero inference KV cost) acts as a real-time entailment oracle. It scores texts against the original query at **steering boundaries** — where the agent is proposing new work:
+
+- **Web search results** — reranked by entailment before the agent sees them
+- **Delegation boundary** — proposed sub-questions filtered if they don't entail from the original query
+
+Content boundaries (fetch_page chunks, corpus search results) are scored against the **agent's local query only**. This preserves serendipitous discovery — adjacent content that the agent didn't ask for but that connects the investigation to the answer.
+
+```typescript
+// Source creates an immutable scorer per research invocation
+const scorer = source.createScorer(query);
+
+const pool = yield* spawnAgents({
+  tools: source.tools,
+  systemPrompt: RESEARCH_PROMPT,
+  tasks: questions,
+  scorer,   // propagated to all depths via ToolContext
+  // ...
+});
+```
+
+The scorer propagates through the entire recursion tree — every DelegateTool reads `context.scorer` and passes it to the inner `spawnAgents()` call. The same immutable scorer reaches every depth.
+
+<Note>
+`createScorer()` captures the original query in a closure. No mutable state on Source. Safe to use across concurrent pools within the same research run. Different queries get different scorers.
+</Note>
+
 ## Context pressure
 
 The pool monitors KV cache usage every tick and enforces two thresholds:

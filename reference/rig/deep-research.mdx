@@ -48,6 +48,7 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
       yield* source.bind({ reranker });
 
     for (const source of opts.sources) {
+      const scorer = source.createScorer(query);
       const pool = yield* spawnAgents({
         tools: source.tools,
         systemPrompt: RESEARCH_PROMPT,
@@ -56,14 +57,22 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
         recursive: { name: 'web_research', extractTasks: (a) => a.questions as string[] },
         reportPrompt: REPORT,
         pruneOnReport: true,
+        scorer,
       });
       // Bridge between sources (see next step)
     }
     ```
 
-    Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`reportPrompt`). A grammar-constrained generation forks from the agent's accumulated KV and extracts findings. A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
+    **Entailment scoring** steers agents toward productive threads. The `scorer` (created per source, per query via `source.createScorer()`) uses the reranker as a real-time cross-encoder to score texts against the original query. It fires at two steering boundaries:
 
-    Recursive delegation returns both primary results and `nestedResults` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report. These are included as supporting context in the synthesis prompt.
+    - **Web search results** — reranked by entailment score before the agent sees them, demoting lexically similar but semantically irrelevant results
+    - **Delegation boundary** — proposed sub-questions scored against the original query. Questions that don't entail are filtered before spawning inner pools.
+
+    Content boundaries (fetch_page chunks, corpus search results) are scored against the **agent's local query only** — preserving serendipitous discovery of bridging content that connects the investigation to the answer.
+
+    Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`reportPrompt`). A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
+
+    Recursive delegation returns both primary results and `nestedResults` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report.
   </Step>
   <Step title="Bridge">
     Runs between sources when multiple sources are configured and the completed source produced findings.

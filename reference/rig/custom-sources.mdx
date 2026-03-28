@@ -92,7 +92,8 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
         const schemaTool = new SchemaTool(this.db);
         const toolkit = createToolkit([queryTool, schemaTool, ctx.reportTool]);
 
-        this._tools = new DatabaseResearchTool(toolkit, this._results);
+        // Tools are set in the constructor — no research tool needed.
+        // The harness calls spawnAgents() with source.tools.
       }
 
       getChunks(): Row[] { return this._results; }
@@ -160,7 +161,8 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
         const searchTool = new VectorSearchTool(this.client, this.collection);
         const toolkit = createToolkit([searchTool, ctx.reportTool]);
 
-        this._tools = new VectorResearchTool(toolkit, this._results);
+        // Tools are set in the constructor — no research tool needed.
+        // The harness calls spawnAgents() with source.tools.
       }
 
       getChunks(): VectorChunk[] { return this._results; }
@@ -254,7 +256,8 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
         const detailTool = new ApiDetailTool(this.baseUrl, this.headers);
         const toolkit = createToolkit([searchTool, detailTool, ctx.reportTool]);
 
-        this._tools = new ApiResearchTool(toolkit, this._results);
+        // Tools are set in the constructor — no research tool needed.
+        // The harness calls spawnAgents() with source.tools.
       }
 
       getChunks(): ApiResult[] { return this._results; }
