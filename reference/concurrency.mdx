@@ -242,11 +242,13 @@ A tool that spawns agents is not special. It's a regular `Tool` subclass whose `
 
 ### Recursion discipline
 
-Declarative [Tool Guards](/learn/agents#tool-guards) enforce research-before-delegation. Before dispatching `web_research` or `research`, the guard checks the agent's **local** tool history — not the full lineage. Each agent must have done at least one search AND one fetch/read before it can delegate to sub-agents.
+Two checks guard the delegation boundary:
 
-<Note>
-The local-history requirement exists because of Continuous Context. When sub-agents fork from the calling agent's branch, they inherit the parent's full KV — including all search and fetch results. A lineage-based guard would let children bypass the research requirement by counting the parent's history. This produces blind relay chains — the question passes through multiple levels verbatim with zero hypothesis refinement. The local-history guard forces each agent to do its own research, discover concepts from the source material, and only then delegate with refined sub-questions.
-</Note>
+**Research-before-delegation** — a declarative [Tool Guard](/learn/agents#tool-guards) checks the agent's **local** tool history (not lineage). Each agent must have done at least one search AND one fetch/read before it can delegate. This prevents blind relay chains where agents pass questions through without investigating.
+
+**Echo detection** — the delegation tool scores proposed sub-questions against the calling agent's own task via the reranker. If all questions are paraphrases (similarity > 0.8), the delegation is rejected. If any question is novel — a concept discovered during reading — the delegation proceeds. This prevents the degenerate recursion where each level re-delegates the same task verbatim, re-discovering the same content at each depth.
+
+Both checks exist because of Continuous Context. When sub-agents fork from the calling agent's branch, they inherit the parent's full KV — every search result, every fetched page, every token generated. A lineage-based research guard would let children bypass by counting the parent's history. An echo delegation would produce children that search the same queries and find the same results, because the inherited context biases them toward the same investigation path. The local-history guard forces each agent to do its own work. The echo guard forces each delegation to contain novel questions.
 
 Same tools at every level — the **prompt** is the differentiator, not the toolkit:
 

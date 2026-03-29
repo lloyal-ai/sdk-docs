@@ -58,15 +58,17 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
         extractionPrompt: REPORT,
         pruneOnReport: true,
         scorer,
+        echoThreshold: 0.8,
       });
       // Bridge between sources (see next step)
     }
     ```
 
-    **Entailment scoring** steers agents toward productive threads. The `scorer` (created per source, per query via `source.createScorer()`) uses the reranker as a real-time cross-encoder to score texts against the original query. It fires at two steering boundaries:
+    **Entailment scoring** steers agents toward productive threads. The `scorer` (created per source, per query via `source.createScorer()`) uses the reranker as a real-time cross-encoder. Three checks at the delegation boundary:
 
     - **Web search results** — reranked by entailment score before the agent sees them, demoting lexically similar but semantically irrelevant results
-    - **Delegation boundary** — proposed sub-questions scored against the original query. Questions that don't entail are filtered before spawning inner pools.
+    - **Delegation entailment** — proposed sub-questions scored against the original query. Questions that don't entail are filtered before spawning inner pools.
+    - **Echo detection** — surviving questions scored against the agent's own task. If all are paraphrases (similarity > `echoThreshold`), the delegation is rejected — the agent is nudged to report instead of re-delegating.
 
     Content boundaries (fetch_page chunks, corpus search results) are scored against the **agent's local query only** — preserving serendipitous discovery of bridging content that connects the investigation to the answer.
 

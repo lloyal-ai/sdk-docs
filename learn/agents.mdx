@@ -171,14 +171,24 @@ interface ToolGuard {
 }
 ```
 
-Three default guards ship with `DefaultAgentPolicy`:
+Four checks guard the delegation boundary:
 
 1. **Fetch dedup** — rejects `fetch_page` if the same URL was already fetched by the agent or any ancestor. Uses lineage history.
 2. **Search dedup** — rejects `web_search` if the same query (case-insensitive) was already searched in the lineage. Uses lineage history.
 3. **Research-before-delegation** — rejects `web_research` / `research` unless the agent has done at least one search AND one fetch/read itself. Uses **agent-local** history, not lineage.
+4. **Echo detection** — rejects delegation if ALL proposed sub-questions are paraphrases of the agent's own task. Scores proposed questions against `Agent.task` via `scoreSimilarityBatch` (async, runs inside the delegation tool rather than the synchronous ToolGuard interface). If `min(scores) > echoThreshold` (default 0.8), the delegation is pure repetition — rejected. If ANY question scores below the threshold, there's a novel thread and the delegation proceeds.
+
+Guards 1-3 are synchronous `ToolGuard` instances on `DefaultAgentPolicy`. Guard 4 uses the reranker (async) and runs in the delegation tool alongside the [entailment gate](#entailment-scoring). Configure the echo threshold via `spawnAgents`:
+
+```typescript
+yield* spawnAgents({
+  // ...
+  echoThreshold: 0.8,  // reject if min(similarity to own task) > 0.8
+});
+```
 
 <Note>
-The research-before-delegation guard uses agent-local history deliberately. With lineage history, a child agent would inherit its parent's search and fetch records, letting it call `web_research` on turn 0 without doing any work. This produces blind relay chains — the question passes through multiple levels verbatim with zero hypothesis refinement. The local-history requirement forces each agent to do its own research before delegating.
+The research-before-delegation guard (3) uses agent-local history deliberately. With lineage history, a child agent would inherit its parent's search and fetch records, letting it call `web_research` on turn 0 without doing any work. The echo detection guard (4) catches the next failure mode: agents that DO research but then delegate verbatim copies of their own task. Because sub-agents inherit the full parent prefix via Continuous Context, echoed delegation produces children that search the same queries, find the same results, and delegate again — compounding waste at each depth.
 </Note>
 
 ## The four-phase tick loop
