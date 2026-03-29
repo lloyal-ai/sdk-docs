@@ -296,8 +296,11 @@ This helps the model adjust its strategy on the next turn rather than repeating 
 ```typescript
 interface ToolContext {
   agentId: number;
-  branch: Branch;                                    // calling agent's branch
+  branch?: Branch;                                         // calling agent's branch
   onProgress?: (p: { filled: number; total: number }) => void;
+  scorer?: EntailmentScorer;                               // entailment scorer for semantic coherence
+  explore?: boolean;                                       // true = explore mode, false = exploit
+  pressurePercentAvailable?: number;                       // KV % available at DISPATCH time
 }
 ```
 

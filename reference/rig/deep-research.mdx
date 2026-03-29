@@ -70,7 +70,14 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
     - **Delegation entailment** — proposed sub-questions scored against the original query. Questions that don't entail are filtered before spawning inner pools.
     - **Echo detection** — surviving questions scored against the agent's own task. If all are paraphrases (similarity > `echoThreshold`), the delegation is rejected — the agent is nudged to report instead of re-delegating.
 
-    Content boundaries (fetch_page chunks, corpus search results) are scored against the **agent's local query only** — preserving serendipitous discovery of bridging content that connects the investigation to the answer.
+    **Content boundaries** (fetch_page chunks, corpus search results) behave differently based on explore/exploit mode:
+
+    - **Explore mode** (default, KV > 40% available): scored against the **agent's local query only** — preserving serendipitous discovery of bridging content that connects the investigation to the answer.
+    - **Exploit mode** (KV < 40% available): `scoreRelevanceBatch` applies dual scoring — `min(toolQueryScore, originalQueryScore)` per chunk. Tightens focus when headroom is low, at the cost of discovery. Agents report faster with focused content instead of consuming remaining KV on speculative reads.
+
+    The threshold is controlled by `DefaultAgentPolicy.exploreThreshold` (default 40, representing `ContextPressure.percentAvailable`). The policy evaluates `shouldExplore()` at each DISPATCH with a fresh pressure snapshot — so an agent that starts exploring can transition to exploit mid-run as KV fills. The harness can also force exploit mode via `policy.setExploitMode(true)`.
+
+    Exploit-mode activations are traced as `entailment:content:exploit` events with the pressure snapshot and both score flavors (`toolQueryScore` from the agent-local pass, `combinedScore` from `scoreRelevanceBatch`).
 
     Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`extractionPrompt`). A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
 

@@ -145,7 +145,8 @@ A tool can spawn sub-agents. `execute()` runs inside the pool's Effection scope,
     },
   );
   return {
-    findings: pool.agents.map(a => a.result).filter(Boolean),
+    results: pool.agents.map(a => a.result).filter(Boolean),
+    nestedResults: pool.agents.flatMap(a => a.nestedResults ?? []),
   };
 }
 ```

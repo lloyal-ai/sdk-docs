@@ -129,6 +129,7 @@ The pool consults an **AgentPolicy** at every decision boundary — when an agen
 interface AgentPolicy {
   onProduced(agent, parsed, pressure, config): ProduceAction;
   onSettleReject(agent, resultTokens, pressure, config): SettleAction;
+  shouldExplore?(agent, pressure): boolean;  // optional — defaults to true
 }
 ```
 
@@ -138,6 +139,7 @@ interface AgentPolicy {
 - **Budget enforcement** — deny non-terminal tool calls when over budget, nudge the agent to report
 - **Confabulation prevention** — reject premature reports from agents with fewer than 2 tool calls
 - **Tool guard checking** — run declarative guards before dispatching any tool call
+- **Explore/exploit switching** — decide per-DISPATCH whether content-boundary tools should explore (agent-local scoring) or exploit (dual scoring against original query)
 
 Customize thresholds and guards via the constructor:
 
@@ -147,6 +149,7 @@ import { DefaultAgentPolicy } from "@lloyal-labs/lloyal-agents";
 const policy = new DefaultAgentPolicy({
   minToolCallsBeforeReport: 3,   // require 3 tool calls before report (default 2)
   extraGuards: [myCustomGuard],  // append to default guards
+  exploreThreshold: 40,          // switch to exploit when KV < 40% available (default 40)
 });
 
 yield* runAgents({
@@ -157,7 +160,17 @@ yield* runAgents({
 
 Or replace the default guards entirely with `guards: [...]`.
 
-The policy sees the agent's full state: status, tool history, findings, nudge count, pressure snapshot. It returns an action — `tool_call`, `report`, `nudge`, or `idle` — and the pool executes it.
+The policy sees the agent's full state: status, tool history, result, nudge count, pressure snapshot. It returns an action — `tool_call`, `report`, `nudge`, or `idle` — and the pool executes it.
+
+#### Explore vs exploit mode
+
+`shouldExplore` is evaluated at every DISPATCH with a fresh `ContextPressure` snapshot (post-SETTLE, reflecting actual KV usage). When it returns `true` (explore), content-boundary tools (search, fetch_page) use agent-local reranker scoring only — preserving serendipitous discovery of bridging content. When it returns `false` (exploit), tools apply `scoreRelevanceBatch` — dual scoring against both the tool's query and the original root query via `min()` — tightening focus at the cost of discovery.
+
+`DefaultAgentPolicy` switches based on `pressure.percentAvailable`: above `exploreThreshold` (default 40) → explore, below → exploit. The harness can override with `policy.setExploitMode(true)` to force exploit mode immediately (e.g. when the user wants agents to wrap up).
+
+<Note>
+`setExploitMode` is on `DefaultAgentPolicy` (the class), not `AgentPolicy` (the interface). Harness code that needs it must type the variable as `DefaultAgentPolicy`, not `AgentPolicy`.
+</Note>
 
 ### Tool Guards
 
@@ -273,12 +286,21 @@ Any tool that returns `{ results: string[] }` or `{ nestedResults: string[] }` a
 
 When agents recurse, their local hypotheses can drift from the original query. An agent reads about "speculative execution in Apple Silicon" (CPU architecture), extracts domain terms, and delegates about them — following the wrong thread for 4 levels. The model can't distinguish lexical similarity from semantic relevance.
 
-The reranker (a 0.6B cross-encoder with its own context, zero inference KV cost) acts as a real-time entailment oracle. It scores texts against the original query at **steering boundaries** — where the agent is proposing new work:
+The reranker (a 0.6B cross-encoder with its own context, zero inference KV cost) acts as a real-time entailment oracle. The `EntailmentScorer` interface provides three scoring methods, each operating against a different query:
 
-- **Web search results** — reranked by entailment before the agent sees them
-- **Delegation boundary** — proposed sub-questions filtered if they don't entail from the original query
+| Method | Scores against | Boundary type | Purpose |
+|--------|---------------|---------------|---------|
+| `scoreEntailmentBatch(texts)` | **Original query** (closure) | Steering | Filter drifted search results and delegation questions |
+| `scoreRelevanceBatch(texts, localQuery)` | **min(tool query, original query)** | Content (exploit mode only) | Tighten focus when KV headroom is low |
+| `scoreSimilarityBatch(reference, texts)` | **Arbitrary reference** (e.g. agent task) | Steering | Echo detection — reject paraphrased delegations |
 
-Content boundaries (fetch_page chunks, corpus search results) are scored against the **agent's local query only**. This preserves serendipitous discovery — adjacent content that the agent didn't ask for but that connects the investigation to the answer.
+**Steering boundaries** (always scored against original query):
+- **Web search results** — reranked by `scoreEntailmentBatch` before the agent sees them
+- **Delegation boundary** — proposed sub-questions filtered by `scoreEntailmentBatch`, then checked for echo via `scoreSimilarityBatch`
+
+**Content boundaries** (agent-local by default, dual-scored in exploit mode):
+- **Explore mode** (default): fetch_page chunks and corpus search results are scored against the **agent's local query only**. This preserves serendipitous discovery — adjacent content that the agent didn't ask for but that connects the investigation to the answer.
+- **Exploit mode** (low KV headroom): `scoreRelevanceBatch` applies `min(toolQueryScore, originalQueryScore)` — demoting content that's locally relevant but drifted from the root intent. Controlled by [explore/exploit mode](#explore-vs-exploit-mode).
 
 ```typescript
 // Source creates an immutable scorer per research invocation
@@ -296,7 +318,7 @@ const pool = yield* spawnAgents({
 The scorer propagates through the entire recursion tree — every DelegateTool reads `context.scorer` and passes it to the inner `spawnAgents()` call. The same immutable scorer reaches every depth.
 
 <Note>
-`createScorer()` captures the original query in a closure. No mutable state on Source. Safe to use across concurrent pools within the same research run. Different queries get different scorers.
+`createScorer()` captures the original query in a closure. No mutable state on Source. Safe to use across concurrent pools within the same research run. Different queries get different scorers. The three-query distinction (tool query, agent task, original query) is critical — see the JSDoc on `EntailmentScorer` in source.ts for the canonical reference.
 </Note>
 
 ## Context pressure
@@ -316,7 +338,7 @@ yield* runAgents({
 });
 ```
 
-Tool results include `_contextAvailablePercent` — the percentage of KV remaining after each tool call. Agents see this in their attention window, enabling pressure-aware decisions.
+Tool results include `_contextAvailablePercent` — derived from `ContextPressure.percentAvailable` (0–100 integer). Agents see this in their attention window, enabling pressure-aware decisions. The same percentage drives [explore/exploit switching](#explore-vs-exploit-mode) via `policy.shouldExplore()`.
 
 <Note>
 Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported results keep them, agents that didn't get scratchpad extraction via `extractionPrompt`.

@@ -37,11 +37,16 @@ const pressure = new ContextPressure(ctx, {
   hardLimit: 128,   // crash-prevention floor
 });
 
-pressure.remaining  // nCtx - cellsUsed (Infinity when nCtx <= 0)
-pressure.headroom   // remaining - softLimit
-pressure.critical   // remaining < hardLimit
-pressure.canFit(n)  // n <= headroom
+pressure.nCtx              // total KV cache capacity (0 when no limit)
+pressure.cellsUsed         // KV cells currently in use (monotonic within a pool run)
+pressure.remaining         // nCtx - cellsUsed (Infinity when nCtx <= 0)
+pressure.headroom          // remaining - softLimit
+pressure.critical          // remaining < hardLimit
+pressure.canFit(n)         // n <= headroom
+pressure.percentAvailable  // 0–100 integer: remaining / nCtx * 100
 ```
+
+`percentAvailable` is the single source of truth for the KV availability percentage. It is used by `policy.shouldExplore()` to decide explore vs exploit mode, recorded on `ToolHistoryEntry.contextAfterPercent` after each tool result settles, and injected into tool results as `_contextAvailablePercent` so agents can make pressure-aware decisions.
 
 Defaults: `softLimit = 1024`, `hardLimit = 128`.
 
@@ -135,13 +140,13 @@ The `headroom` variable is decremented as results are accepted, so ordering matt
 
 ### `_contextAvailablePercent` in tool results
 
-After each tool executes, the pool injects `_contextAvailablePercent` into the tool result object before serialization. This is the percentage of KV remaining at that moment:
+After each tool executes, the pool creates a fresh `ContextPressure` snapshot and injects `percentAvailable` into the tool result object as `_contextAvailablePercent`:
 
 ```json
 {"matches": [...], "totalMatches": 4, "_contextAvailablePercent": 32}
 ```
 
-The value is visible to the agent in its attention window — the model can see how much room remains after each tool call. The same value is emitted on the `agent:tool_result` event for TUI display.
+The value is derived from `ContextPressure.percentAvailable` — the single formula for KV availability percentage across the system. The same value is emitted on the `agent:tool_result` event for TUI display and recorded on `ToolHistoryEntry.contextAfterPercent` for policy decisions.
 
 ## `cellsUsed` is monotonic during a pool run
 

@@ -27,8 +27,11 @@ export abstract class Source<TCtx, TChunk> {
 | `tools` | Yes | Data access tools the harness passes to `spawnAgents()` |
 | `bind(ctx)` | Optional | Late-binds runtime deps (reranker, API clients) not available at construction |
 | `getChunks()` | Optional | Returns buffered chunks for post-use reranking |
+| `createScorer(query)` | Inherited | Creates an immutable `EntailmentScorer` scoped to one invocation. Set `_reranker` in `bind()` to enable. |
 
 The type parameters: `TCtx` is the context type passed to `bind()`, `TChunk` is the chunk type returned by `getChunks()`.
+
+`createScorer()` is inherited from `Source` — you don't need to implement it. Set `this._reranker` during `bind()` and the scorer factory works automatically. The harness calls `source.createScorer(query)` and passes the result to `spawnAgents({ scorer })` for entailment scoring across the agent tree.
 
 ## Step-by-step implementation
 

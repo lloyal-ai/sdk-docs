@@ -41,6 +41,10 @@ Every trace event has a `traceId`, `parentTraceId` (for building the tree), and 
 | `generate:start/end` | Single-branch generation (plan, eval, scratchpad) with output |
 | `branch:create/prefill/prune` | KV lifecycle with token counts and roles |
 | `rerank:start/end` | Query, chunk count, top scored results |
+| `entailment:search` | Steering-boundary scoring of web search results against original query |
+| `entailment:delegate` | Delegation entailment gate — per-question scores and keep/filter decisions |
+| `entailment:delegate:echo` | Echo detection — similarity scores against agent task, threshold, rejection |
+| `entailment:content:exploit` | Exploit-mode dual scoring at content boundary — pressure snapshot, `toolQueryScore` vs `combinedScore` per chunk |
 
 ## Read a trace
 

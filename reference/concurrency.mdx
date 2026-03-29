@@ -22,7 +22,7 @@ DISPATCH — execute collected tool calls sequentially via scoped() + call()
 
 **SETTLE** drains the `settledBuffer` — tool results from the previous tick's DISPATCH. Each result is pressure-gated: if it exceeds headroom, the result is rejected and the agent is marked done. Surviving results are batch-prefilled via `store.prefill()`, then agents transition back to `generating` with grammar state reset.
 
-**DISPATCH** executes collected tool calls sequentially. Each tool runs inside `scoped()` + `call()`:
+**DISPATCH** executes collected tool calls sequentially. Before each tool, the pool creates a fresh `ContextPressure` snapshot (reflecting KV consumed by SETTLE) and evaluates `policy.shouldExplore(agent, pressure)` to determine explore vs exploit mode. The `explore` flag and `pressurePercentAvailable` are passed to the tool via `ToolContext`. Each tool runs inside `scoped()` + `call()`:
 
 ```typescript
 try {
@@ -128,7 +128,7 @@ Each pool level runs its own `formatChatSync()` call, producing its own grammar,
 
 ### `ContextPressure` Across Nested Pools
 
-Both inner and outer pools create `ContextPressure` snapshots from the same `SessionContext`. `cellsUsed` is a monotonic counter — it increments on every decode and prefill but does not decrement on individual branch prune (only resets on bulk ops like `retainOnly`). This means `remaining` is a conservative lower bound that becomes increasingly pessimistic as branches are pruned during a run. An inner pool's SETTLE consumes KV that the outer pool's next SETTLE will see as reduced headroom. Two thresholds govern behavior:
+Both inner and outer pools create `ContextPressure` snapshots from the same `SessionContext`. Each snapshot captures `nCtx`, `cellsUsed`, `remaining`, and derives `percentAvailable` (0–100 integer). `cellsUsed` is a monotonic counter — it increments on every decode and prefill but does not decrement on individual branch prune (only resets on bulk ops like `retainOnly`). This means `remaining` is a conservative lower bound that becomes increasingly pessimistic as branches are pruned during a run. An inner pool's SETTLE consumes KV that the outer pool's next SETTLE will see as reduced headroom. `percentAvailable` drives `policy.shouldExplore()` — the explore/exploit decision at each DISPATCH. Two thresholds govern behavior:
 
 - **`softLimit`** (default 1024) — remaining KV floor for new work. SETTLE rejects tool results that would cross this floor. PRODUCE hard-cuts non-terminal tool calls when headroom is negative. Set to account for downstream pool needs (reporters, verification).
 
