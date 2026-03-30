@@ -1,0 +1,218 @@
+---
+title: "Search Strategy"
+description: "Entailment scoring, three-query convention, steering vs content boundaries, and explore/exploit mode."
+---
+
+When agents recurse and delegate, their local hypotheses can drift from the original query. An agent reads about "speculative execution in Apple Silicon" (CPU architecture), extracts domain terms, and delegates about them — following the wrong thread for 4 levels. The model can't distinguish lexical similarity from semantic relevance.
+
+The search strategy system maintains semantic coherence across recursive agent pipelines. A cross-encoder reranker (its own context, zero inference KV cost) scores content at decision boundaries. Different boundaries get different scoring — steering boundaries check against the original query, content boundaries preserve agent-local discovery.
+
+## Three queries in play
+
+At any moment during agent execution, three distinct "queries" exist. Conflating them produces wrong scores.
+
+| Concept | Scope | Example |
+|---------|-------|---------|
+| **Tool query** | Per tool call | `args.query` passed to `search()` or `fetch_page()` |
+| **Agent task** | Per agent lifetime | The sub-question this agent was assigned from the plan |
+| **Original query** | Per research invocation | The root query from the harness, captured in the scorer closure |
+
+Each scoring method operates against a specific query:
+
+- `scoreEntailmentBatch` — scores against the **original query** (closure-captured)
+- `scoreRelevanceBatch` — combines **tool query** + **original query** via `min()`
+- `scoreSimilarityBatch` — scores against an arbitrary **reference** (echo detection uses the agent task)
+
+## `EntailmentScorer` interface
+
+Created per research invocation via `source.createScorer(originalQuery)`. Immutable once created — safe to share across concurrent pools and all recursion depths.
+
+```typescript
+interface EntailmentScorer {
+  scoreEntailmentBatch(texts: string[]): Promise<number[]>;
+  scoreRelevanceBatch(texts: string[], localQuery: string): Promise<number[]>;
+  scoreSimilarityBatch(reference: string, texts: string[]): Promise<number[]>;
+  shouldProceed(score: number): boolean;
+}
+```
+
+| Method | Returns | Used at |
+|--------|---------|---------|
+| `scoreEntailmentBatch` | 0–1 per text, scored against original query | Web search reranking, delegation gate |
+| `scoreRelevanceBatch` | 0–1 per text, `min(toolQueryScore, originalQueryScore)` | Content boundaries in exploit mode |
+| `scoreSimilarityBatch` | 0–1 per text, scored against reference string | Echo detection guard |
+| `shouldProceed` | `score >= floor` (default floor 0.25) | Delegation gate threshold |
+
+### Creating a scorer
+
+```typescript
+const scorer = source.createScorer(query);
+
+const pool = yield* spawnAgents({
+  tools: source.tools,
+  systemPrompt: RESEARCH_PROMPT,
+  tasks: questions,
+  scorer,   // propagated to all depths via ToolContext
+});
+```
+
+`createScorer` captures the original query and the reranker in a closure. Set `this._reranker` during `source.bind()` — if no reranker is available, `createScorer` returns `NULL_SCORER` (all scores 1.0, all proceed).
+
+The scorer propagates through the entire recursion tree. Every `DelegateTool` reads `context.scorer` and passes it to the inner `spawnAgents()` call. The same immutable scorer reaches every depth — inner agents score against the same original query as outer agents.
+
+## Steering boundaries
+
+Steering boundaries are where the agent proposes new work — choosing which search results to read, which sub-questions to investigate. Scoring here prevents the agent from pursuing irrelevant threads.
+
+### Web search reranking
+
+When `WebSearchTool` receives results from the search provider, it reranks them by entailment before the agent sees them:
+
+```typescript
+const scores = await scorer.scoreEntailmentBatch(snippets);
+results.sort((a, b) => b.score - a.score);
+```
+
+Results that score low against the original query drop to the bottom. The agent sees high-entailment results first, naturally steering toward relevant content.
+
+### Delegation gate
+
+When `DelegateTool` receives proposed sub-questions, it scores each against the original query:
+
+```typescript
+const scores = await scorer.scoreEntailmentBatch(tasks);
+const survivors = tasks.filter((_, i) => scorer.shouldProceed(scores[i]));
+```
+
+Questions that don't entail from the original query (score below `_entailmentFloor`, default 0.25) are filtered before spawning inner agents. A question about "CPU branch prediction in Apple Silicon loops" scores 0.12 against "speculative decoding performance" and gets rejected — it's a lexical near-miss that would waste an entire agent's KV budget.
+
+### Echo detection
+
+After the entailment gate, surviving questions are checked for echo — are they paraphrases of the agent's own task?
+
+```typescript
+const echoScores = await scorer.scoreSimilarityBatch(agent.task, tasks);
+const minScore = Math.min(...echoScores);
+if (minScore > echoThreshold) {
+  // All questions are paraphrases — reject delegation
+}
+```
+
+If ALL surviving questions score above `echoThreshold` (default 0.8) against the calling agent's task, the delegation is rejected. The agent is nudged to report instead of re-delegating the same work. If ANY question scores below the threshold — there's a novel thread — the delegation proceeds.
+
+<Note>
+The echo guard uses `scoreSimilarityBatch` with the agent's **task** as reference, not `scoreEntailmentBatch` with the original query. These are different checks: entailment asks "is this relevant to the research?" while echo asks "is this just a restatement of what I was already asked?"
+</Note>
+
+## Content boundaries: explore vs exploit
+
+Content boundaries are where the agent receives information — search result chunks, fetched page sections. Here, the scoring strategy depends on [explore/exploit mode](/reference/agent-policy#shouldexplore--explore-vs-exploit-mode).
+
+### Explore mode (default)
+
+Content-boundary tools (`SearchTool`, `FetchPageTool`) score chunks against the **agent's local query only** — the `query` argument the agent passed to the tool. No scoring against the original query.
+
+This preserves serendipitous discovery. An agent searching for "iPod-era success to monopoly practices" reads a section about iPod at lines 83-84. Adjacent text mentions "United States v. Microsoft." In explore mode, this adjacent content scores against the agent's local query and survives — the agent discovers a causal connection the original query didn't mention. This produces hypothesis greps: the agent constructs a new search targeting the discovered concept.
+
+Scoring against the original query would demote "United States v. Microsoft" because it scores low against "iPod-era success" — despite being the causal evidence connecting them.
+
+### Exploit mode
+
+When [policy.shouldExplore()](/reference/agent-policy#shouldexplore--explore-vs-exploit-mode) returns `false` (KV headroom below threshold), content-boundary tools apply dual scoring via `scoreRelevanceBatch`:
+
+```typescript
+if (!context.explore && context.scorer) {
+  const combinedScores = await scorer.scoreRelevanceBatch(chunkTexts, query);
+  // combinedScores[i] = min(toolQueryScore, originalQueryScore)
+  results.sort((a, b) => b.combinedScore - a.combinedScore);
+}
+```
+
+`scoreRelevanceBatch` calls the reranker twice (sequentially — single `llama_context`): once with the original query, once with the tool's local query. Each chunk gets `min(localScore, originalScore)`. Content that's locally relevant but drifted from the root intent gets demoted.
+
+This tightens focus when KV is scarce. Agents report faster with focused content instead of consuming remaining headroom on speculative reads.
+
+### The flip-back
+
+Explore/exploit is not monotonic. `percentAvailable` is live — it recovers when branches are pruned. When agent A reports and its branch is pruned, `cells_used` decrements, and agent B's next DISPATCH may see `percentAvailable` above the threshold again — flipping back to explore mode.
+
+This is intentional. The flip-back produces higher quality trajectories:
+
+1. Pool starts at 80% available — all agents explore, discover bridging content
+2. Tool results accumulate — drops to 35%, agents switch to exploit, focus tightens
+3. Agent A reports, branch pruned — recovers to 50%, remaining agents explore again
+4. Fresh discoveries from the recovered headroom inform the final reports
+
+<Tip>
+Monitor with `--trace`. The `entailment:content:exploit` trace event fires when exploit mode activates, showing the pressure snapshot and both score flavors (`toolQueryScore` vs `combinedScore`) for the top chunks. Absence of these events means agents stayed in explore mode throughout.
+</Tip>
+
+## Scoring at each tool boundary
+
+| Tool | Boundary | Scoring method | Affected by explore/exploit |
+|------|----------|---------------|---------------------------|
+| `WebSearchTool` | Steering | `scoreEntailmentBatch` | No — always scores against original query |
+| `DelegateTool` (entailment) | Steering | `scoreEntailmentBatch` | No — always gates against original query |
+| `DelegateTool` (echo) | Steering | `scoreSimilarityBatch` | No — always checks against agent task |
+| `SearchTool` | Content | Agent-local reranker / `scoreRelevanceBatch` | Yes — dual scoring only in exploit mode |
+| `FetchPageTool` | Content | Agent-local reranker / `scoreRelevanceBatch` | Yes — dual scoring only in exploit mode |
+
+## `ToolContext` fields for scoring
+
+The pool passes scoring context to every tool via `ToolContext`:
+
+```typescript
+interface ToolContext {
+  scorer?: EntailmentScorer;          // immutable scorer from source.createScorer()
+  explore?: boolean;                   // true = explore, false = exploit
+  pressurePercentAvailable?: number;   // KV % at dispatch time (for trace events)
+}
+```
+
+`explore` is computed fresh at each DISPATCH via `policy.shouldExplore(agent, pressure)` with a post-SETTLE pressure snapshot. Different tool calls within the same tick can get different `explore` values if pressure changes between dispatches.
+
+## Trace events
+
+All scoring decisions are traced for debugging:
+
+| Event | Tool | What it captures |
+|-------|------|-----------------|
+| `entailment:search` | WebSearchTool | Query, before-scores for each search result |
+| `entailment:search:reordered` | WebSearchTool | Result order after entailment reranking |
+| `entailment:delegate` | DelegateTool | Per-question scores, kept/filtered decisions |
+| `entailment:delegate:echo` | DelegateTool | Echo scores against agent task, threshold, rejected flag |
+| `entailment:content:exploit` | SearchTool, FetchPageTool | Pressure snapshot, `toolQueryScore` vs `combinedScore` per chunk |
+
+The `entailment:content:exploit` event only fires when exploit mode activates. Its absence in a trace means all content-boundary scoring was agent-local (explore mode).
+
+## Configuration
+
+Scoring is configured at two levels:
+
+### Source level
+
+```typescript
+class MySource extends Source {
+  protected _entailmentFloor = 0.25;  // delegation gate threshold (default 0.25)
+}
+```
+
+### Harness level
+
+```typescript
+const scorer = source.createScorer(query);
+
+yield* spawnAgents({
+  scorer,
+  echoThreshold: 0.8,          // echo detection threshold (default 0.8)
+  checkAncestorEcho: false,     // check ancestor tasks too (default false)
+});
+```
+
+### Policy level
+
+```typescript
+const policy = new DefaultAgentPolicy({
+  exploreThreshold: 40,  // percentAvailable below this → exploit mode (default 40)
+});
+```

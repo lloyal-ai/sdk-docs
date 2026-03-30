@@ -128,7 +128,7 @@ Each pool level runs its own `formatChatSync()` call, producing its own grammar,
 
 ### `ContextPressure` Across Nested Pools
 
-Both inner and outer pools create `ContextPressure` snapshots from the same `SessionContext`. Each snapshot captures `nCtx`, `cellsUsed`, `remaining`, and derives `percentAvailable` (0–100 integer). `cellsUsed` is a monotonic counter — it increments on every decode and prefill but does not decrement on individual branch prune (only resets on bulk ops like `retainOnly`). This means `remaining` is a conservative lower bound that becomes increasingly pessimistic as branches are pruned during a run. An inner pool's SETTLE consumes KV that the outer pool's next SETTLE will see as reduced headroom. `percentAvailable` drives `policy.shouldExplore()` — the explore/exploit decision at each DISPATCH. Two thresholds govern behavior:
+Both inner and outer pools create `ContextPressure` snapshots from the same `SessionContext`. Each snapshot captures `nCtx`, `cellsUsed`, `remaining`, and derives `percentAvailable` (0–100 integer). `cellsUsed` increments on every decode and prefill, and **decrements** when branches are pruned (each branch subtracts its unique cells: `position - fork_head`). This means pressure is live — when an inner pool completes and its branches are pruned, `remaining` and `percentAvailable` recover. The outer pool's next DISPATCH sees the freed headroom. `percentAvailable` drives `policy.shouldExplore()` — the explore/exploit decision at each DISPATCH, which can flip back to explore as pressure recovers. Two thresholds govern behavior:
 
 - **`softLimit`** (default 1024) — remaining KV floor for new work. SETTLE rejects tool results that would cross this floor. PRODUCE hard-cuts non-terminal tool calls when headroom is negative. Set to account for downstream pool needs (reporters, verification).
 
@@ -283,7 +283,7 @@ Nothing in the framework limits recursion to two levels. An inner tool can itsel
 
 ### KV as the natural bound
 
-The practical limit is KV cache capacity. Each nested pool consumes shared prefix tokens per inner agent, drawn from the same budget as the outer pool. Depth is bounded naturally by KV pressure — the prefill gate at pool setup determines how many agents fit, PRODUCE and SETTLE enforce headroom during generation, and `cellsUsed` monotonicity means the pressure estimate is conservative after branch pruning.
+The practical limit is KV cache capacity. Each nested pool consumes shared prefix tokens per inner agent, drawn from the same budget as the outer pool. Depth is bounded naturally by KV pressure — the prefill gate at pool setup determines how many agents fit, PRODUCE and SETTLE enforce headroom during generation. When inner pools complete and their branches are pruned, `cellsUsed` decrements and headroom recovers for the outer pool.
 
 ### Sizing `softLimit` for recursion
 

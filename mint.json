@@ -62,6 +62,8 @@
       "pages": [
         "reference/concurrency",
         "reference/kv-pressure",
+        "reference/agent-policy",
+        "reference/search-strategy",
         "reference/prefix-sharing",
         "reference/grammar-and-ordering",
         "reference/scratchpad-extraction",

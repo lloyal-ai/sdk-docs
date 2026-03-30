@@ -1,0 +1,251 @@
+---
+title: "Agent Policy"
+description: "Lifecycle decisions, budget enforcement, tool guards, and explore/exploit switching."
+---
+
+Every agent lifecycle decision passes through a policy. When an agent hits a stop token, when a tool result won't fit in KV, when a tool call is about to dispatch — the pool consults the policy and executes the returned action. The pool handles mechanics (transitions, prefills, prunes). The policy handles judgment.
+
+## The interface
+
+```typescript
+interface AgentPolicy {
+  onProduced(agent, parsed, pressure, config): ProduceAction;
+  onSettleReject(agent, resultTokens, pressure, config): SettleAction;
+  shouldExplore?(agent, pressure): boolean;
+}
+```
+
+Three hooks, called at three different points in the [tick loop](/reference/concurrency#four-phase-tick-loop):
+
+| Hook | Phase | When | What it decides |
+|------|-------|------|-----------------|
+| `onProduced` | PRODUCE | Agent hit stop token | Tool call, report, nudge, or kill |
+| `onSettleReject` | SETTLE | Tool result exceeds headroom | Nudge or kill |
+| `shouldExplore` | DISPATCH | Before each tool executes | Explore mode or exploit mode |
+
+The policy receives the agent's full state — status, tool history, result, nudge count — plus a live [ContextPressure](/reference/kv-pressure) snapshot and pool configuration. It returns an action. The pool executes it.
+
+## `onProduced` — the main decision point
+
+Called after `parseChatOutput` extracts content and tool calls from the agent's generation. The policy sees what the agent wants to do and decides what actually happens.
+
+```
+Agent generates → stop token → parseChatOutput → onProduced(agent, parsed, pressure, config)
+```
+
+Returns one of five actions:
+
+| Action | What the pool does |
+|--------|-------------------|
+| `tool_call` | Dispatch the tool in DISPATCH phase |
+| `report` | Extract result, mark agent idle, emit `agent:report` |
+| `nudge` | Inject an error message as a fake tool result ("report your findings now") |
+| `idle` | Kill the agent — transition to idle, emit `agent:done` |
+| `free_text_report` | Agent produced prose without a tool call — capture as result |
+
+### Decision flow in `DefaultAgentPolicy`
+
+```
+parsed output has tool call?
+  ├─ No → free_text_report (if agent has done work) or idle
+  │
+  ├─ Over budget? (turns >= maxTurns OR headroom < 0, non-terminal tool)
+  │   ├─ First offense, not critical → nudge
+  │   └─ Second offense or critical → idle (pressure_softcut / max_turns)
+  │
+  ├─ Terminal tool? (e.g. report)
+  │   ├─ Insufficient research (< minToolCalls, not nudged) → nudge
+  │   └─ Sufficient → report (extract result from tool arguments)
+  │
+  ├─ Guard rejected? → nudge (with guard's message)
+  │
+  └─ All checks pass → tool_call
+```
+
+The terminal tool is never dispatched — the policy intercepts it, extracts the `result` field from the tool arguments, and returns `report`. The pool calls `agent.reportResult(result, 'report_tool')` and transitions the agent to idle.
+
+## `onSettleReject` — tool result too large
+
+Called when a tool result's token count exceeds available headroom during the SETTLE phase. The tool already executed — this is about whether the result can be prefilled into the agent's branch.
+
+```typescript
+// SETTLE: item.prefillTokens.length > headroom
+const action = policy.onSettleReject(agent, resultTokens, pressure, config);
+```
+
+Returns `nudge` or `idle`:
+
+- **First offense** (`!agent.nudged && toolCallCount > 0`): nudge — inject "tool result too large, report now" as a smaller replacement result
+- **Second offense** or no terminal tool: idle — agent killed
+
+If the nudge message itself doesn't fit in headroom, the agent is killed regardless of the policy's decision.
+
+## `shouldExplore` — explore vs exploit mode
+
+Called at DISPATCH before each tool executes. Returns `true` for explore mode (agent-local scoring at content boundaries) or `false` for exploit mode (dual scoring via [scoreRelevanceBatch](/reference/search-strategy#content-boundaries-explore-vs-exploit)).
+
+```typescript
+// DISPATCH: fresh pressure snapshot post-SETTLE
+const dispatchPressure = new ContextPressure(ctx, pressureOpts);
+const explore = policy.shouldExplore?.(agent, dispatchPressure) ?? true;
+```
+
+Optional on the interface — defaults to `true` (explore) when absent. `DefaultAgentPolicy` switches based on `pressure.percentAvailable`:
+
+- Above `exploreThreshold` (default 40) → explore
+- Below → exploit
+
+<Note>
+`percentAvailable` is live — it recovers when branches are pruned. An agent in exploit mode can flip back to explore if other agents report and free KV. This is intentional. See [KV Pressure — cellsUsed tracks live pressure](/reference/kv-pressure#cellsused-tracks-live-pressure).
+</Note>
+
+## The nudge mechanism
+
+Nudging gives agents a second chance before being killed. When the policy returns `nudge`, the pool:
+
+1. Serializes an error message as a tool result: `{ "error": "KV memory pressure — report your findings now." }`
+2. Marks the agent as nudged (`agent.markNudged()`)
+3. Prefills the error into the agent's branch
+4. Resets the grammar so the agent generates a fresh response
+
+The agent sees the error in its context and typically calls the terminal tool on its next turn. If it tries another non-terminal tool instead, the policy returns `idle` on the second offense — `agent.nudged` is already `true`, so the first-offense check fails.
+
+Three sources of nudge messages:
+
+| Source | Message |
+|--------|---------|
+| Budget enforcement | "KV memory pressure — you cannot call more tools. Report your findings now." |
+| Insufficient research | "You must use tools before submitting results." |
+| Tool guard | The guard's custom `message` field |
+
+## Tool guards
+
+Guards are declarative rejection rules checked inside `onProduced` before returning `tool_call`. Each guard specifies which tools it applies to and a synchronous reject function:
+
+```typescript
+interface ToolGuard {
+  tools: string[];
+  reject: (args, lineageHistory, agent) => boolean;
+  message: string;
+}
+```
+
+`DefaultAgentPolicy` ships three guards:
+
+### Fetch deduplication
+
+Rejects `fetch_page` if the same URL was already fetched in the agent's lineage (self + ancestors). Uses `walkAncestors` to collect tool history across the full delegation chain.
+
+### Search deduplication
+
+Rejects `web_search` if the same query (case-insensitive) was already searched in the lineage.
+
+### Research-before-delegation
+
+Rejects `web_research` / `research` unless the agent has done at least one search AND one fetch/read **in its own local history** — not lineage.
+
+<Note>
+This guard deliberately uses agent-local history, not lineage. With lineage history, a child agent would inherit its parent's search and fetch records, letting it call the delegation tool on turn 0 without doing any work of its own. The local-history check forces each agent to investigate before delegating.
+</Note>
+
+### Custom guards
+
+Replace the defaults entirely or append additional guards:
+
+```typescript
+const policy = new DefaultAgentPolicy({
+  guards: [myGuard],           // replaces all defaults
+  // OR
+  extraGuards: [myGuard],      // appends to defaults
+});
+```
+
+## `DefaultAgentPolicy` configuration
+
+```typescript
+import { DefaultAgentPolicy } from "@lloyal-labs/lloyal-agents";
+
+const policy = new DefaultAgentPolicy({
+  minToolCallsBeforeReport: 2,  // min non-terminal tool calls before report accepted (default 2)
+  guards: undefined,             // replace default guards (undefined = use defaults)
+  extraGuards: [],               // append additional guards to defaults
+  exploreThreshold: 40,          // percentAvailable below this → exploit mode (default 40)
+});
+```
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `minToolCallsBeforeReport` | 2 | Agents with fewer non-terminal tool calls get nudged when trying to report |
+| `guards` | 3 default guards | Replaces the entire guard array when provided |
+| `extraGuards` | `[]` | Appended to default guards |
+| `exploreThreshold` | 40 | KV percent available threshold for explore/exploit switch |
+
+### `setExploitMode`
+
+Harness-driven override for immediate exploit mode:
+
+```typescript
+policy.setExploitMode(true);   // all agents exploit regardless of pressure
+policy.setExploitMode(false);  // revert to pressure-driven
+```
+
+<Note>
+`setExploitMode` is on `DefaultAgentPolicy` (the class), not `AgentPolicy` (the interface). Not all policy implementations support forced exploit. Harness code that needs it must type the variable as `DefaultAgentPolicy`.
+</Note>
+
+## Scratchpad recovery
+
+After the tick loop ends, the pool processes agents that were killed without reporting. If `extractionPrompt` is configured, the pool forks from each killed agent's branch and generates a grammar-constrained extraction:
+
+```typescript
+yield* runAgents({
+  tasks,
+  tools: toolMap,
+  extractionPrompt: {
+    system: "You are a research reporter. Summarize all findings.",
+    user: "Report your findings.",
+    minTokens: 100,      // skip agents with fewer tokens (confabulation guard)
+    minToolCalls: 2,      // skip agents with fewer tool calls
+  },
+});
+```
+
+The confabulation guard prevents extraction from agents that barely ran — an agent with 50 tokens and 1 tool call would produce fabricated findings. Agents that pass the guard get a grammar-constrained extraction (`{ "result": "..." }`) from their accumulated KV state, stored with `resultSource: 'scratchpad'`.
+
+<Tip>
+Recovery runs after all agents finish, using KV freed by agents that already reported. Set `pruneOnReport: true` to maximize headroom for extraction passes.
+</Tip>
+
+## Writing a custom policy
+
+Implement the `AgentPolicy` interface to control any lifecycle decision:
+
+```typescript
+import type { AgentPolicy, ProduceAction, SettleAction } from "@lloyal-labs/lloyal-agents";
+import type { ContextPressure } from "@lloyal-labs/lloyal-agents";
+
+class MyPolicy implements AgentPolicy {
+  onProduced(agent, parsed, pressure, config): ProduceAction {
+    // Your logic here — same decision surface as DefaultAgentPolicy
+    // Return: tool_call, report, nudge, idle, or free_text_report
+  }
+
+  onSettleReject(agent, resultTokens, pressure, config): SettleAction {
+    // Return: nudge or idle
+  }
+
+  shouldExplore(agent, pressure): boolean {
+    // Return true for discovery-oriented, false for focus-oriented
+    return pressure.percentAvailable > 50;
+  }
+}
+```
+
+Pass to any pool via the `policy` option:
+
+```typescript
+yield* runAgents({ tasks, tools, policy: new MyPolicy() });
+yield* spawnAgents({ tasks, tools, systemPrompt, policy: new MyPolicy() });
+```
+
+The policy instance is shared across all agents in a pool. For nested pools (recursive tools), the inner pool receives the same policy instance from `opts.policy` on the outer pool.

@@ -148,14 +148,14 @@ After each tool executes, the pool creates a fresh `ContextPressure` snapshot an
 
 The value is derived from `ContextPressure.percentAvailable` — the single formula for KV availability percentage across the system. The same value is emitted on the `agent:tool_result` event for TUI display and recorded on `ToolHistoryEntry.contextAfterPercent` for policy decisions.
 
-## `cellsUsed` is monotonic during a pool run
+## `cellsUsed` tracks live pressure
 
 <Note>
-`cellsUsed` increments on every `decode_each` (COMMIT) and `decode_scatter` (SETTLE prefill). It does not decrement on individual branch prune. It resets only on bulk operations like `retainOnly` and `drain`.
+`cellsUsed` increments on every `decode_each` (COMMIT) and `decode_scatter` (SETTLE prefill). It **decrements** when a branch is pruned — each branch subtracts its unique cells (`position - fork_head`) on release. It resets to zero on bulk operations like `retainOnly` and `drain`, and resets to the surviving branch's position on `retainOnly`.
 
-This means `remaining` is a conservative lower bound that becomes increasingly pessimistic as branches are pruned during a run. If agent A completes and its branch is pruned, the cells it freed are not reflected in the next `ContextPressure` snapshot. The pressure system overestimates usage and may drop agents earlier than strictly necessary.
+This means `remaining` and `percentAvailable` reflect actual KV usage and **recover** as branches are freed. When an agent reports and its branch is pruned (`pruneOnReport: true`), the freed cells are visible to the next `ContextPressure` snapshot. Remaining agents see increased headroom.
 
-This is a deliberate design choice. Accurate per-branch cell tracking would require walking the branch tree on every snapshot. The monotonic counter is O(1) -- read a single integer. The pessimism is bounded: it triggers pressure sooner, which is safe (agents get dropped or denied), never later (which could crash).
+This has a direct impact on explore/exploit mode: `percentAvailable` can rise above the `exploreThreshold` after branches are pruned, switching surviving agents back to explore mode. The flip is intentional — it produces higher quality trajectories by allowing discovery when headroom recovers.
 </Note>
 
 ## Sizing `softLimit` for nested pools
