@@ -19,9 +19,6 @@ const source = new WebSource(new TavilyProvider(), {
     timeout: 10_000,                // fetch timeout in ms (default 10000)
     tokenBudget: 2048,              // reranker chunk selection budget (default 2048)
   },
-  research: {
-    pressure: { softLimit: 2048 },  // inner research pool pressure (default 1024)
-  },
 });
 ```
 

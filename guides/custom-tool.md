@@ -24,6 +24,7 @@ abstract class Tool<TArgs = Record<string, unknown>> {
 | `description` | Shown to the model in the system prompt. Drives tool selection. |
 | `parameters` | JSON Schema describing expected arguments. |
 | `execute()` | Generator function that performs the work and returns the result. |
+| `probe` | Optional getter returning `string \| null`. When non-null, the pool prefills this text after the tool result settles — nudging the model to reason before the next tool call. Default: `null` (noop). |
 
 The `schema` getter (inherited) auto-generates the OpenAI-compatible function schema from these fields. You never construct the schema manually.
 
@@ -335,3 +336,28 @@ Report progress for long-running operations:
 ```
 
 Progress events surface as `agent:tool_progress` in the event channel, enabling TUI updates during slow operations.
+
+## Reasoning probes
+
+Override the `probe` getter to prefill text after the tool result settles. The probe is injected between the tool result and the grammar reset, giving the model unconstrained prose space to reason about the result before deciding the next action.
+
+```typescript
+class SearchTool extends Tool<{ query: string }> {
+  readonly name = 'search';
+  // ...
+
+  get probe() { return 'Wait, '; }
+}
+```
+
+The pool handles the lifecycle:
+1. Tool result prefilled into agent's KV cache
+2. Probe text prefilled immediately after
+3. Lazy grammar reset — model generates freely until a trigger fires
+4. Model reasons about the result, then produces the next tool call or reports
+
+Probes only fire after real tool dispatches. Nudges, settle rejects, and terminal tool interceptions are unaffected. When `probe` returns `null` (the default), no extra prefill happens — zero cost.
+
+<Note>
+Most tools don't need probes. Use them when a tool returns dense results that benefit from explicit intermediate reasoning — semantic search results, large document reads, complex API responses where the model should synthesize before acting.
+</Note>

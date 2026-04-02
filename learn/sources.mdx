@@ -109,7 +109,7 @@ for (const source of sources) {
       name: "research",
       extractTasks: (args) => args.questions as string[],
     },
-    extractionPrompt: REPORT,
+    policy: researchPolicy,
     pruneOnReport: true,
   });
 
@@ -179,7 +179,7 @@ const pool = yield* spawnAgents({
   tasks: questions,
   terminalTool: { name: "report", tool: reportTool },
   recursive: { name: "investigate", extractTasks: (args) => args.tasks as string[] },
-  extractionPrompt: REPORT,
+  policy: new DefaultAgentPolicy({ recovery: { prompt: REPORT } }),
 });
 ```
 

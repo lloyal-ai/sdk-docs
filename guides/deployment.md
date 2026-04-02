@@ -188,26 +188,22 @@ const MAX_TOOL_TURNS = 20; // Max tool calls per agent
 Context pressure controls when agents are shut down as KV fills. Two thresholds:
 
 ```typescript
-const pool = yield* useAgentPool({
-  // ...
-  pressure: { softLimit: 1024, hardLimit: 128 },
+const researchPolicy = new DefaultAgentPolicy({
+  budget: { context: { softLimit: 1024, hardLimit: 128 } },
+  recovery: { prompt: REPORT },
 });
 ```
 
 **softLimit** (default 1024) -- remaining KV floor for new work. When remaining tokens drop below this:
 - SETTLE rejects tool results (primary enforcement point)
-- PRODUCE hard-cuts non-terminal tool calls (terminal tools like `report` still pass)
+- PRODUCE nudges agents to report (terminal tools like `report` still pass)
 - INIT drops agents that don't fit during setup
 
 Set this to account for downstream work. If synthesis needs ~1000 tokens of headroom, set research pool softLimit to at least 1024.
 
-**hardLimit** (default 128) -- crash-prevention floor. When remaining drops below this, agents are killed immediately before `produceSync()`. This is a safety net against `llama_decode` failures, not a tuning knob.
+**hardLimit** (default 128) -- crash-prevention floor. When remaining drops below this, `shouldExit` kills agents immediately before `produceSync()`. This is a safety net, not a tuning knob.
 
-For reporter sub-pools that only make one terminal tool call:
-
-```typescript
-pressure: { softLimit: 200, hardLimit: 64 },
-```
+For reporter sub-pools that only make one terminal tool call, use the default policy (softLimit 1024, hardLimit 128).
 
 ## Putting it together
 

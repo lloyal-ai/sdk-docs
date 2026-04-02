@@ -240,8 +240,6 @@ if (i < opts.sources.length - 1 && sectionFindings) {
         terminalTool: 'report',
         maxTurns: effectiveMaxTurns,
         trace: opts.trace,
-        pressure: { softLimit: 1024 },
-        extractionPrompt: REPORT,
       });
       return pool.agents[0]?.result || '';
     },
@@ -267,23 +265,20 @@ The structured discoveries are injected into the questions for the next source. 
 
 When the session already has a trunk (warm continuation), `warmResearch` is used instead. It skips `withSharedRoot` for the outer scope (the trunk already provides context) but still creates `withSharedRoot` scopes inside each source's research tool and bridge pass. The logic is otherwise identical.
 
-**`extractionPrompt` -- scratchpad extraction for hard-cut agents:**
+**Recovery — scratchpad extraction for hard-cut agents:**
 
-Hard-cut recovery is now built into the pool. Pass `extractionPrompt` with system and user strings, and the pool handles extraction automatically:
+Hard-cut recovery is controlled by the policy's `onRecovery()` method. Configure via `DefaultAgentPolicyOpts.recovery`:
 
 ```typescript
-const pool = yield* useAgentPool({
-  tasks, tools: toolMap,
-  terminalTool: 'report',
-  extractionPrompt: {
-    system: 'You are a research reporter. Call the report tool with all findings.',
-    user: 'Report your findings.',
+const researchPolicy = new DefaultAgentPolicy({
+  budget: { context: { softLimit: 1024 } },
+  recovery: {
+    prompt: { system: 'You are a research reporter.', user: 'Report your findings.' },
   },
-  pruneOnReport: true,   // free KV mid-pool
 });
 ```
 
-After all agents finish or are killed, the pool forks from each unreported agent's branch, runs a grammar-constrained `{ findings }` extraction, and records the result with `scratchpad` provenance. A confabulation guard skips agents with fewer than 100 tokens or 2 tool calls — insufficient context would produce hallucinated findings. Extraction runs before the `pool:close` trace event, so findings are populated in trace output.
+After all agents finish or are killed, the policy decides per-agent whether to extract. The pool forks from each unreported agent's branch, runs a grammar-constrained `{ result }` extraction, and records the result with `scratchpad` provenance. A confabulation guard (default: 100 tokens, 2 tool calls) skips agents with insufficient context. Extraction runs before the `pool:close` trace event, so findings are populated in trace output.
 
 ### Stage 3: Findings Eval + Synthesize
 
@@ -449,7 +444,7 @@ User query
     |           spawnAgents({ tools: source.tools, scorer, ... })
     |             -> withSharedRoot + useAgentPool (parallel agents)
     |             -> entailment scoring at steering boundaries
-    |             -> extractionPrompt (scratchpad extraction for hard-cut agents)
+    |             -> policy.onRecovery (scratchpad extraction for hard-cut agents)
     |           if not last source:
     |             rerankChunks -> bridge agent -> inject discoveries
     |

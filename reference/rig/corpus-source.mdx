@@ -33,9 +33,6 @@ description: "Local file research with grep, semantic search, read_file, and rec
       readFile: {
         defaultMaxLines: 100, // default range when no endLine specified (default 100)
       },
-      research: {
-        pressure: { softLimit: 2048 }, // inner research pool pressure
-      },
     });
     ```
 
@@ -75,7 +72,7 @@ description: "Local file research with grep, semantic search, read_file, and rec
 
 When the harness calls `spawnAgents()` with `recursive: true`, a delegate tool is added to the agents' toolkit. Sub-agents can call it to spawn their own sub-agents for deeper investigation. The recursion shape (tool name, args schema, task extraction) is configured by the harness, not by the source.
 
-Hard-cut agents (those that exhaust their turn limit without calling the terminal tool) get a forced extraction pass via `extractionPrompt`. The pool forks from the agent's branch and runs a grammar-constrained generation to recover partial findings.
+Hard-cut agents (those that exhaust their turn limit without calling the terminal tool) get a forced extraction pass via the policy's `onRecovery()`. The pool forks from the agent's branch and runs a grammar-constrained generation to recover partial findings. Configure via `DefaultAgentPolicyOpts.recovery`.
 
 ## Quick Start
 
@@ -110,7 +107,7 @@ const pool = yield* spawnAgents({
   tasks: ["How does the allocation pool handle cleanup?"],
   terminalTool: { name: "report", tool: reportTool },
   recursive: { name: "research", extractTasks: (a) => a.questions as string[] },
-  extractionPrompt: REPORT,
+  policy: new DefaultAgentPolicy({ recovery: { prompt: REPORT } }),
 });
 ```
 

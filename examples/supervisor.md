@@ -140,8 +140,10 @@ function* dispatch(
         maxTurns: opts.maxTurns,
         terminalTool: 'report',
         trace: opts.trace,
-        pressure: { softLimit: 2048 },
-        extractionPrompt: REPORT,
+        policy: new DefaultAgentPolicy({
+          budget: { context: { softLimit: 2048 } },
+          recovery: { prompt: REPORT },
+        }),
         pruneOnReport: true,
       });
 

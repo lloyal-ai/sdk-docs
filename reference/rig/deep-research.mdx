@@ -55,7 +55,7 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
         tasks: activeQuestions,
         terminalTool: { name: 'report', tool: reportTool },
         recursive: { name: 'web_research', extractTasks: (a) => a.questions as string[] },
-        extractionPrompt: REPORT,
+        policy: researchPolicy,
         pruneOnReport: true,
         scorer,
         echoThreshold: 0.8,
@@ -79,7 +79,7 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
 
     Exploit-mode activations are traced as `entailment:content:exploit` events with the pressure snapshot and both score flavors (`toolQueryScore` from the agent-local pass, `combinedScore` from `scoreRelevanceBatch`).
 
-    Agents killed by context pressure are recovered via the pool's built-in scratchpad extraction (`extractionPrompt`). A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
+    Agents killed by context pressure are recovered via the policy's `onRecovery()` method. Configure via `DefaultAgentPolicyOpts.recovery`. A confabulation guard skips agents with insufficient context (fewer than 100 tokens or fewer than 2 tool calls).
 
     Recursive delegation returns both primary results and `nestedResults` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report.
   </Step>

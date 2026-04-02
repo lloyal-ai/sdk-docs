@@ -171,7 +171,7 @@ If the parent was pruned before the fork, the scratchpad has no context to atten
 - Grammar schema mismatch -- the extraction grammar does not match what the model can produce given the context
 - Insufficient KV remaining for the scratchpad prompt itself
 
-The hard-cut recovery via `extractionPrompt` in `spawnAgents()` handles this gracefully — extraction failures are caught and treated as non-fatal:
+The hard-cut recovery via `policy.onRecovery()` handles this gracefully — extraction failures are caught and treated as non-fatal:
 
 ```typescript
 try {

@@ -258,26 +258,30 @@ To change the maximum number of sub-questions, adjust `agentCount` in `main.ts`:
 const AGENT_COUNT = 5;  // More agents = more parallel questions
 ```
 
-## Adjust pressure settings
+## Configure budget and recovery
 
-Context pressure controls when agents are shut down as KV fills up. The defaults (`softLimit: 1024`, `hardLimit: 128`) work for most pipelines. Adjust per-pool when needed:
+Context pressure, time limits, and scratchpad recovery are configured on the policy's `budget` and `recovery` options. The defaults (`softLimit: 1024`, `hardLimit: 128`) work for most pipelines.
 
 ```typescript
-const pool = yield* useAgentPool({
+const researchPolicy = new DefaultAgentPolicy({
+  budget: {
+    context: { softLimit: 2048 },  // Reserve more KV for downstream work
+    time: { softLimit: 480_000, hardLimit: 600_000 },  // nudge 8min, kill 10min
+  },
+  recovery: { prompt: REPORT },
+});
+
+const pool = yield* spawnAgents({
   // ...
-  pressure: { softLimit: 2048 },  // Reserve more KV for downstream work
+  policy: researchPolicy,
 });
 ```
 
-Higher `softLimit` means agents are cut earlier, preserving room for synthesis and eval. Lower `softLimit` lets agents run longer but risks synthesis running out of KV.
+Higher `softLimit` means agents are nudged earlier, preserving room for synthesis and eval. Lower `softLimit` lets agents run longer but risks synthesis running out of KV.
 
-For reporter sub-pools (bridge agents), use tight limits since they only need one `report()` call:
+For reporter sub-pools (bridge agents), use the default policy — they only need one `report()` call and don't need recovery or time limits.
 
-```typescript
-pressure: { softLimit: 200, hardLimit: 64 },
-```
-
-The general rule: research pools get the default or higher softLimit; reporter/extraction pools get lower limits because they generate short structured output.
+The general rule: research pools get a policy with budget + recovery; reporter/synthesis pools use the default.
 
 ## Configure sources
 

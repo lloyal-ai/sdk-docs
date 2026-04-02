@@ -20,7 +20,7 @@ DISPATCH — execute collected tool calls sequentially via scoped() + call()
 
 **COMMIT** batch-decodes all produced tokens in a single `store.commit(entries)` call — one GPU dispatch for all agents.
 
-**SETTLE** drains the `settledBuffer` — tool results from the previous tick's DISPATCH. Each result is pressure-gated: if it exceeds headroom, the result is rejected and the agent is marked done. Surviving results are batch-prefilled via `store.prefill()`, then agents transition back to `generating` with grammar state reset.
+**SETTLE** drains the `settledBuffer` — tool results from the previous tick's DISPATCH. Each result is pressure-gated: if it exceeds headroom, the result is rejected and the agent is marked done. Surviving results are batch-prefilled via `store.prefill()`. If the dispatched tool defines a `probe` (optional getter on the Tool class), the probe text is prefilled immediately after the tool result — nudging the model to reason in prose before the lazy grammar triggers the next tool call. Then agents transition back to `generating` with grammar state reset.
 
 **DISPATCH** executes collected tool calls sequentially. Before each tool, the pool creates a fresh `ContextPressure` snapshot (reflecting KV consumed by SETTLE) and evaluates `policy.shouldExplore(agent, pressure)` to determine explore vs exploit mode. The `explore` flag and `pressurePercentAvailable` are passed to the tool via `ToolContext`. Each tool runs inside `scoped()` + `call()`:
 
@@ -201,7 +201,6 @@ The inner `withSharedRoot` forks from the calling agent's branch (warm path) or 
         terminalTool: 'report',
         pruneOnReport: true,     // free KV mid-pool
         maxTurns: 6,
-        extractionPrompt: REPORT,    // scratchpad extraction for hard-cut agents
       });
 
       return {
@@ -215,8 +214,7 @@ The inner `withSharedRoot` forks from the calling agent's branch (warm path) or 
 
 When `parent` is provided, the shared root forks from the parent branch and prefills only the turn separator — **2 tokens** instead of ~760 for the full system prompt. The system prompt is already in the parent's KV. Sub-agents attend over the same physical key-value pairs at shared positions.
 
-Hard-cut recovery is now built into the pool via `extractionPrompt`. When agents are killed by KV pressure before calling `report()`, the pool forks from their branch, generates with a grammar-constrained schema, and captures partial findings. A confabulation guard (fewer than 100 tokens or fewer than 2 tool calls) prevents extraction from agents with insufficient context.
-```
+Hard-cut recovery is controlled by the policy via `onRecovery()`. When agents are killed by KV pressure before calling `report()`, the policy decides per-agent whether to extract. The pool forks from the agent's branch, generates with a grammar-constrained schema, and captures partial findings. Configure via `DefaultAgentPolicyOpts.recovery`.
 
 ### Result propagation
 
@@ -295,7 +293,7 @@ The outer pool's `softLimit` must reserve enough headroom for the inner pool's f
 - **Inner tool results**: search results, file contents, grep matches (variable — largest KV consumers)
 - **Inner generation**: agent output tokens before reporting
 
-For a single-level recursive tool with up to 3 inner agents and `maxTurns: 6`, a `softLimit` of 2048-3072 on the outer pool provides adequate headroom. Monitor with `trace: true` — the `[SETTLE]` and `[PRODUCE]` pressure logs show remaining/headroom at each tick.
+For a single-level recursive tool with up to 3 inner agents and `maxTurns: 6`, a `softLimit` of 2048-3072 on the policy's `budget.context` provides adequate headroom. Monitor with `trace: true` — the `[SETTLE]` and `[PRODUCE]` pressure logs show remaining/headroom at each tick.
 </Tip>
 
 ## Receipts

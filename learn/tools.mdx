@@ -200,6 +200,33 @@ When the model emits a tool call:
 
 The result goes directly into GPU memory. No prompt rebuilding. No re-sending conversation history. The agent's next token attends to everything — system prompt, prior turns, and the fresh tool result.
 
+## Reasoning probes
+
+A tool can optionally return a **probe** — a short text prefilled into the agent's context after the tool result settles. This nudges the model to reason in prose about the result before the lazy grammar triggers the next tool call.
+
+```typescript
+class SearchTool extends Tool<{ query: string }> {
+  readonly name = "search";
+  // ...
+
+  get probe() { return "Wait, "; }
+
+  *execute(args: { query: string }): Operation<unknown> {
+    // ...
+  }
+}
+```
+
+After the search result is prefilled, the pool prefills `"Wait, "` into the same branch. The model's next tokens attend to the tool result plus the probe, encouraging it to reflect before acting.
+
+- `probe` defaults to `null` — no extra prefill, zero cost
+- Only fires after real tool dispatches — nudges and settle rejects are unaffected
+- The probe text is not constrained by grammar — the model generates freely until a grammar trigger fires
+
+<Note>
+Most tools don't need probes. Use them when a tool returns dense information that benefits from explicit reasoning — search results, large documents, complex API responses.
+</Note>
+
 ## Schema format
 
 Tool schemas follow the OpenAI function calling format. The `schema` getter on `Tool` generates this automatically from your `name`, `description`, and `parameters`:

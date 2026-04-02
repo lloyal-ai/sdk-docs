@@ -1,6 +1,6 @@
 ---
 title: "Agent Policy"
-description: "Lifecycle decisions, budget enforcement, tool guards, and explore/exploit switching."
+description: "Lifecycle decisions, budget enforcement, tool guards, explore/exploit switching, and scratchpad recovery."
 ---
 
 Every agent lifecycle decision passes through a policy. When an agent hits a stop token, when a tool result won't fit in KV, when a tool call is about to dispatch — the pool consults the policy and executes the returned action. The pool handles mechanics (transitions, prefills, prunes). The policy handles judgment.
@@ -12,26 +12,44 @@ interface AgentPolicy {
   onProduced(agent, parsed, pressure, config): ProduceAction;
   onSettleReject(agent, resultTokens, pressure, config): SettleAction;
   shouldExplore?(agent, pressure): boolean;
+  shouldExit?(agent, pressure): boolean;
+  onRecovery?(agent): RecoveryAction;
+  readonly pressureThresholds?: PressureThresholds;
 }
 ```
 
-Three hooks, called at three different points in the [tick loop](/reference/concurrency#four-phase-tick-loop):
+Five hooks plus a getter, called at different points in the [tick loop](/reference/concurrency#four-phase-tick-loop):
 
 | Hook | Phase | When | What it decides |
 |------|-------|------|-----------------|
-| `onProduced` | PRODUCE | Agent hit stop token | Tool call, report, nudge, or kill |
+| `shouldExit` | PRODUCE (pre-generate) | Before each agent produces tokens | Kill immediately — no chance to respond |
+| `onProduced` | PRODUCE (post-generate) | Agent hit stop token | Tool call, report, nudge, or kill |
 | `onSettleReject` | SETTLE | Tool result exceeds headroom | Nudge or kill |
 | `shouldExplore` | DISPATCH | Before each tool executes | Explore mode or exploit mode |
+| `onRecovery` | Post-loop | For each killed agent without result | Extract findings or skip |
+| `pressureThresholds` | Pool setup | Once at pool initialization | KV softLimit and hardLimit |
 
-The policy receives the agent's full state — status, tool history, result, nudge count — plus a live [ContextPressure](/reference/kv-pressure) snapshot and pool configuration. It returns an action. The pool executes it.
+The policy receives the agent's full state — status, tool history, result, token count — plus a live [ContextPressure](/reference/kv-pressure) snapshot and pool configuration. It returns an action. The pool executes it.
+
+## `shouldExit` — pre-generate kill gate
+
+Called before `produceSync()` — before the agent generates any tokens. Returns `true` to kill the agent immediately. There's no nudge possible here — there's no tool call to attach an error message to. The branch stays alive for recovery via `onRecovery`.
+
+```typescript
+// PRODUCE: before each agent generates
+if (policy.shouldExit?.(agent, pressure) ?? pressure.critical) {
+  // transition to idle, eligible for recovery
+}
+```
+
+Optional — defaults to `pressure.critical` when absent. `DefaultAgentPolicy` also checks the time budget:
+
+- `pressure.critical` (remaining < hardLimit) → exit
+- `budget.time.hardLimit` exceeded → exit
 
 ## `onProduced` — the main decision point
 
 Called after `parseChatOutput` extracts content and tool calls from the agent's generation. The policy sees what the agent wants to do and decides what actually happens.
-
-```
-Agent generates → stop token → parseChatOutput → onProduced(agent, parsed, pressure, config)
-```
 
 Returns one of five actions:
 
@@ -39,7 +57,7 @@ Returns one of five actions:
 |--------|-------------------|
 | `tool_call` | Dispatch the tool in DISPATCH phase |
 | `report` | Extract result, mark agent idle, emit `agent:report` |
-| `nudge` | Inject an error message as a fake tool result ("report your findings now") |
+| `nudge` | Inject an error message as a fake tool result |
 | `idle` | Kill the agent — transition to idle, emit `agent:done` |
 | `free_text_report` | Agent produced prose without a tool call — capture as result |
 
@@ -49,20 +67,20 @@ Returns one of five actions:
 parsed output has tool call?
   ├─ No → free_text_report (if agent has done work) or idle
   │
-  ├─ Over budget? (turns >= maxTurns OR headroom < 0, non-terminal tool)
-  │   ├─ First offense, not critical → nudge
-  │   └─ Second offense or critical → idle (pressure_softcut / max_turns)
+  ├─ Under pressure? (turns >= maxTurns OR headroom < 0 OR time softLimit)
+  │   ├─ Non-terminal tool → nudge (stateless, every time)
+  │   └─ Critical pressure or no terminal tool → idle (kill)
   │
   ├─ Terminal tool? (e.g. report)
-  │   ├─ Insufficient research (< minToolCalls, not nudged) → nudge
-  │   └─ Sufficient → report (extract result from tool arguments)
+  │   ├─ Not under pressure + < minToolCalls → nudge ("use tools first")
+  │   └─ Under pressure OR sufficient work → report
   │
   ├─ Guard rejected? → nudge (with guard's message)
   │
   └─ All checks pass → tool_call
 ```
 
-The terminal tool is never dispatched — the policy intercepts it, extracts the `result` field from the tool arguments, and returns `report`. The pool calls `agent.reportResult(result, 'report_tool')` and transitions the agent to idle.
+The terminal tool is never dispatched — the policy intercepts it, extracts the `result` field from the tool arguments, and returns `report`. When the agent is under pressure, early reports are accepted regardless of tool call count — an agent told to "report now" should be allowed to report.
 
 ## `onSettleReject` — tool result too large
 
@@ -73,50 +91,70 @@ Called when a tool result's token count exceeds available headroom during the SE
 const action = policy.onSettleReject(agent, resultTokens, pressure, config);
 ```
 
-Returns `nudge` or `idle`:
+Returns `nudge` (with message) or `idle`:
 
-- **First offense** (`!agent.nudged && toolCallCount > 0`): nudge — inject "tool result too large, report now" as a smaller replacement result
-- **Second offense** or no terminal tool: idle — agent killed
+- Terminal tool present and agent has done work → nudge with "Tool result too large for remaining KV. Report your findings now."
+- No terminal tool or zero tool calls → idle (agent killed)
 
-If the nudge message itself doesn't fit in headroom, the agent is killed regardless of the policy's decision.
+If the nudge message itself doesn't fit in headroom, the agent is killed regardless.
 
 ## `shouldExplore` — explore vs exploit mode
 
 Called at DISPATCH before each tool executes. Returns `true` for explore mode (agent-local scoring at content boundaries) or `false` for exploit mode (dual scoring via [scoreRelevanceBatch](/reference/search-strategy#content-boundaries-explore-vs-exploit)).
 
-```typescript
-// DISPATCH: fresh pressure snapshot post-SETTLE
-const dispatchPressure = new ContextPressure(ctx, pressureOpts);
-const explore = policy.shouldExplore?.(agent, dispatchPressure) ?? true;
-```
-
-Optional on the interface — defaults to `true` (explore) when absent. `DefaultAgentPolicy` switches based on `pressure.percentAvailable`:
+Optional — defaults to `true` (explore) when absent. `DefaultAgentPolicy` switches based on `pressure.percentAvailable`:
 
 - Above `exploreThreshold` (default 40) → explore
 - Below → exploit
 
 <Note>
-`percentAvailable` is live — it recovers when branches are pruned. An agent in exploit mode can flip back to explore if other agents report and free KV. This is intentional. See [KV Pressure — cellsUsed tracks live pressure](/reference/kv-pressure#cellsused-tracks-live-pressure).
+`percentAvailable` is live — it recovers when branches are pruned. An agent in exploit mode can flip back to explore if other agents report and free KV. This is intentional. Explore/exploit is a non-monotonic quality knob, separate from the lifecycle (nudge/kill/recover). See [KV Pressure — cellsUsed tracks live pressure](/reference/kv-pressure#cellsused-tracks-live-pressure).
 </Note>
 
 ## The nudge mechanism
 
-Nudging gives agents a second chance before being killed. When the policy returns `nudge`, the pool:
+Nudging is stateless — no escalation, no tracking of past nudges. When the agent is over budget and calls a non-terminal tool, the policy returns `nudge` with a message. The pool:
 
-1. Serializes an error message as a tool result: `{ "error": "KV memory pressure — report your findings now." }`
-2. Marks the agent as nudged (`agent.markNudged()`)
-3. Prefills the error into the agent's branch
-4. Resets the grammar so the agent generates a fresh response
+1. Serializes the message as a tool result: `{ "error": "..." }`
+2. Prefills the error into the agent's branch
+3. Resets the grammar so the agent generates a fresh response
 
-The agent sees the error in its context and typically calls the terminal tool on its next turn. If it tries another non-terminal tool instead, the policy returns `idle` on the second offense — `agent.nudged` is already `true`, so the first-offense check fails.
+The agent sees the error in its context and may call the terminal tool on its next turn. If it tries another non-terminal tool while still over budget, the policy nudges again. If headroom recovers (branches pruned, KV freed), the agent is no longer over budget and can continue working.
+
+There is no "second offense" kill. The hard kill is `shouldExit`'s job — triggered by `pressure.critical` or time `hardLimit`, not by repeated nudges.
 
 Three sources of nudge messages:
 
 | Source | Message |
 |--------|---------|
-| Budget enforcement | "KV memory pressure — you cannot call more tools. Report your findings now." |
-| Insufficient research | "You must use tools before submitting results." |
+| KV pressure | "KV memory pressure — report your findings now." |
+| Turn limit | "Turn limit reached — report your findings now." |
+| Time budget | "Time limit approaching — report your findings now." |
+| Insufficient work | "You must use tools before submitting results." |
 | Tool guard | The guard's custom `message` field |
+| Settle rejection | "Tool result too large for remaining KV. Report your findings now." |
+
+## `onRecovery` — scratchpad extraction
+
+Called post-loop for each idle agent without a result. The policy decides whether to fork from the agent's branch and extract findings via grammar-constrained generation.
+
+```typescript
+type RecoveryAction =
+  | { type: 'extract'; prompt: { system: string; user: string } }
+  | { type: 'skip' };
+```
+
+`DefaultAgentPolicy` checks the confabulation guard before returning `extract`:
+- `agent.tokenCount >= minTokens` (default 100) — agent generated enough context
+- `agent.toolCallCount >= minToolCalls` (default 2) — agent did real work
+
+Agents that barely ran would produce fabricated findings — the guard prevents this.
+
+The pool owns the extraction grammar (`{ "result": "..." }` JSON schema). The policy owns the prompt and the decision.
+
+<Tip>
+Recovery runs after all agents finish, using KV freed by agents that already reported. Set `pruneOnReport: true` to maximize headroom for extraction passes.
+</Tip>
 
 ## Tool guards
 
@@ -166,19 +204,45 @@ const policy = new DefaultAgentPolicy({
 import { DefaultAgentPolicy } from "@lloyal-labs/lloyal-agents";
 
 const policy = new DefaultAgentPolicy({
-  minToolCallsBeforeReport: 2,  // min non-terminal tool calls before report accepted (default 2)
-  guards: undefined,             // replace default guards (undefined = use defaults)
-  extraGuards: [],               // append additional guards to defaults
-  exploreThreshold: 40,          // percentAvailable below this → exploit mode (default 40)
+  // Tool guards
+  minToolCallsBeforeReport: 2,  // default 2
+  extraGuards: [],
+
+  // Search strategy (quality knob — non-monotonic, flips with pressure)
+  exploreThreshold: 40,          // default 40
+
+  // Budget (lifecycle knob — nudge at softLimit, kill at hardLimit)
+  budget: {
+    context: { softLimit: 1024, hardLimit: 128 },  // KV tokens remaining
+    time: { softLimit: 480_000, hardLimit: 600_000 },  // ms since policy creation
+  },
+
+  // Recovery (scratchpad extraction for killed agents)
+  recovery: {
+    prompt: { system: "Summarize all findings.", user: "Report your findings." },
+    minTokens: 100,      // confabulation guard
+    minToolCalls: 2,
+  },
 });
 ```
 
 | Option | Default | Effect |
 |--------|---------|--------|
-| `minToolCallsBeforeReport` | 2 | Agents with fewer non-terminal tool calls get nudged when trying to report |
+| `minToolCallsBeforeReport` | 2 | Agents with fewer non-terminal tool calls get nudged when trying to report (unless under pressure) |
 | `guards` | 3 default guards | Replaces the entire guard array when provided |
 | `extraGuards` | `[]` | Appended to default guards |
 | `exploreThreshold` | 40 | KV percent available threshold for explore/exploit switch |
+| `budget.context.softLimit` | 1024 | KV tokens remaining that triggers nudge |
+| `budget.context.hardLimit` | 128 | KV tokens remaining that triggers kill via `shouldExit` |
+| `budget.time.softLimit` | — | Milliseconds since policy creation that triggers nudge |
+| `budget.time.hardLimit` | — | Milliseconds since policy creation that triggers kill |
+| `recovery.prompt` | — | System + user prompt for scratchpad extraction |
+| `recovery.minTokens` | 100 | Skip extraction for agents with fewer tokens |
+| `recovery.minToolCalls` | 2 | Skip extraction for agents with fewer tool calls |
+
+### `pressureThresholds`
+
+The pool reads `policy.pressureThresholds` once at setup to configure `ContextPressure` snapshots. Returns `{ softLimit, hardLimit }` from `budget.context` or the class defaults (1024, 128).
 
 ### `setExploitMode`
 
@@ -193,50 +257,54 @@ policy.setExploitMode(false);  // revert to pressure-driven
 `setExploitMode` is on `DefaultAgentPolicy` (the class), not `AgentPolicy` (the interface). Not all policy implementations support forced exploit. Harness code that needs it must type the variable as `DefaultAgentPolicy`.
 </Note>
 
-## Scratchpad recovery
+### Time budget scope
 
-After the tick loop ends, the pool processes agents that were killed without reporting. If `extractionPrompt` is configured, the pool forks from each killed agent's branch and generates a grammar-constrained extraction:
+The `_startTime` is set when the policy is constructed. Since the same policy instance is shared across all nesting levels (outer pool and inner pools spawned by DelegateTool), the time budget is global — "the research has a 10 minute budget" applies to all agents at every depth.
+
+Create separate policy instances for stages with different time constraints:
 
 ```typescript
-yield* runAgents({
-  tasks,
-  tools: toolMap,
-  extractionPrompt: {
-    system: "You are a research reporter. Summarize all findings.",
-    user: "Report your findings.",
-    minTokens: 100,      // skip agents with fewer tokens (confabulation guard)
-    minToolCalls: 2,      // skip agents with fewer tool calls
-  },
+const researchPolicy = new DefaultAgentPolicy({
+  budget: { context: { softLimit: 1024 }, time: { softLimit: 480_000, hardLimit: 600_000 } },
+  recovery: { prompt: REPORT },
 });
+
+// Synthesis doesn't need time limits — use default policy
+yield* spawnAgents({ tasks, systemPrompt, policy: researchPolicy, ... });
 ```
-
-The confabulation guard prevents extraction from agents that barely ran — an agent with 50 tokens and 1 tool call would produce fabricated findings. Agents that pass the guard get a grammar-constrained extraction (`{ "result": "..." }`) from their accumulated KV state, stored with `resultSource: 'scratchpad'`.
-
-<Tip>
-Recovery runs after all agents finish, using KV freed by agents that already reported. Set `pruneOnReport: true` to maximize headroom for extraction passes.
-</Tip>
 
 ## Writing a custom policy
 
 Implement the `AgentPolicy` interface to control any lifecycle decision:
 
 ```typescript
-import type { AgentPolicy, ProduceAction, SettleAction } from "@lloyal-labs/lloyal-agents";
+import type { AgentPolicy, ProduceAction, SettleAction, RecoveryAction } from "@lloyal-labs/lloyal-agents";
 import type { ContextPressure } from "@lloyal-labs/lloyal-agents";
 
 class MyPolicy implements AgentPolicy {
   onProduced(agent, parsed, pressure, config): ProduceAction {
-    // Your logic here — same decision surface as DefaultAgentPolicy
     // Return: tool_call, report, nudge, idle, or free_text_report
   }
 
   onSettleReject(agent, resultTokens, pressure, config): SettleAction {
-    // Return: nudge or idle
+    // Return: nudge (with message) or idle
   }
 
   shouldExplore(agent, pressure): boolean {
-    // Return true for discovery-oriented, false for focus-oriented
     return pressure.percentAvailable > 50;
+  }
+
+  shouldExit(agent, pressure): boolean {
+    return pressure.critical;
+  }
+
+  onRecovery(agent): RecoveryAction {
+    if (agent.tokenCount < 100) return { type: 'skip' };
+    return { type: 'extract', prompt: { system: '...', user: '...' } };
+  }
+
+  get pressureThresholds() {
+    return { softLimit: 2048, hardLimit: 256 };
   }
 }
 ```
@@ -248,4 +316,6 @@ yield* runAgents({ tasks, tools, policy: new MyPolicy() });
 yield* spawnAgents({ tasks, tools, systemPrompt, policy: new MyPolicy() });
 ```
 
-The policy instance is shared across all agents in a pool. For nested pools (recursive tools), the inner pool receives the same policy instance from `opts.policy` on the outer pool.
+Signatures are narrow by design: `(agent, pressure)`. The policy is a class — time, cost, or other signals live on `this`. The pool passes what it owns (agent + pressure snapshot); the policy combines with its own state.
+
+The policy instance is shared across all agents in a pool. For nested pools (recursive tools), the inner pool receives the same policy instance.

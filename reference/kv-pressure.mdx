@@ -27,14 +27,13 @@ Agent pools share a single KV cache. As agents generate tokens and prefill tool 
 
 ## `ContextPressure` API
 
-The class is constructed from a `SessionContext` and optional thresholds. It captures an immutable snapshot of KV state at construction time -- the snapshot does not update as the tick progresses.
+The class is constructed from a `SessionContext` and thresholds from the policy. It captures an immutable snapshot of KV state at construction time -- the snapshot does not update as the tick progresses.
+
+The pool reads thresholds from `policy.pressureThresholds` (which comes from `DefaultAgentPolicyOpts.budget.context`). You configure them on the policy, not the pool:
 
 ```typescript
-import { ContextPressure } from '@lloyal-labs/lloyal-agents';
-
-const pressure = new ContextPressure(ctx, {
-  softLimit: 2048,  // reserve 2048 tokens for downstream work
-  hardLimit: 128,   // crash-prevention floor
+const policy = new DefaultAgentPolicy({
+  budget: { context: { softLimit: 2048, hardLimit: 128 } },
 });
 
 pressure.nCtx              // total KV cache capacity (0 when no limit)
@@ -174,11 +173,15 @@ For a single-level recursive tool with up to 3 inner agents and `maxTurns: 6`, a
 </Tip>
 
 ```typescript
+const policy = new DefaultAgentPolicy({
+  budget: { context: { softLimit: 3072 } },  // reserve for inner pool
+});
+
 yield* useAgentPool({
   tasks,
   tools: toolMap,
   maxTurns: 8,
-  pressure: { softLimit: 3072 },  // reserve for inner pool
+  policy,
 });
 ```
 

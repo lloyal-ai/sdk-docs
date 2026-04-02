@@ -64,7 +64,6 @@ const discoveries = yield* withSharedRoot(
       terminalTool: "report",
       maxTurns: effectiveMaxTurns,
       trace: opts.trace,
-      pressure: { softLimit: 1024 },
     });
     return pool.agents[0]?.result || "";
   },

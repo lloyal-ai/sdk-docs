@@ -87,7 +87,7 @@ const pool = yield* withSharedRoot(
       tools: toolMap,
       terminalTool: "report",
       maxTurns: 6,
-      extractionPrompt: REPORT,     // scratchpad extraction for hard-cut agents
+      policy: researchPolicy,    // budget + recovery configured on policy
       pruneOnReport: true,       // free KV immediately when agents report
     });
   },
@@ -100,19 +100,20 @@ const pool = yield* withSharedRoot(
 
 `runAgents` forks one branch per task from the root, runs them in parallel, and returns when all agents finish. Branches are pruned on exit.
 
-### `extractionPrompt` — scratchpad extraction
+### `recovery` — scratchpad extraction
 
-When agents are killed by KV pressure before calling `report()`, the pool can extract partial findings from their accumulated context. Pass a `extractionPrompt` with system and user strings — the pool forks from the agent's branch, generates with a grammar-constrained schema, and captures whatever the agent learned.
+When agents are killed by KV pressure before calling `report()`, the policy can extract partial findings from their accumulated context. Configure `recovery` on `DefaultAgentPolicyOpts` with a prompt — the policy's `onRecovery()` decides per-agent whether to extract, and the pool forks from the agent's branch with a grammar-constrained schema.
 
 A confabulation guard skips agents that barely ran. The thresholds are configurable:
 
 ```typescript
-extractionPrompt: {
-  system: "You are a research reporter. Call report with all findings.",
-  user: "Report your findings.",
-  minTokens: 100,     // skip extraction below this (default 100)
-  minToolCalls: 2,     // skip extraction below this (default 2)
-},
+const researchPolicy = new DefaultAgentPolicy({
+  recovery: {
+    prompt: { system: "You are a research reporter.", user: "Report your findings." },
+    minTokens: 100,     // skip extraction below this (default 100)
+    minToolCalls: 2,     // skip extraction below this (default 2)
+  },
+});
 ```
 
 An agent with insufficient context would produce hallucinated findings — the guard prevents this.
@@ -328,20 +329,20 @@ The pool monitors KV cache usage every tick and enforces two thresholds:
 - **Soft limit** (default 1024 tokens) — headroom reserved for downstream work. When exhausted, non-terminal tool calls are rejected. Terminal tools (like `report`) always pass through.
 - **Hard limit** (default 128 tokens) — crash-prevention floor. Agents are killed before `produceSync()` to prevent `llama_decode` failures.
 
-You can tune these:
+You can tune these via the policy's `budget.context`:
 
 ```typescript
-yield* runAgents({
-  tasks,
-  tools: toolMap,
-  pressure: { softLimit: 2048, hardLimit: 256 },
+const policy = new DefaultAgentPolicy({
+  budget: { context: { softLimit: 2048, hardLimit: 256 } },
 });
+
+yield* runAgents({ tasks, tools: toolMap, policy });
 ```
 
 Tool results include `_contextAvailablePercent` — derived from `ContextPressure.percentAvailable` (0–100 integer). Agents see this in their attention window, enabling pressure-aware decisions. The same percentage drives [explore/exploit switching](#explore-vs-exploit-mode) via `policy.shouldExplore()`.
 
 <Note>
-Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported results keep them, agents that didn't get scratchpad extraction via `extractionPrompt`.
+Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported results keep them, agents that didn't get recovered via `policy.onRecovery()`.
 </Note>
 
 ## `useAgentPool` vs `runAgents`
