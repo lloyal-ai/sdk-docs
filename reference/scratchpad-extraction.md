@@ -1,13 +1,51 @@
 ---
 title: "Scratchpad Extraction"
-description: "Fork-attend-extract-prune pattern for compressing large tool results with zero net KV cost."
+description: "Extracting findings from killed agents and fork-attend-extract-prune for tool result compression."
 ---
 
-Tool results are often large -- a fetched web page can be 6,000+ tokens, a search result set 2,000+. Prefilling the full result into an agent's branch inflates `cellsUsed` and accelerates KV pressure, causing downstream agents to be dropped. Scratchpad extraction addresses this: fork from the shared root, attend to the full content in a temporary branch, grammar-constrain a compact summary, prune the fork. The agent receives the compact summary instead of the raw content. Zero net KV cost after the fork is pruned.
+"Scratchpad" refers to two related patterns that use temporary branches for grammar-constrained generation: **recovery extraction** (extracting findings from agents killed by KV pressure) and **tool result compression** (summarizing large tool results via the fork-attend-extract-prune pattern). Both use eager grammar to force structured output from context the model has already attended to.
 
-## The pattern
+## Recovery extraction
 
-Scratchpad extraction uses `generate({ parent })` -- when a parent branch is provided, `generate` forks from it instead of creating a new root. The fork inherits the parent's KV prefix (the shared system prompt and tool schemas), attends to the new content via prefill, generates a structured summary under grammar constraint, and is pruned in a `finally` block.
+When agents are killed by KV pressure without reporting, the pool extracts their accumulated findings before closing. This is the primary use of scratchpad-style extraction.
+
+Recovery uses the agent's **own branch** -- no fork. The agent's full KV context (system prompt, tool results, reasoning from prior turns) is already in the cache. An extraction prompt is prefilled directly into the branch, eager grammar constrains output to `{"result": "..."}`, and a batched produce/commit loop generates the report.
+
+See [KV Pressure: Recovery extraction](/reference/kv-pressure#recovery-extraction) for the full protocol.
+
+Key properties:
+- **No fork**: Uses the agent's own branch. Eliminates RESTRICT prune conflicts and redundant KV.
+- **Eager grammar**: `setGrammar()` constrains from token 0. No tool calls possible, no model choice.
+- **Parallel**: All recovering agents generate in the same produce/commit loop -- one GPU call per step.
+- **One-shot**: Fires at most once per pool run via a guard flag.
+- **Pressure-gated**: Skipped if remaining KV can't fit the extraction prompts.
+
+### Policy configuration
+
+The policy's `onRecovery()` method decides per-agent whether to extract:
+
+```typescript
+const policy = new DefaultAgentPolicy({
+  recovery: {
+    prompt: {
+      system: "You are a research reporter. Call the report tool with all findings.",
+      user: "Report your findings with direct quotes and evidence.",
+    },
+    minTokens: 100,    // skip agents with fewer than 100 generated tokens
+    minToolCalls: 2,    // skip agents with fewer than 2 tool calls
+  },
+});
+```
+
+The `minTokens` and `minToolCalls` guards prevent extraction from agents with insufficient context -- an agent that generated 20 tokens and made 1 tool call would produce hallucinated findings.
+
+### Result provenance
+
+Recovered findings are stored with `resultSource: 'scratchpad'`. This is metadata only -- no downstream code branches on the source. The harness reads `.result` and ignores `.resultSource`. However, the provenance is visible in trace output for debugging.
+
+## Fork-attend-extract-prune pattern
+
+For tool result compression (independent of recovery), the fork-attend-extract-prune pattern uses a temporary branch:
 
 ```typescript
 const extracted = yield* generate({
@@ -26,13 +64,13 @@ Inside `generate`, the flow is:
 1. **Fork** from `parent` via `parent.fork()`. The child inherits position and KV prefix.
 2. **Set grammar** on the fork (`branch.setGrammar(grammar)` -- eager mode, active from token 0).
 3. **Tokenize** the prompt and prepend the turn separator from `ctx.getTurnSeparator()`.
-4. **Prefill** the combined tokens into the fork. The fork now attends to the parent's context (system prompt, tool schemas) plus the new content.
-5. **Generate** to completion under grammar constraint. The output conforms to the grammar schema.
+4. **Prefill** the combined tokens into the fork. The fork now attends to the parent's context plus the new content.
+5. **Generate** to completion under grammar constraint.
 6. **Prune** the fork in the `finally` block. KV cells unique to the fork are freed.
 
-The parent branch is never modified. The fork's cells above the fork point are freed on prune. The net KV cost is transient -- the cells exist only during the extraction and are reclaimed immediately after.
+The parent branch is never modified. The net KV cost is transient -- cells exist only during extraction and are reclaimed immediately.
 
-## `ScratchpadParent` context
+### `ScratchpadParent` context
 
 Tools that perform scratchpad extraction need a branch to fork from. The `ScratchpadParent` Effection context provides this:
 
@@ -48,146 +86,37 @@ try {
 }
 ```
 
-`ScratchpadParent` is set by `withSharedRoot` to the current root branch:
+`ScratchpadParent` is set by `withSharedRoot` when `enableScratchpad: true`:
 
 ```typescript
-// Inside withSharedRoot:
-yield* ScratchpadParent.set(root);
-return yield* body(root, sharedTokens.length);
+yield* withSharedRoot(
+  { systemPrompt, tools, enableScratchpad: true },
+  function* (root) { /* tools in this scope can fork from root */ }
+);
 ```
 
-This means every tool executing within a `withSharedRoot` scope has access to the shared root as a scratchpad parent. The fork inherits the root's KV prefix (system prompt + tool schemas), which gives the extraction model enough context to understand the domain without re-decoding the prompt.
+When pools are nested, each inner scope sets its own `ScratchpadParent`. Effection's context scoping ensures each level sees the correct parent.
 
-When pools are nested (a tool spawns an inner pool via `withSharedRoot`), the inner scope sets its own `ScratchpadParent`. Tools within the inner pool fork from the inner root, not the outer root. Effection's context scoping ensures each level sees the correct parent.
+## Reranker-based chunk selection
 
-If no `withSharedRoot` scope is active (e.g., the tool is called outside a pool), `ScratchpadParent.expect()` throws and the tool falls back to returning the raw result.
-
-## How `generate` handles the parent fork path
-
-The `parent` option in `generate` activates a different code path from cold-start generation:
+`FetchPageTool` implements a variant of scratchpad extraction: when a reranker and query are provided, fetched pages are structurally chunked on heading boundaries and scored against the query. Only the top-K most relevant chunks within a token budget are returned:
 
 ```typescript
-// generate.ts
-let branch: Branch;
-if (opts.parent) {
-  branch = yield* call(() => opts.parent!.fork());
-} else {
-  branch = Branch.create(ctx, 0, samplerParams, undefined, opts.grammar);
-}
-
-try {
-  if (opts.parent) {
-    if (opts.grammar) branch.setGrammar(opts.grammar);
-    const sep = ctx.getTurnSeparator();
-    const delta = yield* call(() => ctx.tokenize(opts.prompt, false));
-    const tokens = [...sep, ...delta];
-    yield* call(() => branch.prefill(tokens));
-  } else {
-    const tokens = ctx.tokenizeSync(opts.prompt);
-    yield* call(() => branch.prefill(tokens));
-  }
-
-  // Generate to completion via async iterator
-  const { output, tokenCount } = yield* call(async () => {
-    let output = '';
-    let tokenCount = 0;
-    for await (const { text } of branch) {
-      output += text;
-      tokenCount++;
-    }
-    return { output, tokenCount };
-  });
-
-  const parsed = opts.parse ? opts.parse(output) : undefined;
-  return { output, tokenCount, parsed };
-} finally {
-  if (!branch.disposed) branch.pruneSync();
-}
-```
-
-Key differences from cold-start:
-
-- **Fork instead of create.** The branch starts at the parent's position, inheriting its full KV prefix.
-- **Grammar set after fork.** Eager grammar is applied post-fork because the grammar state from the parent (which may be a lazy tool-call grammar) is irrelevant to the extraction task.
-- **Turn separator prepended.** The extraction content is wrapped with the model's turn separator so the model perceives it as a new conversational turn, not a continuation of the parent's generation.
-- **Prune in finally.** The fork is always cleaned up, whether extraction succeeds, fails, or is cancelled. The parent's KV is untouched.
-
-## Concrete implementations
-
-### Pool-level idle extraction via policy `recovery`
-
-The most common use of scratchpad extraction is recovering findings from agents killed by KV pressure. The policy's `onRecovery()` method decides per-agent whether to extract, using the `recovery` config on `DefaultAgentPolicyOpts`:
-
-```typescript
-const policy = new DefaultAgentPolicy({
-  recovery: {
-    prompt: {
-      system: "You are a research reporter. Call the report tool with all findings.",
-      user: "Report your findings.",
-    },
-  },
-});
-
-const pool = yield* runAgents({
-  tasks,
-  tools: toolMap,
-  terminalTool: "report",
-  policy,
-});
-```
-
-After all agents finish or are killed, the pool:
-
-1. Prunes agents that already reported (frees KV for extraction)
-2. Generates a grammar-constrained `{ findings }` extraction from each remaining agent's branch
-3. Records the findings with `scratchpad` provenance
-
-A confabulation guard skips agents with fewer than 100 tokens or fewer than 2 tool calls — an agent with insufficient context would produce hallucinated findings. Better to return no findings than fabricated ones.
-
-This replaces the previous harness-level `reportPass()` pattern. Extraction now runs inside the pool, before the `pool:close` trace event, so findings are populated in trace output.
-
-### Reranker-based chunk selection in `FetchPageTool`
-
-When `FetchPageTool` has a reranker and the agent provides a `query` argument, fetched pages are structurally chunked on heading boundaries and scored against the query. Only the top-K most relevant chunks within a 2048-token budget are returned — reducing KV pressure without lossy summarization:
-
-```typescript
-const tool = new FetchPageTool(6000, 5);  // maxChars fallback, topK
-tool.setReranker(reranker);               // inject cross-encoder
+const tool = new FetchPageTool({ maxChars: 6000, topK: 5, tokenBudget: 2048 });
+tool.setReranker(reranker);
 
 // Agent calls: fetch_page({ url: "...", query: "what about X?" })
 // Returns: top 5 chunks ranked by relevance to "what about X?"
 ```
 
-If the top chunk exceeds the token budget, it's truncated on the nearest paragraph boundary — the agent gets the most relevant section rather than an arbitrary prefix. Without a reranker or query, the tool falls back to returning the full content truncated to `maxChars`.
+This reduces KV pressure without lossy summarization -- the agent gets the most relevant sections rather than a generic summary. Without a reranker or query, the tool falls back to returning the full content truncated to `maxChars`.
 
-## KV budget impact
+## When to use each pattern
 
-Without scratchpad extraction, every tool result is prefilled directly into the agent's branch. A research agent that calls `web_search` (2,000 tokens) then `fetch_page` three times (5,000 tokens each) consumes 17,000 tokens of KV on tool results alone. With `nCtx: 16384`, that leaves almost nothing for other agents.
+| Pattern | Use case | Branch | Grammar |
+|---------|----------|--------|---------|
+| Recovery extraction | Agents killed by pressure | Agent's own branch (no fork) | Eager JSON |
+| Fork-attend-extract-prune | Tool result compression | Temporary fork from parent | Eager, task-specific |
+| Reranker chunk selection | Large web pages | No branch (reranker-only) | None |
 
-With scratchpad extraction, the same sequence might consume 200 + 3 x 300 = 1,100 tokens of KV on the agent's branch. The extractions happen on temporary forks that are pruned immediately -- their KV cost is transient, not cumulative.
-
-The tradeoff is GPU compute. Each extraction runs a short generation (50-150 tokens of output, constrained by grammar) on a temporary fork. The fork must be prefilled with the content plus turn separator. For a 5,000-token page, the extraction prefill is ~5,000 tokens of GPU decode. This is real compute -- but it happens once per page, and the fork is pruned immediately. The alternative (prefilling 5,000 tokens into the agent's branch) is the same GPU cost but the KV cells persist for the agent's entire lifetime.
-
-## When to use scratchpad extraction
-
-Scratchpad extraction is useful when:
-
-- **Tool results are large and variable.** Web pages, search results, and document sections vary from hundreds to thousands of tokens. The agent needs the information but not the full text.
-- **Agents run multiple turns.** KV accumulates across turns. A 6-turn agent with large tool results per turn will hit pressure limits quickly without extraction.
-- **Nested pools share KV.** Inner pool agents compete for the same KV budget as outer agents. Reducing per-tool-result KV cost directly increases the number of agents that can survive pressure enforcement.
-- **Post-research reranking needs full content.** Extraction lets the agent reason from summaries while the reranker scores from the full text. Both needs are served from a single fetch.
-
-Scratchpad extraction is unnecessary when:
-
-- **Tool results are already compact.** A grep result returning 10 matches in 500 tokens does not benefit from extraction.
-- **The agent needs verbatim content.** If the downstream task requires exact quotes or precise data from the tool result, extraction would lose information.
-- **KV pressure is not a concern.** Single-agent workflows with large `nCtx` may not need the KV savings.
-
-## Fallback behavior
-
-Both pool-level extraction and reranker-based chunking handle failure gracefully:
-
-- **Pool extraction**: If the grammar-constrained generation fails or produces empty output, the agent's findings remain `null`. The pipeline continues — other agents' findings are still available.
-- **Reranker chunking**: If no reranker is set or no query is provided, `FetchPageTool` falls back to returning the full page content truncated to `maxChars`. The agent gets a larger tool result (consuming more KV), but the pipeline does not fail.
-
-Scratchpad extraction is an optimization, not a requirement.
+Recovery extraction is automatic -- configure the policy's `recovery` option and the pool handles it. Fork-attend-extract-prune requires explicit use of `generate({ parent })` in tool implementations. Reranker selection requires injecting a `Reranker` into `FetchPageTool`.

@@ -1,0 +1,43 @@
+flowchart TD
+    TERM["All agents idle/disposed"] --> GUARD{"recoveryAttempted?"}
+    GUARD -->|Yes| EXIT["Break → pool:close"]
+    GUARD -->|No| SET["recoveryAttempted = true"]
+    SET --> FREE["Prune agents that\nalready reported\n(frees KV)"]
+    FREE --> COLLECT["For each idle agent\nwithout result:"]
+    COLLECT --> POLICY{"policy.onRecovery(a)"}
+    POLICY -->|skip| PRUNE["Prune branch"]
+    POLICY -->|extract| PREP["Format extraction prompt\n(enableThinking: false)"]
+    PREP --> TOKENS["Tokenize: sep + delta"]
+    TOKENS --> PAIR["Add to prefillPairs"]
+
+    PAIR --> PCHECK{"remaining >=\ntotalPrefill?"}
+    PCHECK -->|No| EXIT
+    PCHECK -->|Yes| GRAMMAR["Create eager reportGrammar\n{'result': 'string'}"]
+    GRAMMAR --> PREFILL["store.prefill(prefillPairs)\nbatch all agents"]
+    PREFILL --> SETG["setGrammar(reportGrammar)\non each agent's branch"]
+    SETG --> TRACE["Emit branch:prefill role=recovery\nEmit agent:spawn"]
+
+    TRACE --> LOOP["Produce/commit loop"]
+    LOOP --> PSYNC["produceSync()\nfor each recovering agent"]
+    PSYNC --> STOPQ{"isStop?"}
+    STOPQ -->|Yes| JPARSE["JSON.parse(output)"]
+    JPARSE --> VALID{"parsed.result?"}
+    VALID -->|Yes| REPORT["reportResult\nemit agent:report"]
+    VALID -->|No| SKIP["Non-fatal skip"]
+    STOPQ -->|No| ACCUM["Accumulate text\nemit agent:produce"]
+    ACCUM --> ENTRIES["Collect branch, token"]
+    ENTRIES --> COMMITR["store.commit(entries)\none GPU call"]
+    COMMITR --> LOOP
+
+    REPORT --> ADONE["done.add(a)"]
+    SKIP --> ADONE
+    ADONE --> CHECK{"all done?"}
+    CHECK -->|No| LOOP
+    CHECK -->|Yes| TICK["Emit agent:tick"]
+    TICK --> EXIT
+
+    style EXIT fill:#95a5a6,color:#fff
+    style REPORT fill:#2ecc71,color:#fff
+    style PREFILL fill:#3498db,color:#fff
+    style COMMITR fill:#3498db,color:#fff
+    style GRAMMAR fill:#8e44ad,color:#fff

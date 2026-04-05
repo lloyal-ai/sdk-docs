@@ -1,0 +1,13 @@
+stateDiagram-v2
+    [*] --> active: setupAgent
+    active --> active: PRODUCE token
+    active --> awaiting_tool: tool call parsed
+    awaiting_tool --> active: tool result settled
+    awaiting_tool --> active: nudge (settle reject)
+    active --> idle: free_text_stop
+    active --> idle: pressure_critical
+    active --> idle: pressure_softcut
+    active --> idle: max_turns
+    idle --> recovering: policy.onRecovery = extract
+    recovering --> idle: extraction complete
+    idle --> [*]: branch pruned (ensure)

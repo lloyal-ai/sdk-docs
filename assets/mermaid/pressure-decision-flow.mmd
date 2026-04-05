@@ -1,0 +1,30 @@
+flowchart TD
+    START["Tick Start"] --> SNAP["ContextPressure snapshot"]
+    SNAP --> CRIT{"remaining\n< hardLimit?"}
+    CRIT -->|Yes| KILL["Kill agent\nbefore produceSync()"]
+    CRIT -->|No| PRODUCE["produceSync()"]
+    PRODUCE --> STOP{"isStop?"}
+    STOP -->|No| COLLECT["Collect token\nfor batch commit"]
+    STOP -->|Yes| PARSE["parseChatOutput"]
+    PARSE --> POLICY["policy.onProduced()"]
+    POLICY -->|report| DONE["reportResult + idle"]
+    POLICY -->|tool_call| DISPATCH["Queue for DISPATCH"]
+    POLICY -->|nudge| INJECT["Inject error result\n+ optional probe"]
+    POLICY -->|over budget| SOFTCUT["Nudge or kill\n(pressure_softcut)"]
+
+    COLLECT --> COMMIT["store.commit()\nbatch decode"]
+    COMMIT --> SETTLE["SETTLE: drain settledBuffer"]
+    SETTLE --> FIT{"result tokens\n<= headroom?"}
+    FIT -->|Yes| PREFILL["store.prefill()"]
+    FIT -->|No| REJECT{"policy.onSettleReject()"}
+    REJECT -->|nudge| INJECT2["Replace with error"]
+    REJECT -->|idle| KILL2["Kill agent"]
+
+    DISPATCH --> EXEC["Tool executes"]
+    EXEC --> RESULT["Result → settledBuffer\n(next tick's SETTLE)"]
+
+    style KILL fill:#e74c3c,color:#fff
+    style KILL2 fill:#e74c3c,color:#fff
+    style DONE fill:#2ecc71,color:#fff
+    style COMMIT fill:#3498db,color:#fff
+    style PREFILL fill:#3498db,color:#fff
