@@ -111,33 +111,37 @@ If `headroom < 0` (over the soft limit) and the tool call is not the terminal to
 
 This is the mechanism that prevents agents from starting new work when the cache is nearly full. An agent that has accumulated 6 tool results worth of KV and wants to call `research` (which would spawn sub-agents consuming even more KV) gets denied. The same agent calling `report` goes through.
 
-### 4. SETTLE rejection (tool result gating)
+### 4. SETTLE deferral (tool result gating)
 
-After DISPATCH executes tools and pushes results to `settledBuffer`, the next tick's SETTLE phase drains those results. Each result is pressure-gated:
+After DISPATCH executes tools, the next tick's SETTLE phase drains those results. Each result is pressure-gated — but SETTLE never kills agents. Items that don't fit are deferred until headroom recovers:
 
 ```typescript
 const settlePressure = new ContextPressure(ctx, pressureOpts);
 let headroom = settlePressure.headroom;
 
-for (const item of settled) {
+for (const item of items) {
   const a = agentById.get(item.agentId);
-  if (!a || a.state === 'done') continue;
+  if (!a || a.status === 'idle') continue;
 
   if (item.prefillTokens.length > headroom) {
-    // policy.onSettleReject() → nudge or kill
+    deferred.push(item);  // retry next tick
     continue;
   }
 
   prefillPairs.push([a.branch, item.prefillTokens]);
   headroom -= item.prefillTokens.length;
 }
+
+return deferred;  // caller carries forward to next tick's SETTLE
 ```
 
 The `headroom` variable is tracked locally because `cellsUsed` doesn't update until `store.prefill()` at the end of the phase. The local variable accounts for items queued but not yet prefilled, ensuring all items are evaluated against the same baseline.
 
-Tool results are the largest KV consumers. A `web_search` result can be 2,000+ tokens. A `fetch_page` result can be 6,000+. SETTLE rejection is the primary enforcement point for preventing KV overflow during active research.
+Tool results are the largest KV consumers. A `web_search` result can be 2,000+ tokens. A `fetch_page` result can be 6,000+. SETTLE deferral is the primary mechanism for backpressure during active research.
 
-When a tool result is rejected, the policy decides whether to nudge (inject a "report your findings now" error as the tool result) or kill the agent outright. Nudge messages are small (~30 tokens) and usually fit even when the original result didn't.
+Deferred items stay in `pendingSettled` until headroom recovers. Headroom recovers when the PRODUCE trailing stop kills an agent, recovers its findings inline, and prunes its branch — freeing KV cells. Next tick, SETTLE retries the deferred items against the recovered headroom.
+
+If all agents are `awaiting_tool` with deferred items and no active agents remain, a stall-breaker sacrifices one agent to free KV. Without this, agents with oversized results would wait indefinitely — PRODUCE skips `awaiting_tool` agents, so headroom never recovers.
 
 ### `_contextAvailablePercent` in tool results
 
@@ -149,27 +153,31 @@ After each tool executes, the pool creates a fresh `ContextPressure` snapshot an
 
 The value is derived from `ContextPressure.percentAvailable` -- the single formula for KV availability percentage across the system. The same value is emitted on the `agent:tool_result` event for TUI display and recorded on `ToolHistoryEntry.contextAfterPercent` for policy decisions.
 
-## Recovery extraction
+## Recovery extraction (trailing stop)
 
-When all agents are killed by pressure without reporting, the pool runs a one-shot recovery protocol to extract their accumulated findings. This is the system forcing a report -- the model has no choice in the matter.
+When an agent is killed by pressure, the pool extracts its accumulated findings **inline** before continuing the tick loop. This is the trailing stop -- one agent sacrificed per critical tick, its findings extracted and KV freed, so remaining agents can continue researching.
 
 <Frame>
   <img
     src="/assets/recovery-flow.svg"
-    alt="Flowchart showing the recovery extraction protocol: pressure check, eager grammar, batched produce/commit loop."
+    alt="Flowchart showing the recovery extraction protocol: pressure check, eager grammar, single-agent produce/commit loop."
   />
 </Frame>
 
 ### How it works
 
-1. **Free KV**: Prune branches of agents that already reported (if any), reclaiming their unique cells.
-2. **Collect**: For each idle agent without a result, check `policy.onRecovery(agent)`. If it returns `{ type: 'extract', prompt }`, queue the agent for recovery.
-3. **Pressure check**: If `remaining < totalPrefill` (extraction prompts don't physically fit), skip recovery entirely.
-4. **Grammar**: Create an eager JSON grammar from `jsonSchemaToGrammar({ result: string })`. This constrains from token 0 -- the model MUST produce `{"result": "..."}`.
-5. **Batch prefill**: Prefill all extraction prompts into the agents' own branches in one GPU call via `store.prefill()`. No fork -- the agent's full KV context (system prompt, tool results, reasoning) is physically present.
-6. **Set grammar**: `branch.setGrammar(reportGrammar)` on each agent's branch. Eager mode -- active from the first generated token.
-7. **Batch generate**: Run a produce/commit loop across all recovering agents in parallel -- one `store.commit()` per step, same pattern as the main tick loop.
-8. **Parse + report**: When each agent hits a stop token, parse the JSON output and call `reportResult(parsed.result, 'scratchpad')`.
+When `shouldExit` kills an agent during PRODUCE:
+
+1. **Policy check**: Call `policy.onRecovery(agent)`. If it returns `{ type: 'skip' }`, prune the branch and continue.
+2. **Pressure check**: If `remaining < promptTokens` (extraction prompt doesn't physically fit), skip recovery and prune.
+3. **Grammar**: Create an eager JSON grammar from `jsonSchemaToGrammar({ result: string })`. Constrains from token 0 -- the model MUST produce `{"result": "..."}`.
+4. **Prefill**: Prefill the extraction prompt into the agent's own branch. No fork -- the agent's full KV context (system prompt, tool results, reasoning) is physically present.
+5. **Set grammar**: `branch.setGrammar(reportGrammar)`. Eager mode -- active from the first generated token.
+6. **Generate**: Single-agent produce/commit loop -- `produceSync()` + `store.commit()` per token until stop token.
+7. **Parse + report**: Parse the JSON output, call `reportResult(parsed.result, 'scratchpad')`.
+8. **Prune**: Free the agent's branch. The freed KV cells give remaining agents headroom.
+
+Recovery runs inside `scoped()` with error containment -- if `llama_decode` fails during the produce/commit loop (KV exhaustion), the scope tears down cleanly and the pool continues. This mirrors the `scoped()` + try/catch pattern used by tool dispatch.
 
 <Note>
 Recovery uses the agent's **own branch**, not a fork. The agent's full KV context is already there -- all tool results, all generated reasoning. The extraction prompt is appended directly. This eliminates the overhead of forking and the RESTRICT prune conflicts that forks create during scope teardown.
@@ -185,13 +193,19 @@ The eager grammar also overrides thinking tokens. Even when the extraction promp
 
 ### Recovery and hardLimit
 
-The `hardLimit` reserve exists specifically for recovery. Agents are killed when `remaining < hardLimit`. The recovery extraction prompt is ~65 tokens per agent. With 3 agents, that's ~195 tokens, leaving the rest of the `hardLimit` reserve (~1853 tokens) for generation.
+The `hardLimit` reserve exists specifically for recovery. Agents are killed when `remaining < hardLimit`. The trailing stop only needs to recover one agent at a time, so the reserve only needs to fit one extraction prompt (~65 tokens) plus generation headroom. Default `hardLimit` is 1024 tokens.
 
-The recovery pressure check uses `remaining < totalPrefill` (raw capacity), not `canFit` or `critical`. This is deliberate: the `hardLimit` reserve was set aside precisely for this moment. Checking `critical` would always fail because agents were just killed at the critical threshold.
+The recovery pressure check uses `remaining < promptTokens` (raw capacity), not `canFit` or `critical`. This is deliberate: the `hardLimit` reserve was set aside precisely for this moment. Checking `critical` would always fail because agents were just killed at the critical threshold.
 
-### One-shot guard
+### Trailing stop behavior
 
-Recovery fires at most once per pool run. If recovered agents' JSON parsing fails or they hit a decode error, the pool exits without retrying. The `recoveryAttempted` flag prevents infinite loops.
+The policy's `shouldExit` kills at most one agent per tick when pressure is critical. The `_killedThisTick` flag prevents mass kills. After recovery extracts and prunes, the freed KV gives remaining agents headroom to continue. If pressure stays critical, another agent is killed next tick.
+
+This is the sole kill path under pressure. SETTLE defers oversized results without killing. PRODUCE soft-cut nudges without killing (unless critical). Only `shouldExit` in PRODUCE kills, and only one per tick.
+
+### One-shot guard (post-loop)
+
+If all agents are idle without results after the tick loop ends (e.g., killed by `maxTurns` or `free_text_stop`), a separate one-shot recovery pass extracts from any remaining unrecovered agents. This fires at most once per pool run via the `recoveryAttempted` flag.
 
 ### Scope
 
@@ -285,14 +299,14 @@ Monitor with `trace: true` -- the `[SETTLE]` and `[PRODUCE]` pressure logs print
   <Step title="Each tick: PRODUCE soft-cut">
     Deny non-terminal tool calls when headroom &lt; 0. Terminal tools pass.
   </Step>
-  <Step title="Each tick: SETTLE rejection">
-    Reject tool results that exceed headroom. Nudge or kill.
+  <Step title="Each tick: SETTLE deferral">
+    Defer tool results that exceed headroom. Retry next tick after KV is freed.
   </Step>
-  <Step title="Termination + recovery">
-    All agents idle → one-shot recovery extracts findings via eager grammar on agents' own branches.
+  <Step title="Trailing stop + recovery">
+    One agent killed per critical tick → findings extracted inline → branch pruned → freed KV lets remaining agents continue.
   </Step>
 </Steps>
 
-Agents that survive the prefill gate will generate tokens until one of three things happens: they complete naturally (stop token + no tool call, or terminal tool call), they hit `maxTurns`, or pressure enforcement kills them at the next PRODUCE or SETTLE. Killed agents have their findings extracted by the recovery protocol if the policy supports it.
+Agents that survive the prefill gate will generate tokens until one of three things happens: they complete naturally (stop token + no tool call, or terminal tool call), they hit `maxTurns`, or the trailing stop in PRODUCE kills them. SETTLE never kills agents -- it defers oversized results until headroom recovers. The sole kill path under pressure is `shouldExit` in PRODUCE, which kills at most one agent per tick.
 
-The `pool:agentDrop` trace event records the specific enforcement point that triggered the drop: `pressure_init`, `pressure_critical`, `pressure_softcut`, or `pressure_settle_reject`. Recovery prefills appear as `branch:prefill` with `role: 'recovery'`.
+The `pool:agentDrop` trace event records the specific enforcement point that triggered the drop: `pressure_init`, `pressure_critical`, `pressure_softcut`, `pressure_settle_reject` (stall-breaker only), or `maxTurns`. Recovery prefills appear as `branch:prefill` with `role: 'recovery'`.

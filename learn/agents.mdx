@@ -124,13 +124,15 @@ When `true`, agents are pruned immediately after reporting. This frees KV mid-po
 
 ## Agent Policy
 
-The pool consults an **AgentPolicy** at every decision boundary — when an agent hits a stop token, when a tool result doesn't fit in KV, and when checking tool guards before dispatch.
+The pool consults an **AgentPolicy** at every decision boundary — when an agent hits a stop token, when deciding whether to kill under pressure, and when checking tool guards before dispatch.
 
 ```typescript
 interface AgentPolicy {
   onProduced(agent, parsed, pressure, config): ProduceAction;
-  onSettleReject(agent, resultTokens, pressure, config): SettleAction;
-  shouldExplore?(agent, pressure): boolean;  // optional — defaults to true
+  shouldExit?(agent, pressure): boolean;    // trailing stop kill gate
+  shouldExplore?(agent, pressure): boolean; // optional — defaults to true
+  onRecovery?(agent): RecoveryAction;       // scratchpad extraction
+  resetTick?(): void;                       // per-tick flag reset
 }
 ```
 

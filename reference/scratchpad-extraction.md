@@ -7,18 +7,18 @@ description: "Extracting findings from killed agents and fork-attend-extract-pru
 
 ## Recovery extraction
 
-When agents are killed by KV pressure without reporting, the pool extracts their accumulated findings before closing. This is the primary use of scratchpad-style extraction.
+When an agent is killed by KV pressure, the pool extracts its findings **inline** before continuing the tick loop. This is the trailing stop -- one agent sacrificed per critical tick, its findings recovered, its KV freed for remaining agents.
 
-Recovery uses the agent's **own branch** -- no fork. The agent's full KV context (system prompt, tool results, reasoning from prior turns) is already in the cache. An extraction prompt is prefilled directly into the branch, eager grammar constrains output to `{"result": "..."}`, and a batched produce/commit loop generates the report.
+Recovery uses the agent's **own branch** -- no fork. The agent's full KV context (system prompt, tool results, reasoning from prior turns) is already in the cache. An extraction prompt is prefilled directly into the branch, eager grammar constrains output to `{"result": "..."}`, and a single-agent produce/commit loop generates the report.
 
-See [KV Pressure: Recovery extraction](/reference/kv-pressure#recovery-extraction) for the full protocol.
+See [KV Pressure: Recovery extraction](/reference/kv-pressure#recovery-extraction-trailing-stop) for the full protocol.
 
 Key properties:
 - **No fork**: Uses the agent's own branch. Eliminates RESTRICT prune conflicts and redundant KV.
 - **Eager grammar**: `setGrammar()` constrains from token 0. No tool calls possible, no model choice.
-- **Parallel**: All recovering agents generate in the same produce/commit loop -- one GPU call per step.
-- **One-shot**: Fires at most once per pool run via a guard flag.
-- **Pressure-gated**: Skipped if remaining KV can't fit the extraction prompts.
+- **Inline trailing stop**: One agent recovered per critical tick. Remaining agents continue researching with freed KV.
+- **Scoped error containment**: Runs inside `scoped()` with try/catch -- decode failures tear down the scope cleanly without crashing the pool.
+- **Pressure-gated**: Skipped if remaining KV can't fit the extraction prompt.
 
 ### Policy configuration
 

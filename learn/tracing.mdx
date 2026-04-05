@@ -37,7 +37,7 @@ Every trace event has a `traceId`, `parentTraceId` (for building the tree), and 
 | `tool:dispatch` | Tool name, parsed args, **toolkit position** (`toolIndex/toolkitSize`) |
 | `tool:result` | Full result object, prefill token count, duration |
 | `pool:open/close` | Agent count, suffix token costs, pressure snapshot, per-agent findings |
-| `pool:agentDrop` | Why an agent was killed: `pressure_init`, `pressure_critical`, `pressure_softcut`, `pressure_settle_reject`, `maxTurns` |
+| `pool:agentDrop` | Why an agent was killed: `pressure_init`, `pressure_critical`, `pressure_softcut`, `pressure_settle_reject` (stall-breaker), `maxTurns` |
 | `generate:start/end` | Single-branch generation (plan, eval, scratchpad) with output |
 | `branch:create/prefill/prune` | KV lifecycle with token counts and roles |
 | `rerank:start/end` | Query, chunk count, top scored results |
@@ -92,7 +92,7 @@ for e in (json.loads(l) for l in sys.stdin):
     Check `toolIndex` in `tool:dispatch` events. If the terminal tool (`report`) has the highest index, recency bias may cause premature termination. See [tool ordering](/reference/grammar-and-ordering#tool-ordering-sensitivity).
   </Card>
   <Card title="Agents killed by pressure" icon="gauge-high">
-    Filter `pool:agentDrop` events. The `reason` field tells you exactly where: init pressure, SETTLE rejection, or PRODUCE soft-cut. See [KV pressure](/reference/kv-pressure).
+    Filter `pool:agentDrop` events. The `reason` field tells you exactly where: init pressure, PRODUCE critical (trailing stop), or PRODUCE soft-cut. See [KV pressure](/reference/kv-pressure).
   </Card>
   <Card title="Scratchpad failures" icon="code-branch">
     Look for `generate:start` events with `hasParent: true`. If the matching `generate:end` has no `parsed` field, the extraction failed. See [scratchpad extraction](/reference/scratchpad-extraction).

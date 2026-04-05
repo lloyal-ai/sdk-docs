@@ -10,11 +10,12 @@ Every agent lifecycle decision passes through a policy. When an agent hits a sto
 ```typescript
 interface AgentPolicy {
   onProduced(agent, parsed, pressure, config): ProduceAction;
-  onSettleReject(agent, resultTokens, pressure, config): SettleAction;
+  onSettleReject(agent, resultTokens, pressure, config): SettleAction; // deprecated
   shouldExplore?(agent, pressure): boolean;
   shouldExit?(agent, pressure): boolean;
   onRecovery?(agent): RecoveryAction;
   readonly pressureThresholds?: PressureThresholds;
+  resetTick?(): void;
 }
 ```
 
@@ -82,21 +83,13 @@ parsed output has tool call?
 
 The terminal tool is never dispatched — the policy intercepts it, extracts the `result` field from the tool arguments, and returns `report`. When the agent is under pressure, early reports are accepted regardless of tool call count — an agent told to "report now" should be allowed to report.
 
-## `onSettleReject` — tool result too large
+## `onSettleReject` — deprecated
 
-Called when a tool result's token count exceeds available headroom during the SETTLE phase. The tool already executed — this is about whether the result can be prefilled into the agent's branch.
+<Note>
+`onSettleReject` is retained for backward compatibility with custom policies but is no longer called by the pool. SETTLE now defers oversized tool results until headroom recovers via the trailing stop in PRODUCE. See [KV Pressure: SETTLE deferral](/reference/kv-pressure#4-settle-deferral-tool-result-gating).
+</Note>
 
-```typescript
-// SETTLE: item.prefillTokens.length > headroom
-const action = policy.onSettleReject(agent, resultTokens, pressure, config);
-```
-
-Returns `nudge` (with message) or `idle`:
-
-- Terminal tool present and agent has done work → nudge with "Tool result too large for remaining KV. Report your findings now."
-- No terminal tool or zero tool calls → idle (agent killed)
-
-If the nudge message itself doesn't fit in headroom, the agent is killed regardless.
+The method signature is unchanged. Custom policies that override it will compile but the override has no effect.
 
 ## `shouldExplore` — explore vs exploit mode
 
@@ -132,11 +125,18 @@ Three sources of nudge messages:
 | Time budget | "Time limit approaching — report your findings now." |
 | Insufficient work | "You must use tools before submitting results." |
 | Tool guard | The guard's custom `message` field |
-| Settle rejection | "Tool result too large for remaining KV. Report your findings now." |
+## `resetTick` — per-tick state reset
+
+Called by the pool at the start of each tick iteration. Resets per-tick flags used by the trailing stop:
+
+- `_killedThisTick`: At most one agent killed per critical tick
+- `_nudgedThisTick`: At most one agent nudged per over-budget tick
+
+Optional — only needed if the policy tracks per-tick state. `DefaultAgentPolicy` implements this.
 
 ## `onRecovery` — scratchpad extraction
 
-Called post-loop for each idle agent without a result. The policy decides whether to fork from the agent's branch and extract findings via grammar-constrained generation.
+Called inline when the trailing stop kills an agent during PRODUCE. The policy decides whether to extract findings from the agent's branch via grammar-constrained generation.
 
 ```typescript
 type RecoveryAction =

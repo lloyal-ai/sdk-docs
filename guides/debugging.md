@@ -112,7 +112,7 @@ If `toolIndex` equals `toolkitSize - 1` (the tool is last in the array), check w
 | `pressure_init` | Agent didn't fit during pool setup | Before any generation |
 | `pressure_critical` | Remaining KV below `hardLimit` | During PRODUCE phase |
 | `pressure_softcut` | Agent wanted a non-terminal tool but headroom was negative | At stop token during PRODUCE |
-| `pressure_settle_reject` | Tool result tokens would cross softLimit floor | During SETTLE phase |
+| `pressure_settle_reject` | Stall-breaker: all agents deferred, one sacrificed to free KV | During SETTLE (stall-breaker only) |
 | `maxTurns` | Agent exhausted its turn budget | At stop token during PRODUCE |
 
 2. Check `pool:open` for the initial pressure state:
@@ -171,17 +171,24 @@ If the parent was pruned before the fork, the scratchpad has no context to atten
 - Grammar schema mismatch -- the extraction grammar does not match what the model can produce given the context
 - Insufficient KV remaining for the scratchpad prompt itself
 
-The hard-cut recovery via `policy.onRecovery()` handles this gracefully — extraction failures are caught and treated as non-fatal:
+Recovery runs inside `scoped()` with error containment — decode failures or malformed JSON are caught and treated as non-fatal. The pool continues with remaining agents:
 
 ```typescript
 try {
-  const result = yield* generate<{ result: string }>({
-    prompt, grammar,
-    parse: (o: string) => JSON.parse(o),
-    parent: a.branch,
+  yield* scoped(function*() {
+    yield* call(() => store.prefill([[agent.branch, tokens]]));
+    agent.branch.setGrammar(reportGrammar);
+    // single-agent produce/commit loop
+    for (;;) {
+      const { token, text, isStop } = agent.branch.produceSync();
+      if (isStop) break;
+      yield* call(() => store.commit([[agent.branch, token]]));
+    }
+    // parse JSON, report result
   });
-  if (result.parsed?.result) a.result = result.parsed.result;
-} catch { /* extraction failure non-fatal */ }
+} catch { /* decode failure or malformed JSON — non-fatal */ }
+// Always prune after scope exits
+if (!agent.branch.disposed) agent.branch.pruneSync();
 ```
 
 ## Problem: Synthesis ignores research findings

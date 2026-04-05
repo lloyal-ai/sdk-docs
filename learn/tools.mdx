@@ -220,7 +220,7 @@ class SearchTool extends Tool<{ query: string }> {
 After the search result is prefilled, the pool prefills `"Wait, "` into the same branch. The model's next tokens attend to the tool result plus the probe, encouraging it to reflect before acting.
 
 - `probe` defaults to `null` — no extra prefill, zero cost
-- Only fires after real tool dispatches — nudges and settle rejects are unaffected
+- Only fires after real tool dispatches — nudges are unaffected
 - The probe text is not constrained by grammar — the model generates freely until a grammar trigger fires
 
 <Note>
