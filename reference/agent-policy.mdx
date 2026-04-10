@@ -270,7 +270,7 @@ const researchPolicy = new DefaultAgentPolicy({
 });
 
 // Synthesis doesn't need time limits — use default policy
-yield* spawnAgents({ tasks, systemPrompt, policy: researchPolicy, ... });
+yield* createAgentPool({ tasks, systemPrompt, tools, policy: researchPolicy, ... });
 ```
 
 ## Writing a custom policy
@@ -312,8 +312,7 @@ class MyPolicy implements AgentPolicy {
 Pass to any pool via the `policy` option:
 
 ```typescript
-yield* runAgents({ tasks, tools, policy: new MyPolicy() });
-yield* spawnAgents({ tasks, tools, systemPrompt, policy: new MyPolicy() });
+yield* createAgentPool({ tasks, tools, systemPrompt, policy: new MyPolicy() });
 ```
 
 Signatures are narrow by design: `(agent, pressure)`. The policy is a class — time, cost, or other signals live on `this`. The pool passes what it owns (agent + pressure snapshot); the policy combines with its own state.

@@ -33,43 +33,22 @@ Cold and warm are physical properties of KV cache state, not modes. A cold sessi
 
 <Steps>
   <Step title="Cold start — first query">
-    No trunk exists. You create a fresh branch, run your pipeline, and promote the winner.
+    No trunk exists. Run your pipeline. Commit the turn to create the trunk.
 
     ```typescript
-    // No trunk — first query
-    if (!session.trunk) {
-      const answer = yield* research(query);
-      yield* promoteTrunk(query, answer, session);
-    }
+    const answer = yield* research(query);
+    yield* call(() => session.commitTurn(query, answer));
+    // session.trunk now exists — cold → warm
     ```
-  </Step>
-
-  <Step title="Promote">
-    After your pipeline produces a result, promote a branch to become the trunk. This calls `retainOnly()` on the branch store — all other branches are pruned, and the winner becomes the ongoing conversation.
-
-    ```typescript
-    const trunk = Branch.create(ctx, 0, {});
-    yield* call(() => trunk.prefill(conversationTokens));
-    yield* call(() => session.promote(trunk));
-    // session.trunk is now the promoted branch
-    ```
-
-    `promote()` does two things:
-    - `store.retainOnly(winner)` — prunes everything except the winner
-    - Sets `session.trunk = winner`
   </Step>
 
   <Step title="Warm continuation — follow-up queries">
-    Trunk exists. You append the new user turn directly into the existing KV cache, then run your pipeline on the warm branch.
+    Trunk exists. Pipeline stages that receive `session` fork from the trunk — the model sees full conversation history. After producing an answer, commit again.
 
     ```typescript
-    if (session.trunk) {
-      // Append user turn to existing trunk
-      await session.prefillUser(query);
-      // Pipeline forks from warm trunk — model sees full conversation history
-      const answer = yield* research(query);
-      yield* appendTurn(query, answer, session);
-    }
+    const answer = yield* research(query);
+    yield* call(() => session.commitTurn(query, answer));
+    // Trunk extended with the new turn
     ```
   </Step>
 
@@ -83,7 +62,24 @@ Cold and warm are physical properties of KV cache state, not modes. A cold sessi
   </Step>
 </Steps>
 
+<Note>
+`commitTurn` handles warm and cold internally. Cold: creates a branch at position 0, prefills the formatted turn, promotes to trunk. Warm: appends a turn separator + formatted delta to the existing trunk. You don't branch between the two — one call covers both.
+</Note>
+
 ## API
+
+### `session.commitTurn(query, response)`
+
+Commit a query/response pair to the conversation trunk. This is the primary API for advancing the session.
+
+```typescript
+yield* call(() => session.commitTurn(query, answer));
+```
+
+- **Cold** (no trunk): creates a branch at position 0, prefills the formatted turn, promotes to trunk
+- **Warm** (trunk exists): appends turn separator + formatted delta to the existing trunk
+
+Most pipeline code calls `commitTurn` once at the end. The warm/cold distinction is handled internally.
 
 ### `session.promote(winner)`
 

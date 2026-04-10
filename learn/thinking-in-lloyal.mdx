@@ -36,12 +36,14 @@ async function research(query: string) {
 
 // lloyal pattern
 function* research(query: string): Operation<string> {
-  const plan = yield* generate({ prompt, grammar });
-  const pool = yield* runAgents({
-    tasks: plan.questions.map(q => ({
-      systemPrompt, content: q, tools, parent: root,
-    })),
-    tools: toolMap,
+  const agent = yield* createAgent({ systemPrompt, task: query, schema: planSchema });
+  const plan = JSON.parse(agent.rawOutput);
+
+  const pool = yield* createAgentPool({
+    tasks: plan.questions.map(q => ({ content: q })),
+    tools: [searchTool, reportTool],
+    systemPrompt: RESEARCH_PROMPT,
+    terminalTool: "report",
   });
   return pool.agents.map(a => a.result);
 }
@@ -50,8 +52,8 @@ function* research(query: string): Operation<string> {
 Key differences:
 
 - `yield*` instead of `await` — runs an Operation within the current scope
-- `Operation&lt;T&gt;` instead of `Promise&lt;T&gt;` — describes work without executing immediately
-- `runAgents` instead of `Promise.all` — concurrent agents with shared GPU and automatic cleanup
+- `Operation<T>` instead of `Promise<T>` — describes work without executing immediately
+- `createAgentPool` instead of `Promise.all` — concurrent agents with shared GPU and automatic cleanup
 
 <Tip>
 The generator syntax looks unfamiliar for about an hour. After that, it reads like sequential code with automatic cleanup — which is exactly what it is.
@@ -64,12 +66,12 @@ Everything runs inside a scope. Scopes nest like function calls:
 ```
 main()
  └─ initAgents()                         ← sets up Ctx, Store, Events
-     └─ withSharedRoot()                 ← creates root branch, prefills system prompt
-         └─ useAgentPool()               ← spawns N agents, runs tick loop
+     └─ createAgentPool()                ← creates root, toolkit, agents
+         └─ useAgentPool()               ← tick loop manages N agents
              ├─ agent 0 (generating)
              ├─ agent 1 (awaiting tool)
              │   └─ scoped(tool.execute)  ← tool runs in child scope
-             │       └─ withSharedRoot()  ← inner pool for recursive tool
+             │       └─ createAgentPool() ← recursive tool spawns sub-pool
              │           └─ useAgentPool()
              └─ agent 2 (generating)
 ```
@@ -161,7 +163,7 @@ If you know any of these, lloyal's model is the same idea applied to GPU-backed 
 
 | Concept | Swift | Kotlin | lloyal |
 |---------|-------|--------|--------|
-| Scoped concurrency | `withTaskGroup` | `coroutineScope` | `withSharedRoot` + `useAgentPool` |
+| Scoped concurrency | `withTaskGroup` | `coroutineScope` | `createAgentPool` |
 | Spawn child task | `group.addTask` | `launch` | `spawn()` |
 | Structured cleanup | Task cancellation propagates | `Job` hierarchy + `finally` | Scope exit halts children, `ensure()` runs |
 | Scoped values | `TaskLocal` | `CoroutineContext` | `createContext()` |
@@ -218,7 +220,7 @@ const tw = yield* Trace.expect();
   </Step>
 
   <Step title="Read a pipeline">
-    Then `examples/deep-research/harness.ts` — plan, research, synthesize, evaluate. Each stage composes framework primitives.
+    Then `examples/deep-research-web/harness.ts` — plan, research, synthesize, evaluate. Each stage composes `createAgent` and `createAgentPool`.
   </Step>
 
   <Step title="Run with --trace">
@@ -230,6 +232,6 @@ const tw = yield* Trace.expect();
   </Step>
 
   <Step title="Add a tool">
-    Extend `Tool`, implement `execute()`, add to `createToolkit()`. Your tool automatically gets scope management, error boundaries, and trace integration.
+    Extend `Tool`, implement `execute()`, add to the tools array. Your tool automatically gets scope management, error boundaries, and trace integration.
   </Step>
 </Steps>

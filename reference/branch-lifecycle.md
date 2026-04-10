@@ -162,7 +162,7 @@ for await (const { token, text } of branch) {
 }
 ```
 
-Every yielded token is already committed -- written to KV and accepted into the sampler. Breaking out of the loop is clean. `generate()` uses this internally.
+Every yielded token is already committed -- written to KV and accepted into the sampler. Breaking out of the loop is clean. `useAgent()` uses this internally.
 
 ### Batched commit via `BranchStore`
 
@@ -252,22 +252,20 @@ function* withSharedRoot(opts, body) {
 
 `pruneSubtreeSync` in the finally block handles the case where agent branches (children of root) still exist when the scope exits. Rather than requiring every consumer to prune children before root, the subtree prune cascades through the entire tree.
 
-### `generate` cleanup
+### `createAgent` cleanup
+
+`createAgent` wraps `useAgent` in `scoped()`. When the scope exits, the `ensure()` callback prunes the root and all agent branches:
 
 ```typescript
-function* generate(opts) {
-  const branch = opts.parent ? opts.parent.fork() : Branch.create(ctx, 0, params);
-
-  try {
-    // ... prefill, generate, parse ...
-    return { output, tokenCount, parsed };
-  } finally {
-    if (!branch.disposed) branch.pruneSync();
-  }
+function* createAgent(opts) {
+  return yield* scoped(function*() {
+    return yield* useAgent(opts);
+    // On scope exit: ensure() prunes root subtree
+  });
 }
 ```
 
-Whether generation succeeds, fails, or is cancelled, the branch is pruned. For scratchpad extraction (`parent` provided), this means the temporary fork is always cleaned up and the parent's KV is untouched.
+Whether generation succeeds, fails, or is cancelled, branches are pruned. For scratchpad extraction (`parent` provided), this means the temporary fork is always cleaned up and the parent's KV is untouched.
 
 ## Branch as the foundation
 
@@ -276,7 +274,7 @@ Everything in the agent framework builds on Branch:
 - **Prefix sharing**: `withSharedRoot` creates a root branch, prefills the shared prompt, agents fork from it. See [Prefix Sharing](/reference/prefix-sharing).
 - **Agent pools**: Each agent is a forked branch. The tick loop calls `produceSync()` and `store.commit()` on branch arrays. See [Concurrency Model](/reference/concurrency).
 - **KV pressure**: `ContextPressure` reads `cellsUsed` which is incremented by branch decode operations. See [KV Pressure](/reference/kv-pressure).
-- **Scratchpad extraction**: `generate({ parent })` forks a temporary branch for grammar-constrained extraction. See [Scratchpad Extraction](/reference/scratchpad-extraction).
+- **Scratchpad extraction**: `createAgent({ parent })` forks a temporary branch for grammar-constrained extraction. See [Scratchpad Extraction](/reference/scratchpad-extraction).
 - **Grammar constraining**: `setGrammar()` and `setGrammarLazy()` are branch methods. Grammar state is cloned on fork. See [Grammar & Tool Ordering](/reference/grammar-and-ordering).
 
 The produce/commit separation, O(1) fork, and scope-tree cleanup are the primitives that make multi-agent generation on shared GPU compute possible.

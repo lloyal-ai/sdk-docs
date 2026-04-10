@@ -108,83 +108,63 @@ class ReportTool extends Tool<{ result: string }> {
 }
 ```
 
-You declare the terminal tool when creating the agent pool:
+You declare the terminal tool when creating the agent:
 
 ```typescript
-yield* runAgents({
-  tasks,
-  tools: toolMap,
+yield* createAgent({
+  systemPrompt: "You are a research assistant.",
+  task: "Research this topic.",
+  tools: [searchTool, reportTool],
   terminalTool: "report", // ← pool intercepts this tool
 });
 ```
 
 <Tip>
-When `terminalTool` is set and the pool has other tools, agents must call at least one non-terminal tool before reporting. This prevents agents from immediately reporting without doing work.
+When `terminalTool` is set and the agent has other tools, the agent must call at least one non-terminal tool before reporting. This prevents agents from immediately reporting without doing work.
 </Tip>
 
 ### Recursive tools
 
 A tool can spawn sub-agents. `execute()` runs inside the pool's Effection scope, so it has access to all contexts — `Ctx`, `Store`, `Events`. This is how a `web_research` tool dispatches sub-investigators.
 
+You don't need to write recursive tools manually. `createAgentPool` builds one for you when you pass `recursive`:
+
 ```typescript
-*execute(args: { questions: string[] }): Operation<unknown> {
-  const pool = yield* withSharedRoot(
-    { systemPrompt: RESEARCH_PROMPT, tools: toolsJson },
-    function*(root) {
-      return yield* runAgents({
-        tasks: args.questions.map(q => ({
-          systemPrompt: RESEARCH_PROMPT,
-          content: q,
-          tools: toolsJson,
-          parent: root,
-        })),
-        tools: toolMap,
-        terminalTool: "report",
-        maxTurns: 6,
-      });
-    },
-  );
-  return {
-    results: pool.agents.map(a => a.result).filter(Boolean),
-    nestedResults: pool.agents.flatMap(a => a.nestedResults ?? []),
-  };
-}
+const pool = yield* createAgentPool({
+  tasks: questions.map(q => ({ content: q })),
+  tools: [searchTool, fetchTool, reportTool],
+  systemPrompt: RESEARCH_PROMPT,
+  terminalTool: "report",
+  recursive: {
+    name: "web_research",
+    description: "Spawn parallel sub-agents to investigate sub-questions.",
+    extractTasks: (args) => args.questions as string[],
+  },
+});
 ```
 
-The inner pool shares the same GPU and KV cache. Depth is bounded by context pressure, not framework limits.
+The inner pool shares the same GPU and KV cache. Sub-agents inherit the calling agent's full KV state. Depth is bounded by context pressure, not framework limits.
 
-## Building a toolkit
+## Passing tools
 
-You never pass individual tools to the agent pool. You build a toolkit first.
-
-```typescript
-import { createToolkit } from "@lloyal-labs/lloyal-agents";
-
-const { toolMap, toolsJson } = createToolkit([
-  new SearchTool(reranker),
-  new ReadFileTool(resources),
-  new GrepTool(resources),
-  new ReportTool(),
-]);
-```
-
-`createToolkit()` produces two things:
-
-- **`toolMap`** — a name-to-instance map used by the pool for dispatch
-- **`toolsJson`** — JSON-serialized schemas passed to `formatChat()` for prompt formatting
-
-Pass both to the agent pool:
+Pass Tool instances directly to `createAgent` or `createAgentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map.
 
 ```typescript
-yield* runAgents({
-  tasks: [{ systemPrompt, content, tools: toolsJson, parent: root }],
-  tools: toolMap,
+const agent = yield* createAgent({
+  systemPrompt: "You are a research assistant.",
+  task: "Find information about X.",
+  tools: [
+    new SearchTool(reranker),
+    new ReadFileTool(resources),
+    new GrepTool(resources),
+    new ReportTool(),
+  ],
   terminalTool: "report",
 });
 ```
 
 <Note>
-**Tool ordering matters.** The model sees tools in the order you pass them to `createToolkit()`. Put the most commonly used tools first. Some models are sensitive to tool ordering — a search tool listed first gets called more reliably than one buried after five other schemas.
+**Tool ordering matters.** The model sees tools in the order you pass them. The model's tool selection is influenced by position in the system prompt — see [Grammar & Tool Ordering](/reference/grammar-and-ordering#tool-ordering-sensitivity) for the full mechanism.
 </Note>
 
 ## How dispatch works

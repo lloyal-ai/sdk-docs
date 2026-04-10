@@ -4,7 +4,7 @@ description: Composing generator stages into multi-step workflows.
 ---
 
 
-A pipeline is a sequence of generator stages. Each stage `yield*`s into a framework primitive — `generate`, `runAgents`, `diverge`, `withSharedRoot`. The output of one stage feeds the next.
+A pipeline is a sequence of generator stages. Each stage `yield*`s into a framework primitive — `createAgent`, `createAgentPool`, `diverge`. The output of one stage feeds the next.
 
 There is no pipeline framework. No DAG builder. No node graph. You compose generators with `yield*` and the type system keeps you honest.
 
@@ -14,35 +14,31 @@ Every stage is a generator function that takes input and produces output:
 
 ```typescript
 function* plan(query: string): Operation<string[]> {
-  const result = yield* generate({ prompt, grammar });
-  return result.parsed.questions;
+  const agent = yield* createAgent({
+    systemPrompt: PLAN_PROMPT,
+    task: query,
+    schema: planSchema,
+  });
+  return JSON.parse(agent.rawOutput).questions;
 }
 
 function* research(questions: string[]): Operation<string[]> {
-  const pool = yield* withSharedRoot(
-    { systemPrompt, tools: toolsJson },
-    function*(root) {
-      return yield* runAgents({
-        tasks: questions.map(q => ({ systemPrompt, content: q, tools: toolsJson, parent: root })),
-        tools: toolMap,
-        terminalTool: "report",
-      });
-    },
-  );
+  const pool = yield* createAgentPool({
+    tasks: questions.map(q => ({ content: q })),
+    tools: [searchTool, fetchTool, reportTool],
+    systemPrompt: RESEARCH_PROMPT,
+    terminalTool: "report",
+  });
   return pool.agents.map(a => a.result).filter(Boolean);
 }
 
 function* synthesize(findings: string[], query: string): Operation<string> {
-  const pool = yield* withSharedRoot(
-    { systemPrompt: SYNTH_PROMPT, tools: synthToolsJson },
-    function*(root) {
-      return yield* runAgents({
-        tasks: [{ systemPrompt: SYNTH_PROMPT, content: buildSynthPrompt(findings, query), tools: synthToolsJson, parent: root }],
-        tools: synthToolMap,
-        terminalTool: "report",
-      });
-    },
-  );
+  const pool = yield* createAgentPool({
+    tasks: [{ content: buildSynthPrompt(findings, query) }],
+    tools: [...groundingTools, reportTool],
+    systemPrompt: SYNTH_PROMPT,
+    terminalTool: "report",
+  });
   return pool.agents[0]?.result || "";
 }
 ```
@@ -58,7 +54,7 @@ function* handleQuery(query: string): Operation<string> {
 }
 ```
 
-That's a pipeline. Each stage runs to completion. Resources are cleaned up between stages — `withSharedRoot` prunes branches when its body returns, freeing KV for the next stage.
+That's a pipeline. Each stage runs to completion. Resources are cleaned up between stages — `createAgentPool` prunes branches when it returns, freeing KV for the next stage.
 
 <Tip>
 Stages are independent generators. You can test them in isolation, reorder them, skip them conditionally, or add new ones. The composition is plain code — `if` statements, loops, early returns.
@@ -69,17 +65,17 @@ Stages are independent generators. You can test them in isolation, reorder them,
 Four primitives serve as stage implementations:
 
 <CardGroup cols={2}>
-  <Card title="generate()" icon="wand-magic-sparkles">
-    Single-branch, grammar-constrained generation. Plan decomposition, JSON extraction, evaluation. Returns text + optional parsed result.
+  <Card title="createAgent()" icon="wand-magic-sparkles">
+    Single agent. Plan decomposition (with `schema`), JSON extraction, evaluation. Returns an Agent with result and raw output.
   </Card>
-  <Card title="runAgents()" icon="users">
+  <Card title="createAgentPool()" icon="users">
     Parallel agent pool with tools. Research, investigation, synthesis. Returns per-agent findings and statistics.
   </Card>
   <Card title="diverge()" icon="code-branch">
     Multi-branch perplexity selection. Fork N attempts, generate in parallel, select the lowest-perplexity output. Verification and confidence checking.
   </Card>
-  <Card title="withSharedRoot()" icon="sitemap">
-    Shared prefix scope. Creates a root branch, prefills the system prompt, passes it to a body function. Prunes everything on exit.
+  <Card title="reduce()" icon="arrows-down-to-line">
+    Sequential fold across items where each iteration is an Operation. Thread accumulated state through stages — sources, questions, findings.
   </Card>
 </CardGroup>
 
@@ -101,7 +97,7 @@ function* researchPipeline(query: string): Operation<string> {
   const eval = yield* evaluateFindings(res.agentFindings);
 
   // Stage 4: Synthesize — grounding tools only when conflicts detected
-  const conflicts = !eval.converged ? eval.conflicts : undefined;
+  const conflicts = eval.conflicts.length ? eval.conflicts : undefined;
   const answer = yield* synthesize(res.agentFindings, res.sourcePassages, query, conflicts);
 
   // Stage 5: Verify with N parallel samples
@@ -118,23 +114,20 @@ Parse a diff, dispatch agents per file, collect issues, produce a summary.
 ```typescript
 function* codeReview(diff: string): Operation<string> {
   // Stage 1: Extract changed files from diff
-  const files = yield* generate({ prompt: parsePrompt(diff), grammar: filesGrammar });
+  const agent = yield* createAgent({
+    systemPrompt: "Extract changed files.",
+    task: diff,
+    schema: filesSchema,
+  });
+  const files = JSON.parse(agent.rawOutput);
 
   // Stage 2: One agent per file — each searches the codebase for context
-  const reviews = yield* withSharedRoot(
-    { systemPrompt: REVIEW_PROMPT, tools: codeToolsJson },
-    function*(root) {
-      return yield* runAgents({
-        tasks: files.parsed.map(f => ({
-          systemPrompt: REVIEW_PROMPT,
-          content: `Review changes to ${f.path}:\n${f.diff}`,
-          tools: codeToolsJson, parent: root,
-        })),
-        tools: codeToolMap,
-        terminalTool: "report",
-      });
-    },
-  );
+  const reviews = yield* createAgentPool({
+    tasks: files.map(f => ({ content: `Review changes to ${f.path}:\n${f.diff}` })),
+    tools: [grepTool, readFileTool, reportTool],
+    systemPrompt: REVIEW_PROMPT,
+    terminalTool: "report",
+  });
 
   // Stage 3: Synthesize per-file reviews into summary
   const summary = yield* synthesize(reviews.agents.map(a => a.result), diff);
@@ -149,19 +142,19 @@ Classify intent, search knowledge base, draft response, check confidence.
 ```typescript
 function* supportTicket(ticket: string): Operation<{ response: string; confident: boolean }> {
   // Stage 1: Classify — grammar-constrained to valid categories
-  const { parsed: category } = yield* generate({ prompt: classifyPrompt(ticket), grammar: categoryGrammar });
+  const classifier = yield* createAgent({
+    systemPrompt: "Classify support tickets.",
+    task: ticket,
+    schema: categorySchema,
+  });
 
   // Stage 2: Search knowledge base for relevant articles
-  const pool = yield* withSharedRoot(
-    { systemPrompt: KB_PROMPT, tools: kbToolsJson },
-    function*(root) {
-      return yield* runAgents({
-        tasks: [{ systemPrompt: KB_PROMPT, content: ticket, tools: kbToolsJson, parent: root }],
-        tools: kbToolMap,
-        terminalTool: "report",
-      });
-    },
-  );
+  const pool = yield* createAgentPool({
+    tasks: [{ content: ticket }],
+    tools: [kbSearchTool, kbReadTool, reportTool],
+    systemPrompt: KB_PROMPT,
+    terminalTool: "report",
+  });
 
   // Stage 3: Confidence check — low perplexity = model is confident
   const samples = yield* diverge({ prompt: draftPrompt(pool.agents[0]?.result, ticket), attempts: 3 });
@@ -201,15 +194,13 @@ There is no state machine, no DAG, no node connections to define. Conditional lo
 
 ## Findings convergence
 
-When multiple agents investigate sub-questions, they may return contradictory findings. One agent discovers a connection with direct quotes; two others report "not found." A naive synthesizer majority-votes and produces the wrong conclusion.
-
-The findings convergence check solves this. After research, evaluate agent findings with a grammar-constrained generation that returns `{converged, conflicts[]}`:
+When multiple agents investigate sub-questions, they may return contradictory findings. The findings convergence check surfaces real conflicts and separates them from complementary coverage:
 
 ```typescript
 const eval = yield* evaluateFindings(agentFindings);
 
-if (!eval.converged) {
-  // Agents disagree — synthesize with grounding tools + conflicts
+if (eval.conflicts.length) {
+  // Real contradictions — synthesize with grounding tools
   const answer = yield* synthesize(findings, passages, query, eval.conflicts);
 } else {
   // Agents agree — synthesize directly, no grounding needed
@@ -217,45 +208,72 @@ if (!eval.converged) {
 }
 ```
 
-When conflicts are detected, the synthesizer receives grounding tools (search, read_file, grep) to read the source material directly. It resolves each conflict by going to the text — not by splitting the difference between agents. When findings converge, the synthesizer gets `report` only — no wasted grounding.
+The eval also produces `observations` — cross-agent analysis (coverage gaps, complementary findings) that flow to the synthesizer as context without triggering grounding tools.
+
+When conflicts are detected, the synthesizer receives source tools (search, read_file, fetch_page) to read the source material directly. It resolves each conflict by going to the text — not by splitting the difference between agents. When findings converge, the synthesizer gets `report` only — no wasted grounding.
 
 <Note>
 The prompt itself adapts to what's available. Using [Eta templates](/reference/prompt-composition), the system prompt only describes capabilities the agent actually has — no phantom "Source passages: (none)" sections. Conditionals in the template control which instructions, sections, and tools appear.
 </Note>
 
+## Multi-source pipelines with `reduce`
+
+When a pipeline uses multiple sources, `reduce` folds across them sequentially, threading accumulated findings forward:
+
+```typescript
+import { reduce } from "@lloyal-labs/lloyal-agents";
+
+const findings = yield* reduce(
+  sources,
+  { sections: [], questions },
+  function*(acc, source, i) {
+    const pool = yield* createAgentPool({
+      tasks: acc.questions.map(q => ({ content: q })),
+      tools: [...source.tools, reportTool],
+      systemPrompt: sourcePromptFor(source),
+      terminalTool: "report",
+    });
+
+    const sections = [...acc.sections, ...collectFindings(pool)];
+
+    // Between sources: bridge discoveries into context for the next source
+    if (i < sources.length - 1) {
+      const bridged = yield* bridge(sections, query);
+      const enriched = questions.map(q => `${q}\n\nPrior discoveries:\n${bridged}`);
+      return { sections, questions: enriched };
+    }
+    return { sections, questions: acc.questions };
+  },
+);
+```
+
+Each source is independent. The bridge stage distills findings from source N into context for source N+1. Later sources benefit from earlier research without re-doing it.
+
 ## KV lifecycle between stages
 
-Each stage that uses `withSharedRoot` creates and destroys branches within its scope. When the scope exits, branches are pruned and KV cells are freed.
+Each stage that uses `createAgent` or `createAgentPool` creates and destroys branches within its scope. When the call returns, branches are pruned and KV cells are freed.
 
 ```
-Stage 1: plan          → generate() uses ~500 KV cells → pruned
-Stage 2: research      → withSharedRoot + runAgents uses ~8,000 cells → pruned
-Stage 3: findings eval → generate() uses ~300 cells → pruned
-Stage 4: synthesize    → withSharedRoot + runAgents uses ~3,000 cells → pruned
-Stage 5: verify        → diverge() uses ~1,500 cells → pruned
+Stage 1: plan          → createAgent uses ~500 KV cells → pruned
+Stage 2: research      → createAgentPool uses ~8,000 cells → pruned
+Stage 3: findings eval → createAgent uses ~300 cells → pruned
+Stage 4: synthesize    → createAgentPool uses ~3,000 cells → pruned
+Stage 5: verify        → createAgentPool uses ~1,500 cells → pruned
 ```
 
-Stages don't compete for KV. Each stage gets the full context budget. This is why `withSharedRoot`'s cleanup is critical — it runs in `finally`, so KV is freed even if the stage throws.
+Stages don't compete for KV. Each stage gets the full context budget. This is why scoped cleanup is critical — branches are freed even if the stage throws.
 
 <Tip>
 When you need data to survive between stages, return it as plain values (strings, arrays, objects). KV state is ephemeral — it lives within a stage's scope. Findings, passages, and scores are the durable output.
 </Tip>
 
-## Multi-source pipelines
+## Session: state across turns
 
-When a pipeline uses multiple sources, research stages can chain with bridge stages between them:
+When the pipeline produces an answer, commit it to the Session so subsequent queries inherit the conversation context:
 
 ```typescript
-for (let i = 0; i < sources.length; i++) {
-  const pool = yield* spawnAgents({ tools: sources[i].tools, systemPrompt, tasks: questions, ... });
-  findings.push(result);
-
-  // Between sources: structure discoveries as context for the next source
-  if (i < sources.length - 1) {
-    const bridged = yield* bridge(result.result, query);
-    questions = questions.map(q => `${q}\n\nPrior discoveries:\n${bridged}`);
-  }
-}
+yield* call(() => session.commitTurn(query, answer));
+// Next createAgent/createAgentPool with `session` forks from the trunk
 ```
 
-Each source is independent. The bridge stage distills findings from source N into context for source N+1. Later sources benefit from earlier research without re-doing it.
+See [Sessions](/learn/sessions) for the full warm/cold lifecycle.

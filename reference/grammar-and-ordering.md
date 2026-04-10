@@ -33,14 +33,15 @@ The grammar covers the complete output space: free text (for reasoning) and stru
 
 There are two activation modes:
 
-**Eager grammar** activates immediately. Every token from the first one is constrained by the grammar. Use this for structured generation where the entire output must conform to a schema -- for example, `generate()` with a JSON grammar:
+**Eager grammar** activates immediately. Every token from the first one is constrained by the grammar. Use this for structured generation where the entire output must conform to a schema -- for example, `createAgent()` with a JSON schema:
 
 ```typescript
-const result = yield* generate({
-  prompt: planPrompt,
-  grammar: planGrammar,  // eager: active from token 0
-  parse: output => JSON.parse(output),
+const agent = yield* createAgent({
+  systemPrompt: "You analyze research queries. Output JSON only.",
+  task: query,
+  schema: planSchema,  // compiled to GBNF grammar, eager: active from token 0
 });
+const plan = JSON.parse(agent.rawOutput);
 ```
 
 **Lazy grammar** lets the model generate freely until a trigger fires, then activates the grammar. This is the mode used for tool-calling agents. The model reasons in free text (unconstrained), then when it starts a tool call (trigger detected), the grammar activates and constrains the tool call structure.
@@ -141,7 +142,7 @@ This creates a practical interaction between grammar constraining and tool order
 
 ```typescript
 // report last -- model biased toward early termination
-createToolkit([search, read_file, grep, research, report]);
+tools: [search, read_file, grep, research, report];
 ```
 
 Agents terminate after 3-4 tool calls instead of the expected 6-8. The grammar correctly constrains whichever tool call the model chooses, but the model chooses the terminal tool more often because it has higher salience from its position.
@@ -150,38 +151,34 @@ The fix is tool ordering, not grammar tuning:
 
 ```typescript
 // report before its prefix-sharing sibling -- correct ordering
-createToolkit([search, read_file, grep, report, research]);
+tools: [search, read_file, grep, report, research];
 ```
 
 When two tools share a token prefix (`report` and `research` both start with `r`), the model's logits must resolve the ambiguity after generating the shared prefix. Recency bias from system prompt position shifts the distribution. Placing the terminal tool before its prefix-sharing sibling counteracts this effect.
 
 This is a model-level effect, not a grammar bug. The grammar does its job perfectly -- ensuring valid structure. The model's tool selection is a separate concern governed by attention over prompt content.
 
-## Direct grammar use with `generate()`
+## Direct grammar use with `createAgent()`
 
-Outside of agent pools, `generate()` uses eager grammar for structured extraction:
+`createAgent` with a `schema` option compiles the JSON Schema to a GBNF grammar and sets it as an eager constraint:
 
 ```typescript
-const schema = {
-  type: 'object',
-  properties: {
-    summary: { type: 'string' },
-    confidence: { type: 'number' },
+const agent = yield* createAgent({
+  systemPrompt: "Extract a summary and confidence score.",
+  task: extractionPrompt,
+  schema: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string' },
+      confidence: { type: 'number' },
+    },
+    required: ['summary', 'confidence'],
   },
-  required: ['summary', 'confidence'],
-};
-
-const grammar = yield* call(() => ctx.jsonSchemaToGrammar(JSON.stringify(schema)));
-
-const result = yield* generate({
-  prompt: extractionPrompt,
-  grammar,
-  params: { temperature: 0.3 },
-  parse: output => JSON.parse(output),
 });
-// result.parsed is guaranteed to match the schema -- grammar enforced every token
+const parsed = JSON.parse(agent.rawOutput);
+// parsed is guaranteed to match the schema -- grammar enforced every token
 ```
 
-`jsonSchemaToGrammar` converts a JSON Schema into a GBNF grammar string. The grammar constrains generation from the first token, so the output is guaranteed to be valid JSON conforming to the schema. No retry logic, no post-hoc validation.
+`jsonSchemaToGrammar` (called internally by `createAgent`) converts a JSON Schema into a GBNF grammar string. The grammar constrains generation from the first token, so the output is guaranteed to be valid JSON conforming to the schema. No retry logic, no post-hoc validation.
 
 This is the mechanism behind scratchpad extraction (see [Scratchpad Extraction](/reference/scratchpad-extraction)) -- fork a branch, attend to content, grammar-constrain a compact summary, prune the fork.

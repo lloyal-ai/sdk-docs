@@ -48,24 +48,15 @@ The next source's agents see the original question plus a structured summary of 
 The bridge runs as a single agent inside `withSharedRoot` with report-only tools:
 
 ```typescript
-const reportOnlyToolkit = createToolkit([reportTool]);
-
-const discoveries = yield* withSharedRoot(
-  { systemPrompt: BRIDGE.system, tools: reportOnlyToolkit.toolsJson },
-  function*(bridgeRoot) {
-    const pool = yield* useAgentPool({
-      tasks: [{
-        systemPrompt: BRIDGE.system,
-        content: bridgeContent,
-        tools: reportOnlyToolkit.toolsJson,
-        parent: bridgeRoot,
-      }],
-      tools: reportOnlyToolkit.toolMap,
-      terminalTool: "report",
-      maxTurns: effectiveMaxTurns,
-      trace: opts.trace,
-    });
-    return pool.agents[0]?.result || "";
+const bridge = yield* createAgentPool({
+  tasks: [{ content: bridgeContent }],
+  tools: [reportTool],
+  systemPrompt: BRIDGE.system,
+  terminalTool: "report",
+  maxTurns: 2,
+  trace: opts.trace,
+});
+const discoveries = bridge.agents[0]?.result || "";
   },
 );
 ```

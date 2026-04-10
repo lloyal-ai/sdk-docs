@@ -100,7 +100,7 @@ This behavior scales with `maxTurns`. At `maxTurns: 2`, agents do single-shot re
 
 ### Tool ordering affects the decision boundary
 
-The decision boundary depends on the model choosing to continue exploring rather than terminating. This choice is influenced by the ordering of tools in the `createToolkit()` array — see [Grammar & Tool Ordering](/reference/grammar-and-ordering#tool-ordering-sensitivity) for the full mechanism and design rule.
+The decision boundary depends on the model choosing to continue exploring rather than terminating. This choice is influenced by the ordering of tools in the `tools` array — see [Grammar & Tool Ordering](/reference/grammar-and-ordering#tool-ordering-sensitivity) for the full mechanism and design rule.
 
 ## Shared Resources
 
@@ -140,7 +140,7 @@ For recursive pipelines, the outer pool's `softLimit` must account for the inner
 
 ## Recursive Agents
 
-Tools can spawn sub-agents. A tool's `execute()` method returns an Effection [`Operation<unknown>`][ops], which means it can [`yield*`][ops] into any framework primitive — `withSharedRoot`, `useAgentPool`, `runAgents`, `generate`, `diverge`. The inner pipeline shares the same GPU compute, KV cache, and event channel as the outer pool. No separate process. No serialization boundary.
+Tools can spawn sub-agents. A tool's `execute()` method returns an Effection [`Operation<unknown>`][ops], which means it can [`yield*`][ops] into any framework primitive — `createAgentPool`, `useAgentPool`, `createAgent`, `diverge`. The inner pipeline shares the same GPU compute, KV cache, and event channel as the outer pool. No separate process. No serialization boundary.
 
 ### Scope tree
 
@@ -218,7 +218,7 @@ Hard-cut recovery is controlled by the policy via `onRecovery()`. When agents ar
 
 ### Result propagation
 
-When the inner pool completes, `runAgents` exits its scope — inner branches are pruned via their `ensure()` callbacks. The inner `withSharedRoot` exits — the inner root is pruned via `try/finally`. Control returns to the tool's `execute()` generator, which returns the result. Back in DISPATCH, the result is JSON-stringified, wrapped in a tool result delta, and pushed to `settledBuffer`. On the next tick's SETTLE phase, the outer agent's branch is prefilled with the tool result, grammar state resets, and the outer agent resumes generating.
+When the inner pool completes, `createAgentPool` exits its scope — inner branches are pruned via their `ensure()` callbacks. The inner `withSharedRoot` exits — the inner root is pruned via `try/finally`. Control returns to the tool's `execute()` generator, which returns the result. Back in DISPATCH, the result is JSON-stringified, wrapped in a tool result delta, and pushed to `settledBuffer`. On the next tick's SETTLE phase, the outer agent's branch is prefilled with the tool result, grammar state resets, and the outer agent resumes generating.
 
 ### Teardown
 
@@ -263,14 +263,14 @@ Level 2: Deeper research agents (if a level-1 agent calls research)
          Same prompt. Same tools. Same prescribed process.
 ```
 
-One toolkit at every level — composed by `spawnAgents()`:
+One toolkit at every level — composed by `createAgentPool()`:
 
 ```typescript
-const pool = yield* spawnAgents({
-  tools: source.tools,               // search, read_file, grep
+const pool = yield* createAgentPool({
+  tasks: questions.map(q => ({ content: q })),
+  tools: [...source.tools, reportTool],
   systemPrompt: RESEARCH_PROMPT,
-  tasks: questions,
-  terminalTool: { name: 'report', tool: reportTool },
+  terminalTool: 'report',
   recursive: { name: 'research' },   // self-referential delegation
 });
 ```

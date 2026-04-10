@@ -48,11 +48,10 @@ Recovered findings are stored with `resultSource: 'scratchpad'`. This is metadat
 For tool result compression (independent of recovery), the fork-attend-extract-prune pattern uses a temporary branch:
 
 ```typescript
-const extracted = yield* generate({
-  prompt: contentToSummarize,
-  grammar: extractionGrammar,
-  params: { temperature: 0.3 },
-  parse: output => JSON.parse(output),
+const agent = yield* createAgent({
+  systemPrompt: "Extract key information.",
+  task: contentToSummarize,
+  schema: extractionSchema,
   parent: scratchpadParent,
 });
 // extracted.parsed contains the compact summary
@@ -119,4 +118,4 @@ This reduces KV pressure without lossy summarization -- the agent gets the most 
 | Fork-attend-extract-prune | Tool result compression | Temporary fork from parent | Eager, task-specific |
 | Reranker chunk selection | Large web pages | No branch (reranker-only) | None |
 
-Recovery extraction is automatic -- configure the policy's `recovery` option and the pool handles it. Fork-attend-extract-prune requires explicit use of `generate({ parent })` in tool implementations. Reranker selection requires injecting a `Reranker` into `FetchPageTool`.
+Recovery extraction is automatic -- configure the policy's `recovery` option and the pool handles it. Fork-attend-extract-prune requires explicit use of `createAgent({ parent })` in tool implementations. Reranker selection requires injecting a `Reranker` into `FetchPageTool`.

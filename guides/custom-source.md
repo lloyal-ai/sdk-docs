@@ -3,7 +3,7 @@ title: "Build a Custom Source"
 description: "Implement Source<TCtx, TChunk> to plug any data backend into an agent pipeline."
 ---
 
-This guide walks through implementing a custom `Source`. A source is a data backend -- it provides tools for agents to interact with your data. The harness orchestrates agents with those tools via `spawnAgents()`.
+This guide walks through implementing a custom `Source`. A source is a data backend -- it provides tools for agents to interact with your data. The harness orchestrates agents with those tools via `createAgentPool()`.
 
 Sources don't own prompts or orchestration. The harness decides the prompt, the recursion shape, and the agent policy. Your source just provides tools and chunks.
 
@@ -24,14 +24,14 @@ export abstract class Source<TCtx, TChunk> {
 | Member | Required | Purpose |
 |--------|----------|---------|
 | `name` | Yes | Labels output to attribute which source produced what (e.g. "database", "api") |
-| `tools` | Yes | Data access tools the harness passes to `spawnAgents()` |
+| `tools` | Yes | Data access tools the harness passes to `createAgentPool()` |
 | `bind(ctx)` | Optional | Late-binds runtime deps (reranker, API clients) not available at construction |
 | `getChunks()` | Optional | Returns buffered chunks for post-use reranking |
 | `createScorer(query)` | Inherited | Creates an immutable `EntailmentScorer` scoped to one invocation. Set `_reranker` in `bind()` to enable. |
 
 The type parameters: `TCtx` is the context type passed to `bind()`, `TChunk` is the chunk type returned by `getChunks()`.
 
-`createScorer()` is inherited from `Source` — you don't need to implement it. Set `this._reranker` during `bind()` and the scorer factory works automatically. The harness calls `source.createScorer(query)` and passes the result to `spawnAgents({ scorer })` for entailment scoring across the agent tree.
+`createScorer()` is inherited from `Source` — you don't need to implement it. Set `this._reranker` during `bind()` and the scorer factory works automatically. The harness calls `source.createScorer(query)` and passes the result to `createAgentPool({ scorer })` for entailment scoring across the agent tree.
 
 ## Step-by-step implementation
 
@@ -134,18 +134,18 @@ class DatabaseSource extends Source<{ reranker: Reranker }, Chunk> {
 }
 ```
 
-### 4. Use in a pipeline with `spawnAgents()`
+### 4. Use in a pipeline with `createAgentPool()`
 
 The harness orchestrates agents with your source's tools:
 
 ```typescript
-import { spawnAgents } from '@lloyal-labs/lloyal-agents';
+import { createAgentPool } from '@lloyal-labs/lloyal-agents';
 
 const db = await connectDatabase(connectionString);
 const source = new DatabaseSource(db);
 yield* source.bind({ reranker });
 
-const pool = yield* spawnAgents({
+const pool = yield* createAgentPool({
   tools: source.tools,
   systemPrompt: `You are a database analyst. Use query() to run SQL
     and describe() to inspect table schemas. Report your findings.`,
@@ -179,7 +179,7 @@ if (process.env.TAVILY_API_KEY) {
 // In the pipeline:
 for (const source of sources) {
   yield* source.bind({ reranker });
-  const pool = yield* spawnAgents({
+  const pool = yield* createAgentPool({
     tools: source.tools,
     systemPrompt: PROMPTS[source.name] ?? DEFAULT_PROMPT,
     tasks: questions,
@@ -252,7 +252,7 @@ When agents produce conflicting findings, the synthesis agent may need to verify
 const sourceTools = conflicts
   ? opts.sources.flatMap(s => s.tools)
   : [];
-const synthToolkit = createToolkit([...sourceTools, reportTool]);
+const synthTools = [...sourceTools, reportTool];
 ```
 
 This gives the synthesis agent direct access to your data tools when needed -- without running a full agent swarm. When findings converge, grounding tools are not added.

@@ -89,20 +89,17 @@ function* classify(
     },
     required: ['specialists', 'rationale'],
   };
-  const grammar: string = yield* call(() => ctx.jsonSchemaToGrammar(JSON.stringify(schema)));
-
-  const result = yield* generate({
-    prompt,
-    grammar,
-    params: { temperature: 0.3 },
-    parse: (o: string) => JSON.parse(o) as { specialists: string[]; rationale: string },
+  const agent = yield* createAgent({
+    systemPrompt: CLASSIFY_PROMPT,
+    task: query,
+    schema,
   });
 }
 ```
 
-This is the central pattern: a JSON schema is converted to a GBNF grammar via `ctx.jsonSchemaToGrammar`, then `generate()` produces output that is guaranteed to match the schema. The model can only select from `['factual', 'analytical', 'comparative']` -- invalid specialist names are structurally impossible.
+This is the central pattern: a JSON schema is passed to `createAgent`, which compiles it to a GBNF grammar and constrains every token. The model can only select from `['factual', 'analytical', 'comparative']` -- invalid specialist names are structurally impossible.
 
-`generate()` is the single-branch generation primitive. Unlike `useAgentPool`, it creates one branch, generates until stop, and returns the output with an optional parse step. The `parse` function transforms the raw JSON string into a typed object. If parsing fails, the code falls back to a default route:
+`createAgent()` is the single-agent primitive. It creates a branch, generates until stop, and returns an Agent with the raw output. Parse the JSON from `agent.rawOutput`. If parsing fails, the code falls back to a default route:
 
 ```typescript
 try {
@@ -209,14 +206,14 @@ Three markdown files in `tasks/`:
 
 | Aspect | react-agent | reflection | supervisor |
 |--------|-------------|------------|------------|
-| Routing | None | None | Grammar-constrained `generate()` |
+| Routing | None | None | Grammar-constrained `createAgent()` |
 | Agent count | 1 | 1 + manual phases | 1-3 (dynamic, based on classification) |
 | Agent differentiation | N/A | N/A | Different `content` per specialist |
 | Synthesis | Agent's own report | Draft -> critique -> revise chain | Warm trunk generation via `session.prefillUser` |
 | Multi-turn | No | No | Yes (trunk persists between queries) |
-| Branch management | `useAgentPool` | Manual (`Branch.create`, `forkSync`) | `useAgentPool` + `generate()` + manual trunk |
+| Branch management | `useAgentPool` | Manual (`Branch.create`, `forkSync`) | `createAgentPool` + `createAgent()` + `commitTurn` |
 
-The supervisor example is the first to combine multiple framework primitives in a single pipeline: `generate()` for classification, `useAgentPool` for parallel specialist research, and manual trunk generation for synthesis. It also demonstrates warm trunk continuation -- the session trunk persists across REPL queries, giving follow-up questions full context.
+The supervisor example is the first to combine multiple framework primitives in a single pipeline: `createAgent()` for classification, `createAgentPool` for parallel specialist research, and `commitTurn` for trunk advancement. It also demonstrates warm trunk continuation -- the session trunk persists across REPL queries, giving follow-up questions full context.
 
 ## Customization
 

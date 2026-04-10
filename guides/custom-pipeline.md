@@ -106,28 +106,14 @@ function* factCheck(
   yield* opts.events.send({ type: 'factcheck:start' });
   const t = performance.now();
 
-  const toolkit = createToolkit([
-    ...opts.sources.flatMap(s => s.tools),
-    reportTool,
-  ]);
-
-  const pool = yield* withSharedRoot(
-    { systemPrompt: FACTCHECK.system, tools: toolkit.toolsJson },
-    function*(root) {
-      return yield* useAgentPool({
-        tasks: [{
-          systemPrompt: FACTCHECK.system,
-          content,
-          tools: toolkit.toolsJson,
-          parent: root,
-        }],
-        tools: toolkit.toolMap,
-        terminalTool: 'report',
-        maxTurns: opts.maxTurns,
-        trace: opts.trace,
-      });
-    },
-  );
+  const pool = yield* createAgentPool({
+    tasks: [{ content }],
+    tools: [...opts.sources.flatMap(s => s.tools), reportTool],
+    systemPrompt: FACTCHECK.system,
+    terminalTool: 'report',
+    maxTurns: opts.maxTurns,
+    trace: opts.trace,
+  });
 
   const timeMs = performance.now() - t;
   yield* opts.events.send({ type: 'factcheck:done', timeMs });
@@ -226,9 +212,13 @@ Then handle the new route in `handleQuery`:
 
 ```typescript
 if (r.type === 'direct') {
-  // Single-branch generation, no agent pool
-  const result = yield* generate({ prompt, grammar });
-  yield* promoteTrunk(query, result.output, opts);
+  // Single agent, no pool
+  const agent = yield* createAgent({
+    systemPrompt: DIRECT_PROMPT,
+    task: query,
+    schema: answerSchema,
+  });
+  yield* call(() => session.commitTurn(query, agent.rawOutput));
   return { type: 'done' };
 }
 ```
@@ -271,7 +261,7 @@ const researchPolicy = new DefaultAgentPolicy({
   recovery: { prompt: REPORT },
 });
 
-const pool = yield* spawnAgents({
+const pool = yield* createAgentPool({
   // ...
   policy: researchPolicy,
 });

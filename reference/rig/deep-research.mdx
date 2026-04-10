@@ -19,7 +19,7 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
   <Step title="Plan">
     Grammar-constrained decomposition of the user query into sub-questions.
 
-    The `PlanTool` uses `generate()` with a JSON schema grammar to produce structured output:
+    The `PlanTool` uses `createAgent()` with a JSON schema grammar to produce structured output:
 
     ```json
     {
@@ -39,7 +39,7 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
     Passthrough queries get double `maxTurns` since they run as a single focused agent.
   </Step>
   <Step title="Research">
-    The harness calls `spawnAgents()` for each source. Agents interleave retrieval and generation — searching, reading, forming hypotheses, searching again.
+    The harness calls `createAgentPool()` for each source. Agents interleave retrieval and generation — searching, reading, forming hypotheses, searching again.
 
     All agents within a source run concurrently on shared GPU compute. Sources run sequentially, each getting the full KV budget.
 
@@ -49,11 +49,11 @@ Each stage runs inside the [tick loop](/reference/concurrency). All agent coordi
 
     for (const source of opts.sources) {
       const scorer = source.createScorer(query);
-      const pool = yield* spawnAgents({
-        tools: source.tools,
+      const pool = yield* createAgentPool({
+        tasks: activeQuestions.map(q => ({ content: q })),
+        tools: [...source.tools, reportTool],
         systemPrompt: RESEARCH_PROMPT,
-        tasks: activeQuestions,
-        terminalTool: { name: 'report', tool: reportTool },
+        terminalTool: 'report',
         recursive: { name: 'web_research', extractTasks: (a) => a.questions as string[] },
         policy: researchPolicy,
         pruneOnReport: true,

@@ -74,12 +74,7 @@ A Tool is a generator function that returns an Operation. It can do anything —
 ```typescript agent.ts
 import { main, call } from "effection";
 import { createContext } from "@lloyal-labs/lloyal.node";
-import {
-  initAgents,
-  withSharedRoot,
-  useAgentPool,
-  createToolkit,
-} from "@lloyal-labs/lloyal-agents";
+import { initAgents, createAgent } from "@lloyal-labs/lloyal-agents";
 import { CalculatorTool, TimeTool } from "./tools";
 
 const MODEL = process.argv[2] || "model.gguf";
@@ -90,35 +85,17 @@ await main(function* () {
     createContext({ modelPath: MODEL, nCtx: 8192, nSeqMax: 4, typeK: "q4_0", typeV: "q4_0" }),
   );
 
-  // 2. Build toolkit
-  const toolkit = createToolkit([
-    new CalculatorTool(),
-    new TimeTool(),
-  ]);
+  // 2. Initialize runtime
+  yield* initAgents(ctx);
 
-  // 3. Initialize runtime
-  const { session } = yield* initAgents(ctx);
+  // 3. Run agent
+  const agent = yield* createAgent({
+    systemPrompt: "You are a helpful assistant with access to a calculator and clock. Use your tools to answer precisely.",
+    task: "What is 7 * 13 + the current hour of the day?",
+    tools: [new CalculatorTool(), new TimeTool()],
+  });
 
-  // 4. Run agent
-  const SYSTEM = "You are a helpful assistant with access to a calculator and clock. Use your tools to answer precisely.";
-
-  const pool = yield* withSharedRoot(
-    { systemPrompt: SYSTEM, tools: toolkit.toolsJson },
-    function* (root) {
-      return yield* useAgentPool({
-        tasks: [{
-          systemPrompt: SYSTEM,
-          content: "What is 7 * 13 + the current hour of the day?",
-          tools: toolkit.toolsJson,
-          parent: root,
-        }],
-        tools: toolkit.toolMap,
-        maxTurns: 5,
-      });
-    },
-  );
-
-  console.log(pool.agents[0]?.result ?? pool.agents[0]?.rawOutput ?? "No output");
+  console.log(agent.result ?? agent.rawOutput ?? "No output");
 });
 ```
 
@@ -141,19 +118,51 @@ All inference runs locally. No API calls leave your machine.
   <Step title="Model loaded into GPU memory">
     `createContext` loads the GGUF file, allocates KV cache, and prepares the inference backend.
   </Step>
-  <Step title="Tools registered as a toolkit">
-    `createToolkit` serializes tool schemas to JSON (for the model's system prompt) and builds a dispatch map (for executing tool calls).
+  <Step title="Runtime initialized">
+    `initAgents` sets up the inference session, branch store, and event infrastructure. This is the scope in which all agents run.
   </Step>
-  <Step title="Shared root created">
-    `withSharedRoot` prefills the system prompt + tool schemas into a root branch. This is decoded once — every agent forks from it at zero cost.
-  </Step>
-  <Step title="Agent ran the tick loop">
-    `useAgentPool` ran the four-phase loop: generate → commit → settle tool results → dispatch tool calls. Each tool result was prefilled into the agent's KV cache before the next generation step.
+  <Step title="Agent created with tools">
+    `createAgent` handled everything: serialized tool schemas into the system prompt, created a shared KV prefix, forked an agent branch, and ran the tick loop. Each tool result was prefilled into the agent's KV cache before the next generation step.
   </Step>
   <Step title="Cleanup happened automatically">
-    When `withSharedRoot` exited, all branches were pruned. No leaked GPU state.
+    When `createAgent` returned, all branches were pruned. No leaked GPU state. The `Agent` object holds the result — the GPU resources are already freed.
   </Step>
 </Steps>
+
+## What you get back
+
+`createAgent` returns an `Agent` — a completed agent with everything it found:
+
+```typescript
+agent.result        // findings from the terminal tool (if set)
+agent.rawOutput     // raw model output from the final turn
+agent.tokenCount    // total tokens generated
+agent.toolCallCount // number of tool calls made
+```
+
+## Scale to parallel agents
+
+When a single agent isn't enough — multiple sub-questions, different angles of investigation — use `createAgentPool`:
+
+```typescript
+import { createAgentPool } from "@lloyal-labs/lloyal-agents";
+
+const pool = yield* createAgentPool({
+  tasks: [
+    { content: "What is the population of Tokyo?" },
+    { content: "What is the population of New York?" },
+    { content: "What is the population of London?" },
+  ],
+  tools: [searchTool, reportTool],
+  systemPrompt: "You are a research assistant. Use your tools to find accurate data.",
+  terminalTool: "report",
+});
+
+// Each agent investigated independently, sharing the same GPU and KV prefix
+pool.agents.forEach(a => console.log(a.result));
+```
+
+All three agents fork from the same shared root — the system prompt and tool schemas are decoded once. They advance in the same GPU batch. When one finishes, its KV is freed for the others.
 
 ## Now connect to real data
 

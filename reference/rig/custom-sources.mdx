@@ -26,7 +26,7 @@ abstract class Source<TCtx, TChunk> {
 }
 ```
 
-Three extension points. Only `name` and `tools` are required. Sources provide data access — the harness orchestrates agents with those tools via `spawnAgents()`.
+Three extension points. Only `name` and `tools` are required. Sources provide data access — the harness orchestrates agents with those tools via `createAgentPool()`.
 
 <Note>
 `bind()` is called before tools are used. Use it to set up anything that depends on runtime context — reranker instances, database connections, authentication tokens.
@@ -39,7 +39,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
     ```typescript
     import { Source } from "@lloyal-labs/lloyal-agents";
     import type { Tool } from "@lloyal-labs/lloyal-agents";
-    import { createToolkit, runAgents, withSharedRoot } from "@lloyal-labs/lloyal-agents";
+    import { createAgentPool } from "@lloyal-labs/lloyal-agents";
 
     interface Row {
       table: string;
@@ -90,10 +90,10 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
       *bind(ctx: SourceContext) {
         const queryTool = new SqlQueryTool(this.db);
         const schemaTool = new SchemaTool(this.db);
-        const toolkit = createToolkit([queryTool, schemaTool, ctx.reportTool]);
+        const tools = [queryTool, schemaTool, ctx.reportTool]);
 
         // Tools are set in the constructor — no research tool needed.
-        // The harness calls spawnAgents() with source.tools.
+        // The harness calls createAgentPool() with source.tools.
       }
 
       getChunks(): Row[] { return this._results; }
@@ -104,7 +104,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
     ```typescript
     import { Source } from "@lloyal-labs/lloyal-agents";
     import type { Tool } from "@lloyal-labs/lloyal-agents";
-    import { createToolkit } from "@lloyal-labs/lloyal-agents";
+    import { createAgentPool } from "@lloyal-labs/lloyal-agents";
 
     interface VectorChunk {
       id: string;
@@ -159,10 +159,10 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
 
       *bind(ctx: SourceContext) {
         const searchTool = new VectorSearchTool(this.client, this.collection);
-        const toolkit = createToolkit([searchTool, ctx.reportTool]);
+        const tools = [searchTool, ctx.reportTool]);
 
         // Tools are set in the constructor — no research tool needed.
-        // The harness calls spawnAgents() with source.tools.
+        // The harness calls createAgentPool() with source.tools.
       }
 
       getChunks(): VectorChunk[] { return this._results; }
@@ -173,7 +173,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
     ```typescript
     import { Source } from "@lloyal-labs/lloyal-agents";
     import type { Tool } from "@lloyal-labs/lloyal-agents";
-    import { createToolkit } from "@lloyal-labs/lloyal-agents";
+    import { createAgentPool } from "@lloyal-labs/lloyal-agents";
 
     interface ApiResult {
       endpoint: string;
@@ -254,10 +254,10 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
       *bind(ctx: SourceContext) {
         const searchTool = new ApiSearchTool(this.baseUrl, this.headers);
         const detailTool = new ApiDetailTool(this.baseUrl, this.headers);
-        const toolkit = createToolkit([searchTool, detailTool, ctx.reportTool]);
+        const tools = [searchTool, detailTool, ctx.reportTool]);
 
         // Tools are set in the constructor — no research tool needed.
-        // The harness calls spawnAgents() with source.tools.
+        // The harness calls createAgentPool() with source.tools.
       }
 
       getChunks(): ApiResult[] { return this._results; }
@@ -274,7 +274,7 @@ Every custom source follows the same structure:
 
 2. **Buffer results.** Store retrieved content during research so `getChunks()` can return it for post-research reranking.
 
-3. **Build a research tool.** The research tool spawns a sub-agent pool using `useAgentPool` or `runAgents` -- the same primitives the built-in sources use. Wire it with `createToolkit`.
+3. **Build a research tool.** The research tool spawns a sub-agent pool using `useAgentPool` or `createAgentPool` -- the same primitives the built-in sources use. Pass tools directly to `createAgentPool`.
 
 4. **Late-bind in `bind()`.** Set up anything that depends on runtime context: reranker, report tool, pressure thresholds. Construction happens early; binding happens when the pipeline is ready.
 

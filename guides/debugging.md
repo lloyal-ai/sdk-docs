@@ -66,7 +66,7 @@ Key event types from `packages/agents/src/trace-types.ts`:
 **Common causes:**
 - Missing `tools` in the task spec: `tasks: [{ systemPrompt, content, parent: root }]` -- forgot `tools: toolsJson`
 - Wrong model: base model instead of instruction-tuned, or instruction-tuned without tool-call training
-- Empty toolkit: `createToolkit([])` produces an empty `toolsJson` string
+- Empty tools array: `tools: []` means no tools available to the agent
 
 ## Problem: Early termination (agents report too soon)
 
@@ -95,7 +95,7 @@ If `toolIndex` equals `toolkitSize - 1` (the tool is last in the array), check w
 ```
 
 **Common causes:**
-- **Tool ordering:** `report` or terminal tool is last in `createToolkit()` array. Fix by placing it before any tool that shares a name prefix. See [Custom Tool](./custom-tool.md) for the ordering rule.
+- **Tool ordering:** `report` or terminal tool is last in the `tools` array. Fix by placing it before any tool that shares a name prefix. See [Custom Tool](./custom-tool.md) for the ordering rule.
 - **Prompt quality:** System prompt does not motivate thorough investigation. Agents will call `report()` early if the prompt says "answer the question" rather than "investigate thoroughly using available tools."
 - **Large prior tool results:** Earlier agents consumed most of the KV budget, leaving later agents pressure-constrained from their first turn.
 
@@ -227,7 +227,7 @@ A synthesis agent with grounding tools (search, read_file, grep, query) can make
 
 **Solutions:**
 - Ensure research agents produced results: check earlier `pool:close` events for non-null `result` in the agents array
-- Give synthesis grounding tools when conflicts detected: `createToolkit([...source.tools, reportTool])`
+- Give synthesis grounding tools when conflicts detected: `tools: [...source.tools, reportTool]`
 - Increase reranker passage count for more source material in the synthesis prompt
 
 ## Problem: Plan produces poor sub-questions

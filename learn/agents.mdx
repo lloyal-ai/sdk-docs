@@ -24,13 +24,14 @@ The branch is the ground truth. The agent is the interpretation layer that gives
 ```typescript
 import { Agent } from "@lloyal-labs/lloyal-agents";
 
-// The pool creates agents for you — you don't instantiate them directly.
-// After the pool completes, each AgentResult exposes:
-pool.agents[0].result       // what the agent discovered (or null)
-pool.agents[0].toolCallCount  // how many tools it called
-pool.agents[0].tokenCount     // how many tokens it generated
-pool.agents[0].nestedResults  // results from recursive sub-agents
-pool.agents[0].ppl            // model-level perplexity at completion
+// createAgent and createAgentPool return Agents.
+// After completion, each agent exposes:
+agent.result          // what the agent discovered (or null)
+agent.rawOutput       // raw model output from the final turn
+agent.toolCallCount   // how many tools it called
+agent.tokenCount      // how many tokens it generated
+agent.nestedResults   // results from recursive sub-agents
+agent.ppl             // model-level perplexity at completion
 ```
 
 ### Status model
@@ -59,68 +60,178 @@ Agents produce results through a single write path with provenance tracking:
 
 ### Tool history
 
-Each agent records metadata for every tool invocation — tool name, summarized arguments, result token count, context available after settlement. The [Agent Policy](#agent-policy) reads this history for informed lifecycle decisions.
+Each agent records metadata for every tool invocation — tool name, arguments, result token count, context available after settlement. The [Agent Policy](#agent-policy) reads this history for informed lifecycle decisions.
 
 ### Parent lineage
 
 When a tool spawns sub-agents (recursive tools like `research` or `web_research`), each sub-agent records which agent called the tool that created it. `walkAncestors()` traverses the chain — self → caller → caller's caller — collecting data from each ancestor. Tool guards use this for cross-level deduplication.
 
-## The pattern
+## Single agent: `createAgent`
 
-Two functions compose to create a parallel agent pool:
+The simplest entry point. One agent, one task, automatic lifecycle:
 
 ```typescript
-import { withSharedRoot, runAgents, createToolkit } from "@lloyal-labs/lloyal-agents";
+import { createAgent } from "@lloyal-labs/lloyal-agents";
 
-const { toolMap, toolsJson } = createToolkit([...tools, reportTool]);
+const agent = yield* createAgent({
+  systemPrompt: "You are a research assistant.",
+  task: "Find information about voice agent architectures.",
+  tools: [searchTool, fetchTool, reportTool],
+  terminalTool: "report",
+});
 
-const pool = yield* withSharedRoot(
-  { systemPrompt: RESEARCH_PROMPT, tools: toolsJson },
-  function*(root) {
-    return yield* runAgents({
-      tasks: questions.map(q => ({
-        systemPrompt: RESEARCH_PROMPT,
-        content: q,
-        tools: toolsJson,
-        parent: root,
-      })),
-      tools: toolMap,
-      terminalTool: "report",
-      maxTurns: 6,
-      policy: researchPolicy,    // budget + recovery configured on policy
-      pruneOnReport: true,       // free KV immediately when agents report
-    });
+console.log(agent.result);
+```
+
+`createAgent` handles everything internally: builds the toolkit, creates a shared root, forks an agent branch, runs the tick loop, and prunes all branches when done. You declare what you want — the SDK orchestrates it.
+
+### Structured output with `schema`
+
+For single agents that should produce structured JSON instead of calling tools:
+
+```typescript
+const agent = yield* createAgent({
+  systemPrompt: "You analyze research queries. Output JSON only.",
+  task: `Analyze: "${query}"`,
+  schema: {
+    type: "object",
+    properties: {
+      questions: { type: "array", items: { type: "object", properties: { text: { type: "string" }, intent: { type: "string" } }, required: ["text", "intent"] } }
+    },
+    required: ["questions"],
   },
-);
+});
+const plan = JSON.parse(agent.rawOutput);
+```
+
+The `schema` is compiled to a GBNF grammar and set as an eager constraint — every token is grammar-valid. No retry logic, no post-hoc validation.
+
+### Warm path via `session`
+
+When a Session has a trunk (previous turns committed), pass it to continue from the prior conversation state:
+
+```typescript
+const agent = yield* createAgent({
+  systemPrompt: EVAL_PROMPT,
+  task: evalQuestion,
+  schema: evalSchema,
+  session,  // agent forks from session.trunk — inherits prior KV
+});
+```
+
+## Parallel agents: `createAgentPool`
+
+When a task decomposes into sub-questions, run them in parallel:
+
+```typescript
+import { createAgentPool } from "@lloyal-labs/lloyal-agents";
+
+const pool = yield* createAgentPool({
+  tasks: questions.map(q => ({ content: q })),
+  tools: [searchTool, fetchTool, reportTool],
+  systemPrompt: RESEARCH_PROMPT,
+  terminalTool: "report",
+  maxTurns: 20,
+  policy: researchPolicy,
+  pruneOnReport: true,
+});
 
 // pool.agents[0].result, pool.agents[1].result, ...
 ```
 
-`withSharedRoot` creates the root branch, prefills the system prompt, and passes the root to your body function. When the body returns, the root and all its children are pruned automatically.
+`createAgentPool` composes `withSharedRoot` + toolkit construction + the tick loop internally. Agents fork from a shared root, advance in the same GPU batch, and report independently.
 
-`runAgents` forks one branch per task from the root, runs them in parallel, and returns when all agents finish. Branches are pruned on exit.
+### Per-task system prompts
 
-### `recovery` — scratchpad extraction
+Each task can carry its own system prompt while sharing the same KV prefix:
 
-When agents are killed by KV pressure before calling `report()`, the policy can extract partial findings from their accumulated context. Configure `recovery` on `DefaultAgentPolicyOpts` with a prompt — the policy's `onRecovery()` decides per-agent whether to extract, and the pool forks from the agent's branch with a grammar-constrained schema.
+```typescript
+const pool = yield* createAgentPool({
+  tasks: questions.map((q, i) => ({
+    content: q,
+    systemPrompt: renderPromptForAgent(q, i, questions),
+  })),
+  systemPrompt: DEFAULT_PROMPT,  // shared root prefix + fallback
+  tools: [searchTool, reportTool],
+  terminalTool: "report",
+});
+```
 
-A confabulation guard skips agents that barely ran. The thresholds are configurable:
+Per-task prompts are formatted independently by each agent's `setupAgent` call — the shared root provides the KV prefix, individual agents diverge after fork.
+
+### Recursive agents
+
+When `recursive` is enabled, agents can spawn sub-pools via a delegation tool:
+
+```typescript
+const pool = yield* createAgentPool({
+  tasks: questions.map(q => ({ content: q })),
+  tools: [searchTool, fetchTool, reportTool],
+  systemPrompt: RESEARCH_PROMPT,
+  terminalTool: "report",
+  recursive: {
+    name: "web_research",
+    description: "Spawn parallel sub-agents to investigate sub-questions.",
+    argsSchema: { type: "object", properties: { questions: { type: "array", items: { type: "string" } } }, required: ["questions"] },
+    extractTasks: (args) => args.questions as string[],
+  },
+  scorer,   // propagated to all depths via ToolContext
+});
+```
+
+The delegation tool calls `createAgentPool` recursively — sub-agents inherit the calling agent's full KV state via Continuous Context. Recursion depth is bounded by KV pressure, not by a hardcoded limit.
+
+### Recovery
+
+When agents are killed by KV pressure before calling `report()`, the policy extracts partial findings. Configure `recovery` on the policy:
 
 ```typescript
 const researchPolicy = new DefaultAgentPolicy({
   recovery: {
-    prompt: { system: "You are a research reporter.", user: "Report your findings." },
+    prompt: { system: "Call report with your findings.", user: "Report." },
     minTokens: 100,     // skip extraction below this (default 100)
     minToolCalls: 2,     // skip extraction below this (default 2)
   },
 });
 ```
 
-An agent with insufficient context would produce hallucinated findings — the guard prevents this.
+Recovery prefills a nudge prompt into the agent's existing branch and forces an eager `{ result: string }` grammar. The agent's full conversation context is still in KV — the grammar forces structured extraction from it.
 
 ### `pruneOnReport`
 
 When `true`, agents are pruned immediately after reporting. This frees KV mid-pool, giving remaining agents more headroom. Without it, all branches stay alive until the pool completes.
+
+## `useAgent` and `useAgentPool`
+
+`createAgent` and `createAgentPool` are the scoped wrappers — branches are pruned when they return. When you need branches to stay alive after the pool completes (for forking, verification, or follow-up):
+
+```typescript
+import { useAgent, useAgentPool } from "@lloyal-labs/lloyal-agents";
+
+// useAgent — resource, branch stays alive
+const agent = yield* useAgent({
+  systemPrompt: "...",
+  task: "...",
+  tools: [...],
+});
+// agent.branch is alive — fork from it for verification
+const verifyBranch = agent.branch.forkSync();
+// Branch pruned when the enclosing scope exits
+```
+
+`useAgentPool` returns a `Subscription<AgentEvent, AgentPoolResult>` — events stream during execution, result is the close value:
+
+```typescript
+const sub = yield* useAgentPool({ tasks, tools, ... });
+let next = yield* sub.next();
+while (!next.done) {
+  handleEvent(next.value);  // AgentEvent
+  next = yield* sub.next();
+}
+const pool = next.value;     // AgentPoolResult
+```
+
+Most code never uses these directly — `createAgent` and `createAgentPool` handle the Subscription drain and scope cleanup internally.
 
 ## Agent Policy
 
@@ -150,34 +261,24 @@ Customize thresholds and guards via the constructor:
 import { DefaultAgentPolicy } from "@lloyal-labs/lloyal-agents";
 
 const policy = new DefaultAgentPolicy({
-  minToolCallsBeforeReport: 3,   // require 3 tool calls before report (default 2)
-  extraGuards: [myCustomGuard],  // append to default guards
-  exploreThreshold: 40,          // switch to exploit when KV < 40% available (default 40)
+  minToolCallsBeforeReport: 3,
+  extraGuards: [myCustomGuard],
+  exploreThreshold: 40,
+  budget: { context: { softLimit: 2048 }, time: { softLimit: 600_000 } },
+  recovery: { prompt: REPORT_PROMPT },
 });
 
-yield* runAgents({
-  tasks, tools: toolMap,
-  policy,                         // inject custom policy
+const pool = yield* createAgentPool({
+  tasks, tools, systemPrompt,
+  policy,
 });
 ```
 
-Or replace the default guards entirely with `guards: [...]`.
-
 The policy sees the agent's full state: status, tool history, result, nudge count, pressure snapshot. It returns an action — `tool_call`, `report`, `nudge`, or `idle` — and the pool executes it.
-
-#### Explore vs exploit mode
-
-`shouldExplore` is evaluated at every DISPATCH with a fresh `ContextPressure` snapshot (post-SETTLE, reflecting actual KV usage). When it returns `true` (explore), content-boundary tools (search, fetch_page) use agent-local reranker scoring only — preserving serendipitous discovery of bridging content. When it returns `false` (exploit), tools apply `scoreRelevanceBatch` — dual scoring against both the tool's query and the original root query via `min()` — tightening focus at the cost of discovery.
-
-`DefaultAgentPolicy` switches based on `pressure.percentAvailable`: above `exploreThreshold` (default 40) → explore, below → exploit. The harness can override with `policy.setExploitMode(true)` to force exploit mode immediately (e.g. when the user wants agents to wrap up).
-
-<Note>
-`setExploitMode` is on `DefaultAgentPolicy` (the class), not `AgentPolicy` (the interface). Harness code that needs it must type the variable as `DefaultAgentPolicy`, not `AgentPolicy`.
-</Note>
 
 ### Tool Guards
 
-Guards are declarative rejection rules checked before tool dispatch. Each guard specifies which tools it applies to and a reject function:
+Guards are declarative rejection rules checked before tool dispatch:
 
 ```typescript
 interface ToolGuard {
@@ -187,51 +288,32 @@ interface ToolGuard {
 }
 ```
 
-Four checks guard the delegation boundary:
+Default guards:
 
-1. **Fetch dedup** — rejects `fetch_page` if the same URL was already fetched by the agent or any ancestor. Uses lineage history.
-2. **Search dedup** — rejects `web_search` if the same query (case-insensitive) was already searched in the lineage. Uses lineage history.
-3. **Research-before-delegation** — rejects `web_research` / `research` unless the agent has done at least one search AND one fetch/read itself. Uses **agent-local** history, not lineage.
-4. **Echo detection** — rejects delegation if ALL proposed sub-questions are paraphrases of the agent's own task. Scores proposed questions against `Agent.task` via `scoreSimilarityBatch` (async, runs inside the delegation tool rather than the synchronous ToolGuard interface). If `min(scores) > echoThreshold` (default 0.8), the delegation is pure repetition — rejected. If ANY question scores below the threshold, there's a novel thread and the delegation proceeds.
+1. **Fetch dedup** — rejects `fetch_page` if the same URL was already fetched
+2. **Search dedup** — rejects `web_search` if the same query (case-insensitive) was already searched
+3. **Research-before-delegation** — rejects `web_research` / `research` unless the agent has done at least one search AND one fetch itself
 
-Guards 1-3 are synchronous `ToolGuard` instances on `DefaultAgentPolicy`. Guard 4 uses the reranker (async) and runs in the delegation tool alongside the [entailment gate](#entailment-scoring). Configure the echo threshold via `spawnAgents`:
+### Entailment scoring
 
-```typescript
-yield* spawnAgents({
-  // ...
-  echoThreshold: 0.8,  // reject if min(similarity to own task) > 0.8
-});
-```
+When agents recurse, their local hypotheses can drift from the original query. The reranker (a 0.6B cross-encoder with its own context, zero inference KV cost) acts as a real-time entailment oracle:
 
-<Note>
-The research-before-delegation guard (3) uses agent-local history deliberately. With lineage history, a child agent would inherit its parent's search and fetch records, letting it call `web_research` on turn 0 without doing any work. The echo detection guard (4) catches the next failure mode: agents that DO research but then delegate verbatim copies of their own task. Because sub-agents inherit the full parent prefix via Continuous Context, echoed delegation produces children that search the same queries, find the same results, and delegate again — compounding waste at each depth.
-</Note>
+| Method | Scores against | Purpose |
+|--------|---------------|---------|
+| `scoreEntailmentBatch(texts)` | Original query | Filter drifted delegation questions |
+| `scoreRelevanceBatch(texts, localQuery)` | min(tool query, original query) | Tighten focus in exploit mode |
+| `scoreSimilarityBatch(reference, texts)` | Arbitrary reference | Echo detection — reject paraphrased delegations |
 
-## The four-phase tick loop
+The scorer propagates through the entire recursion tree — every depth scores against the same original query.
 
-All agents generate tokens together in a batched loop. Each tick has four phases:
+## Context pressure
 
-<Steps>
-  <Step title="PRODUCE">
-    Every active agent samples one token via `produceSync()`. If the token is a stop token, the pool parses the output for tool calls or final content. The policy decides what to do — dispatch the tool, report findings, nudge the agent, or mark it idle. No async gaps — pure synchronous sampling.
-  </Step>
+The pool monitors KV cache usage every tick and enforces two thresholds:
 
-  <Step title="COMMIT">
-    A single GPU call via `store.commit()` batch-decodes all produced tokens. One `llama_decode` for the entire pool, not one per agent.
-  </Step>
+- **Soft limit** (default 1024 tokens) — headroom reserved for downstream work. When exhausted, non-terminal tool calls are rejected.
+- **Hard limit** (default 128 tokens) — crash-prevention floor. Agents are killed before `produceSync()`.
 
-  <Step title="SETTLE">
-    Tool results from the previous tick's dispatch are drained. Each result is tokenized and prefilled into the calling agent's branch. Results that exceed available headroom are rejected — the policy decides whether to nudge the agent or kill it. Agents resume generating with the tool result in their attention state.
-  </Step>
-
-  <Step title="DISPATCH">
-    Collected tool calls execute sequentially — one at a time. Each tool runs inside a `scoped()` error boundary. The pool sets `CallingAgent` context before each dispatch so recursive tools can identify their caller. When a tool returns result arrays (from recursive sub-agents), the pool collects them as `nestedResults` on the calling agent.
-  </Step>
-</Steps>
-
-<Note>
-Tools execute sequentially because they may access the GPU (recursive tools spawn inner pools). Concurrent tool execution would cause concurrent `llama_decode` calls on the same context — which crashes. The pool serializes dispatch to guarantee exclusive GPU access.
-</Note>
+Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported results keep them, agents that didn't get recovered via `policy.onRecovery()`.
 
 ## Prefix sharing
 
@@ -243,25 +325,7 @@ With sharing:    900 shared + 3 x 30 unique = 990 GPU decode ops
 Savings:         64% fewer decode operations
 ```
 
-In real pipelines with multi-turn agents, the savings compound further — tool results stay in KV as deltas, never re-sent. Measured savings reach **78% fewer tokens** across a full research run.
-
-### Warm path for recursive tools
-
-When a tool spawns sub-agents, `withSharedRoot` can fork from the calling agent's branch instead of creating a new root at position 0. The calling agent already has the system prompt in its KV, so the sub-agent pool only needs to prefill the turn separator — **2 tokens instead of ~760**.
-
-```typescript
-// Inside a tool's execute() method:
-yield* withSharedRoot(
-  { systemPrompt, tools: toolsJson, parent: context.branch },
-  //                                 ^^^^^^^^^^^^^^^^^^^^^^
-  // Forks from the calling agent's branch — inherits full attention state
-  function*(root) {
-    return yield* useAgentPool({ tasks, tools: toolMap, ... });
-  },
-);
-```
-
-Sub-agents inherit every tool call, every tool result, every token the parent generated. The sub-agent's first token attends over the parent's full accumulated state. This is [Continuous Context](/learn/introduction#continuous-context-agents-agents-branch-inherit-and-build-on-each-others-attention-state).
+When a recursive tool spawns sub-agents, `createAgentPool` forks from the calling agent's branch instead of creating a new root. Sub-agents inherit every tool call, every tool result, every token the parent generated — **2 tokens instead of ~760** for the prefill.
 
 <Tip>
 For the full picture — KV layout, position-aware decode, nested sharing, measured numbers — see [Prefix Sharing](/reference/prefix-sharing).
@@ -269,128 +333,22 @@ For the full picture — KV layout, position-aware decode, nested sharing, measu
 
 ## Nested results
 
-When agents delegate to sub-agents (via `spawnAgents` with `recursive: true`), inner results can get lost. The outer agent sees the inner results as text in its KV, but when it reports, it may cherry-pick one and drop the rest.
-
-`nestedResults` solves this. During DISPATCH, the pool collects result arrays from recursive tool returns and stores them on the calling agent. These bubble up through `AgentResult`:
+When agents delegate to sub-agents via recursive tools, inner results bubble up through `nestedResults`:
 
 ```typescript
-const pool = yield* spawnAgents({ tools, systemPrompt, tasks, ... });
+const pool = yield* createAgentPool({
+  tasks, tools, systemPrompt,
+  recursive: { name: "web_research", ... },
+});
 
 // Primary findings — what each agent reported
-pool.agents[0].result          // "The DOJ connects iPod to..."
+pool.agents[0].result
 
-// Nested results — what inner sub-agents found (flattened from recursive tools)
-pool.agents[0].nestedResults     // ["Sub-agent found X", "Sub-agent found Y"]
+// Nested results — what inner sub-agents found
+pool.agents[0].nestedResults  // ["Sub-agent found X", "Sub-agent found Y"]
 ```
 
-Any tool that returns `{ results: string[] }` or `{ nestedResults: string[] }` automatically participates — no tool-name hardcoding. The collection is tool-agnostic.
-
-## Entailment scoring
-
-When agents recurse, their local hypotheses can drift from the original query. An agent reads about "speculative execution in Apple Silicon" (CPU architecture), extracts domain terms, and delegates about them — following the wrong thread for 4 levels. The model can't distinguish lexical similarity from semantic relevance.
-
-The reranker (a 0.6B cross-encoder with its own context, zero inference KV cost) acts as a real-time entailment oracle. The `EntailmentScorer` interface provides three scoring methods, each operating against a different query:
-
-| Method | Scores against | Boundary type | Purpose |
-|--------|---------------|---------------|---------|
-| `scoreEntailmentBatch(texts)` | **Original query** (closure) | Steering | Filter drifted search results and delegation questions |
-| `scoreRelevanceBatch(texts, localQuery)` | **min(tool query, original query)** | Content (exploit mode only) | Tighten focus when KV headroom is low |
-| `scoreSimilarityBatch(reference, texts)` | **Arbitrary reference** (e.g. agent task) | Steering | Echo detection — reject paraphrased delegations |
-
-**Steering boundaries** (always scored against original query):
-- **Web search results** — reranked by `scoreEntailmentBatch` before the agent sees them
-- **Delegation boundary** — proposed sub-questions filtered by `scoreEntailmentBatch`, then checked for echo via `scoreSimilarityBatch`
-
-**Content boundaries** (agent-local by default, dual-scored in exploit mode):
-- **Explore mode** (default): fetch_page chunks and corpus search results are scored against the **agent's local query only**. This preserves serendipitous discovery — adjacent content that the agent didn't ask for but that connects the investigation to the answer.
-- **Exploit mode** (low KV headroom): `scoreRelevanceBatch` applies `min(toolQueryScore, originalQueryScore)` — demoting content that's locally relevant but drifted from the root intent. Controlled by [explore/exploit mode](#explore-vs-exploit-mode).
-
-```typescript
-// Source creates an immutable scorer per research invocation
-const scorer = source.createScorer(query);
-
-const pool = yield* spawnAgents({
-  tools: source.tools,
-  systemPrompt: RESEARCH_PROMPT,
-  tasks: questions,
-  scorer,   // propagated to all depths via ToolContext
-  // ...
-});
-```
-
-The scorer propagates through the entire recursion tree — every DelegateTool reads `context.scorer` and passes it to the inner `spawnAgents()` call. The same immutable scorer reaches every depth.
-
-<Note>
-`createScorer()` captures the original query in a closure. No mutable state on Source. Safe to use across concurrent pools within the same research run. Different queries get different scorers. The three-query distinction (tool query, agent task, original query) is critical — see the JSDoc on `EntailmentScorer` in source.ts for the canonical reference.
-</Note>
-
-## Context pressure
-
-The pool monitors KV cache usage every tick and enforces two thresholds:
-
-- **Soft limit** (default 1024 tokens) — headroom reserved for downstream work. When exhausted, non-terminal tool calls are rejected. Terminal tools (like `report`) always pass through.
-- **Hard limit** (default 128 tokens) — crash-prevention floor. Agents are killed before `produceSync()` to prevent `llama_decode` failures.
-
-You can tune these via the policy's `budget.context`:
-
-```typescript
-const policy = new DefaultAgentPolicy({
-  budget: { context: { softLimit: 2048, hardLimit: 256 } },
-});
-
-yield* runAgents({ tasks, tools: toolMap, policy });
-```
-
-Tool results include `_contextAvailablePercent` — derived from `ContextPressure.percentAvailable` (0–100 integer). Agents see this in their attention window, enabling pressure-aware decisions. The same percentage drives [explore/exploit switching](#explore-vs-exploit-mode) via `policy.shouldExplore()`.
-
-<Note>
-Pressure management is automatic. You don't check headroom in your tools. The pool drops agents gracefully when the context fills — agents that reported results keep them, agents that didn't get recovered via `policy.onRecovery()`.
-</Note>
-
-## `useAgentPool` vs `runAgents`
-
-Both create agent pools. The difference is branch lifetime.
-
-<Tabs>
-  <Tab title="runAgents">
-    Branches are pruned when the pool completes. Use this when you only need findings.
-
-    ```typescript
-    const pool = yield* runAgents({ tasks, tools: toolMap });
-    // Branches already pruned — pool.agents[*].result still available
-    ```
-  </Tab>
-
-  <Tab title="useAgentPool">
-    Branches stay alive after the pool completes. Use this when you need to fork from agent branches — for verification, follow-up generation, or additional extraction.
-
-    ```typescript
-    const pool = yield* useAgentPool({ tasks, tools: toolMap });
-    // Branches still alive — you can fork from pool.agents[0].branch
-    const verified = yield* generate({ prompt, parent: pool.agents[0].branch });
-    // Branches pruned when the enclosing scope exits
-    ```
-  </Tab>
-</Tabs>
-
-## Nested pools
-
-A tool can spawn its own agent pool. The inner pool shares the same GPU and KV cache.
-
-```
-Outer pool:
-  withSharedRoot (root, pos 0..866)
-    ├── Agent A0 (fork at 866)
-    │     └── tool dispatch: web_research
-    │           └── withSharedRoot (inner root, fork from A0's branch)
-    │                 ├── Sub-agent 0 (fork from inner root)
-    │                 ├── Sub-agent 1 (fork from inner root)
-    │                 └── Sub-agent 2 (fork from inner root)
-    ├── Agent A1 (fork at 866)
-    └── Agent A2 (fork at 866)
-```
-
-Inner and outer pools share the same `BranchStore`. Context pressure is global — `cells_used` accounts for all branches across all nesting levels. When the inner pool exits, its branches are pruned and KV cells are freed for the outer pool. Inner sub-agents inherit the calling agent's full attention state via the warm path.
+Any tool that returns `{ results: string[] }` or `{ nestedResults: string[] }` automatically participates — no tool-name hardcoding.
 
 ## Events
 

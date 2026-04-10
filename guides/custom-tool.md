@@ -1,9 +1,9 @@
 ---
 title: "Build a Custom Tool"
-description: "Create tools for agents — extend Tool<TArgs>, handle async work, build recursive tools, and register with createToolkit()."
+description: "Create tools for agents — extend Tool<TArgs>, handle async work, build recursive tools, and pass to createAgentPool()."
 ---
 
-This guide walks through creating tools for agents to use during generation. Tools extend the `Tool<TArgs>` base class and are registered via `createToolkit()`.
+This guide walks through creating tools for agents to use during generation. Tools extend the `Tool<TArgs>` base class and are passed directly to `createAgent()` or `createAgentPool()`.
 
 ## Tool anatomy
 
@@ -147,18 +147,16 @@ class GrepTool extends Tool<{ pattern: string; ignoreCase?: boolean }> {
 
 ## Step 4: Build a recursive tool
 
-Tools can spawn sub-agents using `withSharedRoot` + `useAgentPool`. The research tool pattern: include yourself in the toolkit so agents can delegate sub-questions.
-
-Instead of writing a custom recursive tool, use `spawnAgents()` with `recursive: true`. It handles the circular toolkit wiring internally:
+Tools can spawn sub-agents. Instead of writing a custom recursive tool, use `createAgentPool()` with `recursive`. It handles the circular toolkit wiring internally:
 
 ```typescript
-import { spawnAgents } from '@lloyal-labs/lloyal-agents';
+import { createAgentPool } from '@lloyal-labs/lloyal-agents';
 
-const pool = yield* spawnAgents({
-  tools: [searchTool, grepTool, readFileTool],
+const pool = yield* createAgentPool({
+  tasks: questions.map(q => ({ content: q })),
+  tools: [searchTool, grepTool, readFileTool, reportTool],
   systemPrompt: RESEARCH_PROMPT,
-  tasks: questions,
-  terminalTool: { name: 'report', tool: reportTool },
+  terminalTool: 'report',
   maxTurns: 20,
   recursive: {
     name: 'research',
@@ -173,55 +171,41 @@ const pool = yield* spawnAgents({
 });
 ```
 
-`spawnAgents()` creates the recursive delegate tool, adds it to the toolkit, and wires the circular reference. Agents see `research` as a callable tool. When they call it, another `spawnAgents()` runs internally with the same config. Recursion to arbitrary depth, bounded by KV.
+`createAgentPool()` creates the recursive delegate tool, adds it to the toolkit, and wires the circular reference. Agents see `research` as a callable tool. When they call it, another `createAgentPool()` runs internally with the same config. Recursion to arbitrary depth, bounded by KV.
 
-## Step 5: Register with createToolkit
+## Step 5: Pass tools to the pool
 
-`createToolkit()` builds both the dispatch map and the JSON schema string:
-
-```typescript
-import { createToolkit } from '@lloyal-labs/lloyal-agents';
-
-const { toolMap, toolsJson } = createToolkit([
-  new SearchTool(chunks, reranker),
-  new ReadFileTool(resources),
-  new GrepTool(resources),
-  reportTool,
-]);
-```
-
-`toolMap` is a `Map<string, Tool>` used by `useAgentPool` for runtime dispatch. `toolsJson` is the JSON-serialized schema array passed to `formatChat()` via task specs.
-
-When using `spawnAgents()` with `recursive: true`, the recursive delegate tool is added to the toolkit automatically — you don't include it in the `createToolkit` call.
-
-Pass both to the agent pool:
+Pass Tool instances directly to `createAgent` or `createAgentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map:
 
 ```typescript
-const pool = yield* useAgentPool({
-  tasks: questions.map(q => ({
-    systemPrompt,
-    content: q,
-    tools: toolsJson,     // Schema for the model
-    parent: root,
-  })),
-  tools: toolMap,          // Dispatch registry for runtime
+const pool = yield* createAgentPool({
+  tasks: questions.map(q => ({ content: q })),
+  tools: [
+    new SearchTool(chunks, reranker),
+    new ReadFileTool(resources),
+    new GrepTool(resources),
+    reportTool,
+  ],
+  systemPrompt: RESEARCH_PROMPT,
   terminalTool: 'report',
   maxTurns: 20,
 });
 ```
 
+When `recursive` is set, the recursive delegate tool is added to the toolkit automatically — you don't include it in the tools array.
+
 ## Tool ordering rules
 
-The order of tools in the `createToolkit()` array matters. Tool schemas are serialized into the system prompt, and LLM recency bias affects tool selection at generation decision boundaries.
+The order of tools in the `tools` array matters. Tool schemas are serialized into the system prompt, and LLM recency bias affects tool selection at generation decision boundaries.
 
 **Rule: terminal tools must not be last in the array.** Place them before any tool that shares a name prefix.
 
 ```typescript
 // Correct: report before research (both start with "r")
-createToolkit([search, readFile, grep, report, research])
+tools: [search, readFile, grep, report, research]
 
 // Wrong: report last -- model favors early termination
-createToolkit([search, readFile, grep, research, report])
+tools: [search, readFile, grep, research, report]
 ```
 
 This was the root cause of a real regression where agents lost depth-first investigation behavior. The grammar is order-agnostic (it allows all valid tokens), but the system prompt ordering shifts the model's logit distribution over tool names.
@@ -249,9 +233,10 @@ class ReportTool extends Tool<{ result: string }> {
 Register it as `terminalTool` in the pool options:
 
 ```typescript
-const pool = yield* useAgentPool({
-  tasks: [...],
-  tools: toolMap,
+const pool = yield* createAgentPool({
+  tasks: [{ content: query }],
+  tools: [searchTool, reportTool],
+  systemPrompt: RESEARCH_PROMPT,
   terminalTool: 'report',  // Matches ReportTool.name
 });
 ```
@@ -307,16 +292,17 @@ interface ToolContext {
 
 ### Recursive forking
 
-If your tool spawns sub-agents, pass `context.branch` to `withSharedRoot` for [warm path forking](/reference/prefix-sharing#warm-path-fork-from-parent). Sub-agents inherit the calling agent's full attention state:
+If your tool spawns sub-agents, pass `context.branch` as `parent` for [warm path forking](/reference/prefix-sharing#warm-path-fork-from-parent). Sub-agents inherit the calling agent's full attention state:
 
 ```typescript
 *execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
-  return yield* withSharedRoot(
-    { systemPrompt, tools: toolsJson, parent: context?.branch },
-    function*(root) {
-      return yield* runAgents({ tasks, tools: toolMap, parent: root, ... });
-    },
-  );
+  return yield* createAgentPool({
+    tasks: args.questions.map(q => ({ content: q })),
+    tools: [searchTool, reportTool],
+    systemPrompt: RESEARCH_PROMPT,
+    terminalTool: 'report',
+    parent: context?.branch,
+  });
 }
 ```
 

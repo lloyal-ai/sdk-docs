@@ -5,7 +5,7 @@ description: "The reference pipeline — planning, parallel research, source bri
 
 The reference implementation. Source-agnostic deep research across web, local corpus, or both -- with planning, parallel research, source bridging, synthesis with grounding tools, and multi-sample convergence evaluation.
 
-This is the most complex example. It composes every major framework primitive: `generate`, `withSharedRoot`, `useAgentPool`, `diverge`, `createToolkit`, `Source`, and `Session.promote`/`appendTurn`. If you want to understand how a production research pipeline works end to end, this is the code to study.
+This is the most complex example. It composes every major framework primitive: `createAgent`, `createAgentPool`, `reduce`, `diverge`, `Source`, and `Session.commitTurn`. If you want to understand how a production research pipeline works end to end, this is the code to study.
 
 **Source**: `examples/deep-research-web/`
 
@@ -70,7 +70,7 @@ if (hasTavily) {
 }
 ```
 
-`CorpusSource` provides local file tools (`search`, `grep`, `read_file`). `WebSource` provides web tools (`web_search`, `fetch_page`). Both implement the same `Source` interface — the harness calls `spawnAgents()` with `source.tools` for each, using source-specific prompts and recursion config. Orchestration lives in the harness, not the source.
+`CorpusSource` provides local file tools (`search`, `grep`, `read_file`). `WebSource` provides web tools (`web_search`, `fetch_page`). Both implement the same `Source` interface — the harness calls `createAgentPool()` with `source.tools` for each, using source-specific prompts and recursion config. Orchestration lives in the harness, not the source.
 
 Source order matters: sources are researched sequentially, and bridge passes carry discoveries from earlier sources into later ones. The convention is corpus first (fast, local) then web (slower, broader).
 
@@ -193,7 +193,7 @@ function* research(
       // Research each source sequentially
       for (let i = 0; i < opts.sources.length; i++) {
         const source = opts.sources[i];
-        const result = (yield* spawnAgents({
+        const result = (yield* createAgentPool({
           questions: activeQuestions,
         })) as SourceResearchResult;
 
@@ -213,7 +213,7 @@ Key details:
 
 2. **`source.bind({ reranker })`** late-binds runtime dependencies. For `CorpusSource`, this tokenizes chunks through the reranker and builds a `SearchTool`. For `WebSource`, this wires the reranker to `FetchPageTool` for chunk scoring.
 
-3. **`spawnAgents({ tools: source.tools, ... })`** orchestrates parallel agents with the source's tools. The harness provides the system prompt, recursion shape, and entailment scorer:
+3. **`createAgentPool({ tools: source.tools, ... })`** orchestrates parallel agents with the source's tools. The harness provides the system prompt, recursion shape, and entailment scorer:
    - **Corpus agents** get: `search` (semantic via reranker), `read_file`, `grep`, `report`, and an optional recursive delegate tool
    - **Web agents** get: `web_search` (Tavily), `fetch_page` (with reranker chunk scoring + `alsoOnPage` discovery headings), `report`, and an optional recursive delegate tool
 
@@ -306,7 +306,7 @@ const rendered = renderTemplate(SYNTHESIZE_TEMPLATE, {
 const sourceTools = conflicts
   ? opts.sources.flatMap(s => s.tools)
   : [];
-const synthToolkit = createToolkit([...sourceTools, reportTool]);
+const synthTools = [...sourceTools, reportTool];
 ```
 
 - **Converged** -- report-only toolkit, standard prompt. No grounding needed.
@@ -345,15 +345,14 @@ const evalSchema = {
   properties: { converged: { type: 'boolean' } },
   required: ['converged'],
 };
-const grammar: string = yield* call(() => ctx.jsonSchemaToGrammar(JSON.stringify(evalSchema)));
-
-const result = yield* generate({
-  prompt,
-  grammar,
-  params: { temperature: 0 },
-  parse: (output: string) => {
-    try { return JSON.parse(output).converged as boolean; }
-    catch { return null; }
+const evalAgent = yield* createAgent({
+  systemPrompt: EVAL.system,
+  task: evalPrompt,
+  schema: evalSchema,
+});
+let evalConverged: boolean | null = null;
+try { evalConverged = JSON.parse(evalAgent.rawOutput).converged; }
+catch { /* malformed */
   },
 });
 ```
@@ -441,7 +440,7 @@ User query
  [research]  for each source:
     |           source.bind({ reranker })
     |           scorer = source.createScorer(query)
-    |           spawnAgents({ tools: source.tools, scorer, ... })
+    |           createAgentPool({ tools: source.tools, scorer, ... })
     |             -> withSharedRoot + useAgentPool (parallel agents)
     |             -> entailment scoring at steering boundaries
     |             -> policy.onRecovery (scratchpad extraction for hard-cut agents)
@@ -493,7 +492,7 @@ When `FetchPageTool` has a reranker and the agent provides a `query` argument, f
 
 ## Customization
 
-**Change sources**: Remove or add sources in `main.ts`. The harness code is source-agnostic — it iterates `opts.sources` and calls `spawnAgents()` for each.
+**Change sources**: Remove or add sources in `main.ts`. The harness code is source-agnostic — it iterates `opts.sources` and calls `createAgentPool()` for each.
 
 **Create a custom source**: Implement `Source` with `name`, `tools`, `bind()`, and `getChunks()`. See [Custom Source](../guides/custom-source.md).
 
@@ -512,7 +511,7 @@ When `FetchPageTool` has a reranker and the agent provides a `query` argument, f
 - [Pipelines](/learn/pipelines) -- gentler walkthrough of pipeline concepts
 - [Sources](/learn/sources) -- the `Source` abstraction
 - [RIG Bridges](/reference/rig/bridges) -- bridge pass pattern between sources
-- [Scratchpad Extraction](/reference/scratchpad-extraction) -- `generate({ parent })` and `ScratchpadParent`
+- [Scratchpad Extraction](/reference/scratchpad-extraction) -- `createAgent({ parent })` for scratchpad extraction
 - [Grammar & Tool Ordering](/reference/grammar-and-ordering) -- how PlanTool and eval grammars work
 - [Concurrency Model](/reference/concurrency) -- agent pool tick loop and batch decoding
 - [KV Pressure](/reference/kv-pressure) -- pressure settings and agent drops

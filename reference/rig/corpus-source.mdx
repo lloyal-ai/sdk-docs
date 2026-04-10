@@ -58,7 +58,7 @@ description: "Local file research with grep, semantic search, read_file, and rec
 | `search` | Semantic search via reranker scoring. Returns ranked chunks with file names, headings, scores, and line ranges. | First tool agents reach for. Broad semantic matching. |
 | `grep` | Exhaustive regex scan across all files. Returns matching lines with file names and line numbers, capped at 50. | When the agent needs exact pattern matches -- specific identifiers, error codes, function names. |
 | `read_file` | Read file content at specific line ranges. Tracks per-agent read state to skip already-read lines. | After search or grep reveals a relevant section. Agents read the surrounding context. |
-| (recursive delegate) | When `spawnAgents()` is called with `recursive: true`, a delegate tool is added to the toolkit. Sub-agents can spawn their own sub-agents for deeper investigation. | Configured by the harness, not the source. |
+| (recursive delegate) | When `createAgentPool()` is called with `recursive: true`, a delegate tool is added to the toolkit. Sub-agents can spawn their own sub-agents for deeper investigation. | Configured by the harness, not the source. |
 
 <Tip>
 `search` is ordered first in the toolkit deliberately. The model prefers tools listed earlier, so agents default to semantic search before falling back to grep or read_file.
@@ -68,9 +68,9 @@ description: "Local file research with grep, semantic search, read_file, and rec
 
 `ReadFileTool` tracks which lines each agent has already read, keyed by `agentId:filename`. When an agent requests a range it has already seen, the tool returns only the unread portions. This prevents redundant context inflation.
 
-### Recursion via `spawnAgents()`
+### Recursion via `createAgentPool()`
 
-When the harness calls `spawnAgents()` with `recursive: true`, a delegate tool is added to the agents' toolkit. Sub-agents can call it to spawn their own sub-agents for deeper investigation. The recursion shape (tool name, args schema, task extraction) is configured by the harness, not by the source.
+When the harness calls `createAgentPool()` with `recursive: true`, a delegate tool is added to the agents' toolkit. Sub-agents can call it to spawn their own sub-agents for deeper investigation. The recursion shape (tool name, args schema, task extraction) is configured by the harness, not by the source.
 
 Hard-cut agents (those that exhaust their turn limit without calling the terminal tool) get a forced extraction pass via the policy's `onRecovery()`. The pool forks from the agent's branch and runs a grammar-constrained generation to recover partial findings. Configure via `DefaultAgentPolicyOpts.recovery`.
 
@@ -87,7 +87,7 @@ import {
   chunkResources,
   createReranker,
 } from "@lloyal-labs/rig/node";
-import { initAgents, withSharedRoot, useAgentPool, createToolkit } from "@lloyal-labs/lloyal-agents";
+import { initAgents, createAgentPool, DefaultAgentPolicy } from "@lloyal-labs/lloyal-agents";
 
 // Load corpus
 const resources = loadResources("./knowledge-base");
@@ -100,12 +100,12 @@ const { session, events } = yield* initAgents(ctx);
 
 yield* source.bind({ reranker });
 
-// Use spawnAgents with the source's tools
-const pool = yield* spawnAgents({
-  tools: source.tools,
+// Create an agent pool with the source's tools
+const pool = yield* createAgentPool({
+  tasks: [{ content: "How does the allocation pool handle cleanup?" }],
+  tools: [...source.tools, reportTool],
   systemPrompt: CORPUS_RESEARCH_PROMPT,
-  tasks: ["How does the allocation pool handle cleanup?"],
-  terminalTool: { name: "report", tool: reportTool },
+  terminalTool: "report",
   recursive: { name: "research", extractTasks: (a) => a.questions as string[] },
   policy: new DefaultAgentPolicy({ recovery: { prompt: REPORT } }),
 });
