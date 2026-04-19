@@ -48,7 +48,7 @@ The next source's agents see the original question plus a structured summary of 
 The bridge runs as a single agent inside `withSharedRoot` with report-only tools:
 
 ```typescript
-const bridge = yield* createAgentPool({
+const bridge = yield* agentPool({
   tasks: [{ content: bridgeContent }],
   tools: [reportTool],
   systemPrompt: BRIDGE.system,

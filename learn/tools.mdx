@@ -111,7 +111,7 @@ class ReportTool extends Tool<{ result: string }> {
 You declare the terminal tool when creating the agent:
 
 ```typescript
-yield* createAgent({
+yield* agent({
   systemPrompt: "You are a research assistant.",
   task: "Research this topic.",
   tools: [searchTool, reportTool],
@@ -127,10 +127,10 @@ When `terminalTool` is set and the agent has other tools, the agent must call at
 
 A tool can spawn sub-agents. `execute()` runs inside the pool's Effection scope, so it has access to all contexts — `Ctx`, `Store`, `Events`. This is how a `web_research` tool dispatches sub-investigators.
 
-You don't need to write recursive tools manually. `createAgentPool` builds one for you when you pass `recursive`:
+You don't need to write recursive tools manually. `agentPool` builds one for you when you pass `recursive`:
 
 ```typescript
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: questions.map(q => ({ content: q })),
   tools: [searchTool, fetchTool, reportTool],
   systemPrompt: RESEARCH_PROMPT,
@@ -147,10 +147,10 @@ The inner pool shares the same GPU and KV cache. Sub-agents inherit the calling 
 
 ## Passing tools
 
-Pass Tool instances directly to `createAgent` or `createAgentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map.
+Pass Tool instances directly to `agent` or `agentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map.
 
 ```typescript
-const agent = yield* createAgent({
+const result = yield* agent({
   systemPrompt: "You are a research assistant.",
   task: "Find information about X.",
   tools: [

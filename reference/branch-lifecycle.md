@@ -179,6 +179,42 @@ await store.commit([
 
 This is the core of the agent pool's throughput: N agents, 1 GPU dispatch per tick. The GPU parallelizes across sequences within the batch.
 
+### `mergeLogits` — contrastive decoding across branches
+
+`BranchStore.mergeLogits` additively merges experts' logit snapshots into a destination branch's snapshot:
+
+```typescript
+store.mergeLogits(trunk, [expertA, expertB], 0.5);
+// trunk.logits_snapshot[t] += 0.5 * (expertA[t] + expertB[t])
+// trunk.produceSync() now samples from the combined distribution
+```
+
+Pure CPU operation — no GPU dispatch. Used for DExperts-style contrastive decoding where each expert branch has its own KV history (e.g., research context), shaping the trunk's next-token choice. `commit` can advance all branches in lockstep with the same token in one batched dispatch.
+
+## `setLogits` / `getLogits` -- logit snapshot manipulation
+
+Every branch captures a `logits_snapshot` (n_vocab floats) after each decode. `getLogits()` reads it; `setLogits(Float32Array)` overwrites it:
+
+```typescript
+const logits = branch.getLogits();          // Float32Array(n_vocab)
+logits[42] = -Infinity;                      // ban token 42
+branch.setLogits(logits);                   // write back
+const { token } = branch.produceSync();     // samples from modified distribution
+```
+
+The branch's KV state is unchanged — only the cached next-token distribution is replaced. Companion to `BranchStore.mergeLogits` for custom distribution manipulation in JS/TS.
+
+## `prefillAligned` — batched alignment prefill
+
+`Session.prefillAligned(content, experts)` prefills the same content into the trunk and all expert branches in one batched `store.prefill` dispatch:
+
+```typescript
+await session.prefillAligned('Write the synthesis report.', [expertA, expertB]);
+// trunk + expertA + expertB all decode the same tokens, each refreshing logits from its own KV
+```
+
+Used to align research branches to a new task (e.g., synthesis prompt) before contrastive-decode synthesis.
+
 ## `prune` / `pruneSync` -- free KV cells
 
 Pruning discards a branch's divergent KV entries and frees its handle:
@@ -252,12 +288,12 @@ function* withSharedRoot(opts, body) {
 
 `pruneSubtreeSync` in the finally block handles the case where agent branches (children of root) still exist when the scope exits. Rather than requiring every consumer to prune children before root, the subtree prune cascades through the entire tree.
 
-### `createAgent` cleanup
+### `agent` cleanup
 
-`createAgent` wraps `useAgent` in `scoped()`. When the scope exits, the `ensure()` callback prunes the root and all agent branches:
+`agent` wraps `useAgent` in `scoped()`. When the scope exits, the `ensure()` callback prunes the root and all agent branches:
 
 ```typescript
-function* createAgent(opts) {
+function* agent(opts) {
   return yield* scoped(function*() {
     return yield* useAgent(opts);
     // On scope exit: ensure() prunes root subtree
@@ -274,7 +310,7 @@ Everything in the agent framework builds on Branch:
 - **Prefix sharing**: `withSharedRoot` creates a root branch, prefills the shared prompt, agents fork from it. See [Prefix Sharing](/reference/prefix-sharing).
 - **Agent pools**: Each agent is a forked branch. The tick loop calls `produceSync()` and `store.commit()` on branch arrays. See [Concurrency Model](/reference/concurrency).
 - **KV pressure**: `ContextPressure` reads `cellsUsed` which is incremented by branch decode operations. See [KV Pressure](/reference/kv-pressure).
-- **Scratchpad extraction**: `createAgent({ parent })` forks a temporary branch for grammar-constrained extraction. See [Scratchpad Extraction](/reference/scratchpad-extraction).
+- **Scratchpad extraction**: `agent({ parent })` forks a temporary branch for grammar-constrained extraction. See [Scratchpad Extraction](/reference/scratchpad-extraction).
 - **Grammar constraining**: `setGrammar()` and `setGrammarLazy()` are branch methods. Grammar state is cloned on fork. See [Grammar & Tool Ordering](/reference/grammar-and-ordering).
 
 The produce/commit separation, O(1) fork, and scope-tree cleanup are the primitives that make multi-agent generation on shared GPU compute possible.

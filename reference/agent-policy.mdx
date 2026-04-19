@@ -47,6 +47,9 @@ Optional — defaults to `pressure.critical` when absent. `DefaultAgentPolicy` a
 
 - `pressure.critical` (remaining < hardLimit) → exit
 - `budget.time.hardLimit` exceeded → exit
+- **Terminal tool protection**: if `terminalTool` is configured and `agent.currentTool` matches, `shouldExit` returns `false` regardless of time budget. An agent actively generating its report is allowed to complete. Only KV `pressure.critical` can force a kill on an agent mid-terminal-tool.
+
+`agent.currentTool` is populated by `Agent.observe(ctx)`, which runs a partial parse (`parseChatOutput` with `isPartial: true`) on each generated token until the tool name is detected. The partial parser is format-agnostic — it uses the same PEG parser that handles the full output at `isStop`, just in lenient mode.
 
 ## `onProduced` — the main decision point
 
@@ -95,10 +98,12 @@ The method signature is unchanged. Custom policies that override it will compile
 
 Called at DISPATCH before each tool executes. Returns `true` for explore mode (agent-local scoring at content boundaries) or `false` for exploit mode (dual scoring via [scoreRelevanceBatch](/reference/search-strategy#content-boundaries-explore-vs-exploit)).
 
-Optional — defaults to `true` (explore) when absent. `DefaultAgentPolicy` switches based on `pressure.percentAvailable`:
+Optional — defaults to `true` (explore) when absent. `DefaultAgentPolicy` checks two independent axes:
 
-- Above `exploreThreshold` (default 40) → explore
-- Below → exploit
+- **Context axis**: `pressure.percentAvailable / 100 > shouldExplore.context` (default 0.4). Below this fraction of KV capacity remaining → exploit.
+- **Time axis**: `elapsed / timeSoftLimit >= shouldExplore.time` (default 0.5). Above this fraction of the time soft limit consumed → exploit. Only applies when `budget.time.softLimit` is set.
+
+Both axes must agree on explore; either falling below its threshold flips the policy into exploit mode.
 
 <Note>
 `percentAvailable` is live — it recovers when branches are pruned. An agent in exploit mode can flip back to explore if other agents report and free KV. This is intentional. Explore/exploit is a non-monotonic quality knob, separate from the lifecycle (nudge/kill/recover). See [KV Pressure — cellsUsed tracks live pressure](/reference/kv-pressure#cellsused-tracks-live-pressure).
@@ -208,8 +213,8 @@ const policy = new DefaultAgentPolicy({
   minToolCallsBeforeReport: 2,  // default 2
   extraGuards: [],
 
-  // Search strategy (quality knob — non-monotonic, flips with pressure)
-  exploreThreshold: 40,          // default 40
+  // Search strategy — two-axis explore/exploit (both must agree for explore)
+  shouldExplore: { context: 0.4, time: 0.5 },
 
   // Budget (lifecycle knob — nudge at softLimit, kill at hardLimit)
   budget: {
@@ -231,7 +236,9 @@ const policy = new DefaultAgentPolicy({
 | `minToolCallsBeforeReport` | 2 | Agents with fewer non-terminal tool calls get nudged when trying to report (unless under pressure) |
 | `guards` | 3 default guards | Replaces the entire guard array when provided |
 | `extraGuards` | `[]` | Appended to default guards |
-| `exploreThreshold` | 40 | KV percent available threshold for explore/exploit switch |
+| `shouldExplore.context` | 0.4 | Min fraction of KV capacity remaining for explore mode |
+| `shouldExplore.time` | 0.5 | Max fraction of time soft limit consumed before exploit mode |
+| `terminalTool` | — | Tool name protected from `shouldExit` during generation |
 | `budget.context.softLimit` | 1024 | KV tokens remaining that triggers nudge |
 | `budget.context.hardLimit` | 128 | KV tokens remaining that triggers kill via `shouldExit` |
 | `budget.time.softLimit` | — | Milliseconds since policy creation that triggers nudge |
@@ -270,7 +277,7 @@ const researchPolicy = new DefaultAgentPolicy({
 });
 
 // Synthesis doesn't need time limits — use default policy
-yield* createAgentPool({ tasks, systemPrompt, tools, policy: researchPolicy, ... });
+yield* agentPool({ tasks, systemPrompt, tools, policy: researchPolicy, ... });
 ```
 
 ## Writing a custom policy
@@ -312,7 +319,7 @@ class MyPolicy implements AgentPolicy {
 Pass to any pool via the `policy` option:
 
 ```typescript
-yield* createAgentPool({ tasks, tools, systemPrompt, policy: new MyPolicy() });
+yield* agentPool({ tasks, tools, systemPrompt, policy: new MyPolicy() });
 ```
 
 Signatures are narrow by design: `(agent, pressure)`. The policy is a class — time, cost, or other signals live on `this`. The pool passes what it owns (agent + pressure snapshot); the policy combines with its own state.

@@ -4,7 +4,7 @@ description: Composing generator stages into multi-step workflows.
 ---
 
 
-A pipeline is a sequence of generator stages. Each stage `yield*`s into a framework primitive — `createAgent`, `createAgentPool`, `diverge`. The output of one stage feeds the next.
+A pipeline is a sequence of generator stages. Each stage `yield*`s into a framework primitive — `agent`, `agentPool`, `diverge`. The output of one stage feeds the next.
 
 There is no pipeline framework. No DAG builder. No node graph. You compose generators with `yield*` and the type system keeps you honest.
 
@@ -14,16 +14,16 @@ Every stage is a generator function that takes input and produces output:
 
 ```typescript
 function* plan(query: string): Operation<string[]> {
-  const agent = yield* createAgent({
+  const result = yield* agent({
     systemPrompt: PLAN_PROMPT,
     task: query,
     schema: planSchema,
   });
-  return JSON.parse(agent.rawOutput).questions;
+  return JSON.parse(result.rawOutput).questions;
 }
 
 function* research(questions: string[]): Operation<string[]> {
-  const pool = yield* createAgentPool({
+  const pool = yield* agentPool({
     tasks: questions.map(q => ({ content: q })),
     tools: [searchTool, fetchTool, reportTool],
     systemPrompt: RESEARCH_PROMPT,
@@ -33,7 +33,7 @@ function* research(questions: string[]): Operation<string[]> {
 }
 
 function* synthesize(findings: string[], query: string): Operation<string> {
-  const pool = yield* createAgentPool({
+  const pool = yield* agentPool({
     tasks: [{ content: buildSynthPrompt(findings, query) }],
     tools: [...groundingTools, reportTool],
     systemPrompt: SYNTH_PROMPT,
@@ -54,7 +54,7 @@ function* handleQuery(query: string): Operation<string> {
 }
 ```
 
-That's a pipeline. Each stage runs to completion. Resources are cleaned up between stages — `createAgentPool` prunes branches when it returns, freeing KV for the next stage.
+That's a pipeline. Each stage runs to completion. Resources are cleaned up between stages — `agentPool` prunes branches when it returns, freeing KV for the next stage.
 
 <Tip>
 Stages are independent generators. You can test them in isolation, reorder them, skip them conditionally, or add new ones. The composition is plain code — `if` statements, loops, early returns.
@@ -65,10 +65,10 @@ Stages are independent generators. You can test them in isolation, reorder them,
 Four primitives serve as stage implementations:
 
 <CardGroup cols={2}>
-  <Card title="createAgent()" icon="wand-magic-sparkles">
+  <Card title="agent()" icon="wand-magic-sparkles">
     Single agent. Plan decomposition (with `schema`), JSON extraction, evaluation. Returns an Agent with result and raw output.
   </Card>
-  <Card title="createAgentPool()" icon="users">
+  <Card title="agentPool()" icon="users">
     Parallel agent pool with tools. Research, investigation, synthesis. Returns per-agent findings and statistics.
   </Card>
   <Card title="diverge()" icon="code-branch">
@@ -114,15 +114,15 @@ Parse a diff, dispatch agents per file, collect issues, produce a summary.
 ```typescript
 function* codeReview(diff: string): Operation<string> {
   // Stage 1: Extract changed files from diff
-  const agent = yield* createAgent({
+  const result = yield* agent({
     systemPrompt: "Extract changed files.",
     task: diff,
     schema: filesSchema,
   });
-  const files = JSON.parse(agent.rawOutput);
+  const files = JSON.parse(result.rawOutput);
 
   // Stage 2: One agent per file — each searches the codebase for context
-  const reviews = yield* createAgentPool({
+  const reviews = yield* agentPool({
     tasks: files.map(f => ({ content: `Review changes to ${f.path}:\n${f.diff}` })),
     tools: [grepTool, readFileTool, reportTool],
     systemPrompt: REVIEW_PROMPT,
@@ -142,14 +142,14 @@ Classify intent, search knowledge base, draft response, check confidence.
 ```typescript
 function* supportTicket(ticket: string): Operation<{ response: string; confident: boolean }> {
   // Stage 1: Classify — grammar-constrained to valid categories
-  const classifier = yield* createAgent({
+  const classifier = yield* agent({
     systemPrompt: "Classify support tickets.",
     task: ticket,
     schema: categorySchema,
   });
 
   // Stage 2: Search knowledge base for relevant articles
-  const pool = yield* createAgentPool({
+  const pool = yield* agentPool({
     tasks: [{ content: ticket }],
     tools: [kbSearchTool, kbReadTool, reportTool],
     systemPrompt: KB_PROMPT,
@@ -227,7 +227,7 @@ const findings = yield* reduce(
   sources,
   { sections: [], questions },
   function*(acc, source, i) {
-    const pool = yield* createAgentPool({
+    const pool = yield* agentPool({
       tasks: acc.questions.map(q => ({ content: q })),
       tools: [...source.tools, reportTool],
       systemPrompt: sourcePromptFor(source),
@@ -251,14 +251,14 @@ Each source is independent. The bridge stage distills findings from source N int
 
 ## KV lifecycle between stages
 
-Each stage that uses `createAgent` or `createAgentPool` creates and destroys branches within its scope. When the call returns, branches are pruned and KV cells are freed.
+Each stage that uses `agent` or `agentPool` creates and destroys branches within its scope. When the call returns, branches are pruned and KV cells are freed.
 
 ```
-Stage 1: plan          → createAgent uses ~500 KV cells → pruned
-Stage 2: research      → createAgentPool uses ~8,000 cells → pruned
-Stage 3: findings eval → createAgent uses ~300 cells → pruned
-Stage 4: synthesize    → createAgentPool uses ~3,000 cells → pruned
-Stage 5: verify        → createAgentPool uses ~1,500 cells → pruned
+Stage 1: plan          → agent uses ~500 KV cells → pruned
+Stage 2: research      → agentPool uses ~8,000 cells → pruned
+Stage 3: findings eval → agent uses ~300 cells → pruned
+Stage 4: synthesize    → agentPool uses ~3,000 cells → pruned
+Stage 5: verify        → agentPool uses ~1,500 cells → pruned
 ```
 
 Stages don't compete for KV. Each stage gets the full context budget. This is why scoped cleanup is critical — branches are freed even if the stage throws.
@@ -273,7 +273,7 @@ When the pipeline produces an answer, commit it to the Session so subsequent que
 
 ```typescript
 yield* call(() => session.commitTurn(query, answer));
-// Next createAgent/createAgentPool with `session` forks from the trunk
+// Next agent/agentPool with `session` forks from the trunk
 ```
 
 See [Sessions](/learn/sessions) for the full warm/cold lifecycle.

@@ -26,7 +26,7 @@ abstract class Source<TCtx, TChunk> {
 }
 ```
 
-Three extension points. Only `name` and `tools` are required. Sources provide data access — the harness orchestrates agents with those tools via `createAgentPool()`.
+Three extension points. Only `name` and `tools` are required. Sources provide data access — the harness orchestrates agents with those tools via `agentPool()`.
 
 <Note>
 `bind()` is called before tools are used. Use it to set up anything that depends on runtime context — reranker instances, database connections, authentication tokens.
@@ -39,7 +39,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
     ```typescript
     import { Source } from "@lloyal-labs/lloyal-agents";
     import type { Tool } from "@lloyal-labs/lloyal-agents";
-    import { createAgentPool } from "@lloyal-labs/lloyal-agents";
+    import { agentPool } from "@lloyal-labs/lloyal-agents";
 
     interface Row {
       table: string;
@@ -93,7 +93,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
         const tools = [queryTool, schemaTool, ctx.reportTool]);
 
         // Tools are set in the constructor — no research tool needed.
-        // The harness calls createAgentPool() with source.tools.
+        // The harness calls agentPool() with source.tools.
       }
 
       getChunks(): Row[] { return this._results; }
@@ -104,7 +104,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
     ```typescript
     import { Source } from "@lloyal-labs/lloyal-agents";
     import type { Tool } from "@lloyal-labs/lloyal-agents";
-    import { createAgentPool } from "@lloyal-labs/lloyal-agents";
+    import { agentPool } from "@lloyal-labs/lloyal-agents";
 
     interface VectorChunk {
       id: string;
@@ -162,7 +162,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
         const tools = [searchTool, ctx.reportTool]);
 
         // Tools are set in the constructor — no research tool needed.
-        // The harness calls createAgentPool() with source.tools.
+        // The harness calls agentPool() with source.tools.
       }
 
       getChunks(): VectorChunk[] { return this._results; }
@@ -173,7 +173,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
     ```typescript
     import { Source } from "@lloyal-labs/lloyal-agents";
     import type { Tool } from "@lloyal-labs/lloyal-agents";
-    import { createAgentPool } from "@lloyal-labs/lloyal-agents";
+    import { agentPool } from "@lloyal-labs/lloyal-agents";
 
     interface ApiResult {
       endpoint: string;
@@ -257,7 +257,7 @@ Three extension points. Only `name` and `tools` are required. Sources provide da
         const tools = [searchTool, detailTool, ctx.reportTool]);
 
         // Tools are set in the constructor — no research tool needed.
-        // The harness calls createAgentPool() with source.tools.
+        // The harness calls agentPool() with source.tools.
       }
 
       getChunks(): ApiResult[] { return this._results; }
@@ -274,7 +274,7 @@ Every custom source follows the same structure:
 
 2. **Buffer results.** Store retrieved content during research so `getChunks()` can return it for post-research reranking.
 
-3. **Build a research tool.** The research tool spawns a sub-agent pool using `useAgentPool` or `createAgentPool` -- the same primitives the built-in sources use. Pass tools directly to `createAgentPool`.
+3. **Build a research tool.** The research tool spawns a sub-agent pool using `useAgentPool` or `agentPool` -- the same primitives the built-in sources use. Pass tools directly to `agentPool`.
 
 4. **Late-bind in `bind()`.** Set up anything that depends on runtime context: reranker, report tool, pressure thresholds. Construction happens early; binding happens when the pipeline is ready.
 

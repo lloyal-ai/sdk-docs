@@ -33,15 +33,15 @@ The grammar covers the complete output space: free text (for reasoning) and stru
 
 There are two activation modes:
 
-**Eager grammar** activates immediately. Every token from the first one is constrained by the grammar. Use this for structured generation where the entire output must conform to a schema -- for example, `createAgent()` with a JSON schema:
+**Eager grammar** activates immediately. Every token from the first one is constrained by the grammar. Use this for structured generation where the entire output must conform to a schema -- for example, `agent()` with a JSON schema:
 
 ```typescript
-const agent = yield* createAgent({
+const result = yield* agent({
   systemPrompt: "You analyze research queries. Output JSON only.",
   task: query,
   schema: planSchema,  // compiled to GBNF grammar, eager: active from token 0
 });
-const plan = JSON.parse(agent.rawOutput);
+const plan = JSON.parse(result.rawOutput);
 ```
 
 **Lazy grammar** lets the model generate freely until a trigger fires, then activates the grammar. This is the mode used for tool-calling agents. The model reasons in free text (unconstrained), then when it starts a tool call (trigger detected), the grammar activates and constrains the tool call structure.
@@ -158,12 +158,12 @@ When two tools share a token prefix (`report` and `research` both start with `r`
 
 This is a model-level effect, not a grammar bug. The grammar does its job perfectly -- ensuring valid structure. The model's tool selection is a separate concern governed by attention over prompt content.
 
-## Direct grammar use with `createAgent()`
+## Direct grammar use with `agent()`
 
-`createAgent` with a `schema` option compiles the JSON Schema to a GBNF grammar and sets it as an eager constraint:
+`agent` with a `schema` option compiles the JSON Schema to a GBNF grammar and sets it as an eager constraint:
 
 ```typescript
-const agent = yield* createAgent({
+const result = yield* agent({
   systemPrompt: "Extract a summary and confidence score.",
   task: extractionPrompt,
   schema: {
@@ -175,10 +175,10 @@ const agent = yield* createAgent({
     required: ['summary', 'confidence'],
   },
 });
-const parsed = JSON.parse(agent.rawOutput);
+const parsed = JSON.parse(result.rawOutput);
 // parsed is guaranteed to match the schema -- grammar enforced every token
 ```
 
-`jsonSchemaToGrammar` (called internally by `createAgent`) converts a JSON Schema into a GBNF grammar string. The grammar constrains generation from the first token, so the output is guaranteed to be valid JSON conforming to the schema. No retry logic, no post-hoc validation.
+`jsonSchemaToGrammar` (called internally by `agent`) converts a JSON Schema into a GBNF grammar string. The grammar constrains generation from the first token, so the output is guaranteed to be valid JSON conforming to the schema. No retry logic, no post-hoc validation.
 
 This is the mechanism behind scratchpad extraction (see [Scratchpad Extraction](/reference/scratchpad-extraction)) -- fork a branch, attend to content, grammar-constrain a compact summary, prune the fork.

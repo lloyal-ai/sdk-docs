@@ -9,7 +9,11 @@ description: "Extracting findings from killed agents and fork-attend-extract-pru
 
 When an agent is killed by KV pressure, the pool extracts its findings **inline** before continuing the tick loop. This is the trailing stop -- one agent sacrificed per critical tick, its findings recovered, its KV freed for remaining agents.
 
-Recovery uses the agent's **own branch** -- no fork. The agent's full KV context (system prompt, tool results, reasoning from prior turns) is already in the cache. An extraction prompt is prefilled directly into the branch, eager grammar constrains output to `{"result": "..."}`, and a single-agent produce/commit loop generates the report.
+Recovery uses the agent's **own branch** -- no fork. The agent's full KV context (system prompt, tool results, reasoning from prior turns) is already in the cache. An extraction prompt is prefilled directly into the branch, eager grammar constrains output to `{"result": "..."}`, and a single-agent produce/commit loop generates the report. Each token of the recovery generation emits an `agent:produce` event (visible in the TUI stream) but is NOT accumulated into `rawOutput` and NOT written as an `agent:turn` trace event.
+
+Note: the grammar-constrained JSON output may contain `<think>` tags and tool-call XML as literal string content inside the `result` field. The harness extracts the `result` value via `JSON.parse` and prefills it into the spine. For cleaner spine content, strip structural markers from the extracted text before prefill.
+
+The parse/finalize lifecycle is also relevant: at normal `isStop`, `agent.finalize(ctx)` runs a strict parse (replacing the standalone `parseChatOutput` call). During recovery, the pool runs its own produce/commit loop outside the normal tick flow — `finalize` is not called for recovery turns.
 
 See [KV Pressure: Recovery extraction](/reference/kv-pressure#recovery-extraction-trailing-stop) for the full protocol.
 
@@ -48,7 +52,7 @@ Recovered findings are stored with `resultSource: 'scratchpad'`. This is metadat
 For tool result compression (independent of recovery), the fork-attend-extract-prune pattern uses a temporary branch:
 
 ```typescript
-const agent = yield* createAgent({
+const result = yield* agent({
   systemPrompt: "Extract key information.",
   task: contentToSummarize,
   schema: extractionSchema,
@@ -118,4 +122,4 @@ This reduces KV pressure without lossy summarization -- the agent gets the most 
 | Fork-attend-extract-prune | Tool result compression | Temporary fork from parent | Eager, task-specific |
 | Reranker chunk selection | Large web pages | No branch (reranker-only) | None |
 
-Recovery extraction is automatic -- configure the policy's `recovery` option and the pool handles it. Fork-attend-extract-prune requires explicit use of `createAgent({ parent })` in tool implementations. Reranker selection requires injecting a `Reranker` into `FetchPageTool`.
+Recovery extraction is automatic -- configure the policy's `recovery` option and the pool handles it. Fork-attend-extract-prune requires explicit use of `agent({ parent })` in tool implementations. Reranker selection requires injecting a `Reranker` into `FetchPageTool`.

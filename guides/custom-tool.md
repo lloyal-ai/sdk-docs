@@ -1,9 +1,9 @@
 ---
 title: "Build a Custom Tool"
-description: "Create tools for agents — extend Tool<TArgs>, handle async work, build recursive tools, and pass to createAgentPool()."
+description: "Create tools for agents — extend Tool<TArgs>, handle async work, build recursive tools, and pass to agentPool()."
 ---
 
-This guide walks through creating tools for agents to use during generation. Tools extend the `Tool<TArgs>` base class and are passed directly to `createAgent()` or `createAgentPool()`.
+This guide walks through creating tools for agents to use during generation. Tools extend the `Tool<TArgs>` base class and are passed directly to `agent()` or `agentPool()`.
 
 ## Tool anatomy
 
@@ -147,12 +147,12 @@ class GrepTool extends Tool<{ pattern: string; ignoreCase?: boolean }> {
 
 ## Step 4: Build a recursive tool
 
-Tools can spawn sub-agents. Instead of writing a custom recursive tool, use `createAgentPool()` with `recursive`. It handles the circular toolkit wiring internally:
+Tools can spawn sub-agents. Instead of writing a custom recursive tool, use `agentPool()` with `recursive`. It handles the circular toolkit wiring internally:
 
 ```typescript
-import { createAgentPool } from '@lloyal-labs/lloyal-agents';
+import { agentPool } from '@lloyal-labs/lloyal-agents';
 
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: questions.map(q => ({ content: q })),
   tools: [searchTool, grepTool, readFileTool, reportTool],
   systemPrompt: RESEARCH_PROMPT,
@@ -171,14 +171,14 @@ const pool = yield* createAgentPool({
 });
 ```
 
-`createAgentPool()` creates the recursive delegate tool, adds it to the toolkit, and wires the circular reference. Agents see `research` as a callable tool. When they call it, another `createAgentPool()` runs internally with the same config. Recursion to arbitrary depth, bounded by KV.
+`agentPool()` creates the recursive delegate tool, adds it to the toolkit, and wires the circular reference. Agents see `research` as a callable tool. When they call it, another `agentPool()` runs internally with the same config. Recursion to arbitrary depth, bounded by KV.
 
 ## Step 5: Pass tools to the pool
 
-Pass Tool instances directly to `createAgent` or `createAgentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map:
+Pass Tool instances directly to `agent` or `agentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map:
 
 ```typescript
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: questions.map(q => ({ content: q })),
   tools: [
     new SearchTool(chunks, reranker),
@@ -233,7 +233,7 @@ class ReportTool extends Tool<{ result: string }> {
 Register it as `terminalTool` in the pool options:
 
 ```typescript
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: [{ content: query }],
   tools: [searchTool, reportTool],
   systemPrompt: RESEARCH_PROMPT,
@@ -287,8 +287,32 @@ interface ToolContext {
   scorer?: EntailmentScorer;                               // entailment scorer for semantic coherence
   explore?: boolean;                                       // true = explore mode, false = exploit
   pressurePercentAvailable?: number;                       // KV % available at DISPATCH time
+  peerHistory?: ToolHistoryEntry[];                        // sibling agents' tool call histories
 }
 ```
+
+`peerHistory` contains the tool call histories of sibling agents in the same pool (excluding the calling agent). Tools use it to detect and reject duplicate work across agents — for example, avoiding a web search query that another agent already issued.
+
+### Cross-agent dedup pattern
+
+The built-in `WebSearchTool` and `FetchPageTool` both check `peerHistory` to prevent duplicate calls:
+
+```typescript
+*execute(args: { query: string }, context?: ToolContext): Operation<unknown> {
+  const queryLower = args.query.toLowerCase();
+  if (context?.peerHistory?.some(h => {
+    if (h.name !== 'web_search') return false;
+    try {
+      return (JSON.parse(h.args) as { query?: string }).query?.toLowerCase() === queryLower;
+    } catch { return false; }
+  })) {
+    return { error: 'Resource unavailable. Try a different query.' };
+  }
+  // ... normal execution
+}
+```
+
+The agent sees `"Resource unavailable"` as a tool error and adjusts its query — the same pattern as a failed network request, which tool-calling models handle naturally.
 
 ### Recursive forking
 
@@ -296,7 +320,7 @@ If your tool spawns sub-agents, pass `context.branch` as `parent` for [warm path
 
 ```typescript
 *execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
-  return yield* createAgentPool({
+  return yield* agentPool({
     tasks: args.questions.map(q => ({ content: q })),
     tools: [searchTool, reportTool],
     systemPrompt: RESEARCH_PROMPT,

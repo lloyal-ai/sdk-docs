@@ -16,7 +16,9 @@ SETTLE   — drain settled tool results, batch prefill, reset grammars
 DISPATCH — execute collected tool calls sequentially via scoped() + call()
 ```
 
-**PRODUCE** samples one token per agent per tick via `produceSync()`. Each token is accumulated into `rawOutput` and pushed to `entries` for COMMIT. When `produceSync()` returns `isStop: true`, `parseChatOutput()` extracts tool calls. Terminal tools (e.g. `report`) are intercepted immediately — findings extracted, agent marked done, never dispatched. Non-terminal tool calls are collected for the DISPATCH phase.
+**PRODUCE** samples one token per agent per tick via `produceSync()`. Each token is accumulated into `rawOutput` and pushed to `entries` for COMMIT. After accumulation, `agent.observe(ctx)` runs a partial parse (`parseChatOutput` with `isPartial: true`) to detect which tool the agent is generating — this populates `agent.currentTool` as soon as the tool name appears in the stream, before the turn completes. When `produceSync()` returns `isStop: true`, `agent.finalize(ctx)` runs the strict parse — extracting tool calls, content, and reasoning from the complete turn. Terminal tools (e.g. `report`) are intercepted immediately — findings extracted, agent marked done, never dispatched. Non-terminal tool calls are collected for the DISPATCH phase.
+
+`agent.currentTool` is used by `shouldExit` to protect agents mid-generation of the terminal tool from time-budget kills. See [Agent Policy — shouldExit](/reference/agent-policy#shouldexit--pre-generate-kill-gate).
 
 **COMMIT** batch-decodes all produced tokens in a single `store.commit(entries)` call — one GPU dispatch for all agents.
 
@@ -140,7 +142,7 @@ For recursive pipelines, the outer pool's `softLimit` must account for the inner
 
 ## Recursive Agents
 
-Tools can spawn sub-agents. A tool's `execute()` method returns an Effection [`Operation<unknown>`][ops], which means it can [`yield*`][ops] into any framework primitive — `createAgentPool`, `useAgentPool`, `createAgent`, `diverge`. The inner pipeline shares the same GPU compute, KV cache, and event channel as the outer pool. No separate process. No serialization boundary.
+Tools can spawn sub-agents. A tool's `execute()` method returns an Effection [`Operation<unknown>`][ops], which means it can [`yield*`][ops] into any framework primitive — `agentPool`, `useAgentPool`, `agent`, `diverge`. The inner pipeline shares the same GPU compute, KV cache, and event channel as the outer pool. No separate process. No serialization boundary.
 
 ### Scope tree
 
@@ -218,7 +220,7 @@ Hard-cut recovery is controlled by the policy via `onRecovery()`. When agents ar
 
 ### Result propagation
 
-When the inner pool completes, `createAgentPool` exits its scope — inner branches are pruned via their `ensure()` callbacks. The inner `withSharedRoot` exits — the inner root is pruned via `try/finally`. Control returns to the tool's `execute()` generator, which returns the result. Back in DISPATCH, the result is JSON-stringified, wrapped in a tool result delta, and pushed to `settledBuffer`. On the next tick's SETTLE phase, the outer agent's branch is prefilled with the tool result, grammar state resets, and the outer agent resumes generating.
+When the inner pool completes, `agentPool` exits its scope — inner branches are pruned via their `ensure()` callbacks. The inner `withSharedRoot` exits — the inner root is pruned via `try/finally`. Control returns to the tool's `execute()` generator, which returns the result. Back in DISPATCH, the result is JSON-stringified, wrapped in a tool result delta, and pushed to `settledBuffer`. On the next tick's SETTLE phase, the outer agent's branch is prefilled with the tool result, grammar state resets, and the outer agent resumes generating.
 
 ### Teardown
 
@@ -263,10 +265,10 @@ Level 2: Deeper research agents (if a level-1 agent calls research)
          Same prompt. Same tools. Same prescribed process.
 ```
 
-One toolkit at every level — composed by `createAgentPool()`:
+One toolkit at every level — composed by `agentPool()`:
 
 ```typescript
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: questions.map(q => ({ content: q })),
   tools: [...source.tools, reportTool],
   systemPrompt: RESEARCH_PROMPT,

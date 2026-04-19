@@ -74,7 +74,7 @@ A Tool is a generator function that returns an Operation. It can do anything —
 ```typescript agent.ts
 import { main, call } from "effection";
 import { createContext } from "@lloyal-labs/lloyal.node";
-import { initAgents, createAgent } from "@lloyal-labs/lloyal-agents";
+import { initAgents, agent } from "@lloyal-labs/lloyal-agents";
 import { CalculatorTool, TimeTool } from "./tools";
 
 const MODEL = process.argv[2] || "model.gguf";
@@ -89,13 +89,13 @@ await main(function* () {
   yield* initAgents(ctx);
 
   // 3. Run agent
-  const agent = yield* createAgent({
+  const result = yield* agent({
     systemPrompt: "You are a helpful assistant with access to a calculator and clock. Use your tools to answer precisely.",
     task: "What is 7 * 13 + the current hour of the day?",
     tools: [new CalculatorTool(), new TimeTool()],
   });
 
-  console.log(agent.result ?? agent.rawOutput ?? "No output");
+  console.log(result.result ?? result.rawOutput ?? "No output");
 });
 ```
 
@@ -122,32 +122,32 @@ All inference runs locally. No API calls leave your machine.
     `initAgents` sets up the inference session, branch store, and event infrastructure. This is the scope in which all agents run.
   </Step>
   <Step title="Agent created with tools">
-    `createAgent` handled everything: serialized tool schemas into the system prompt, created a shared KV prefix, forked an agent branch, and ran the tick loop. Each tool result was prefilled into the agent's KV cache before the next generation step.
+    `agent` handled everything: serialized tool schemas into the system prompt, created a shared KV prefix, forked an agent branch, and ran the tick loop. Each tool result was prefilled into the agent's KV cache before the next generation step.
   </Step>
   <Step title="Cleanup happened automatically">
-    When `createAgent` returned, all branches were pruned. No leaked GPU state. The `Agent` object holds the result — the GPU resources are already freed.
+    When `agent` returned, all branches were pruned. No leaked GPU state. The `Agent` object holds the result — the GPU resources are already freed.
   </Step>
 </Steps>
 
 ## What you get back
 
-`createAgent` returns an `Agent` — a completed agent with everything it found:
+`agent` returns an `Agent` — a completed agent with everything it found:
 
 ```typescript
-agent.result        // findings from the terminal tool (if set)
-agent.rawOutput     // raw model output from the final turn
-agent.tokenCount    // total tokens generated
-agent.toolCallCount // number of tool calls made
+result.result        // findings from the terminal tool (if set)
+result.rawOutput     // raw model output from the final turn
+result.tokenCount    // total tokens generated
+result.toolCallCount // number of tool calls made
 ```
 
 ## Scale to parallel agents
 
-When a single agent isn't enough — multiple sub-questions, different angles of investigation — use `createAgentPool`:
+When a single agent isn't enough — multiple sub-questions, different angles of investigation — use `agentPool`:
 
 ```typescript
-import { createAgentPool } from "@lloyal-labs/lloyal-agents";
+import { agentPool } from "@lloyal-labs/lloyal-agents";
 
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: [
     { content: "What is the population of Tokyo?" },
     { content: "What is the population of New York?" },

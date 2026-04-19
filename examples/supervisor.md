@@ -89,7 +89,7 @@ function* classify(
     },
     required: ['specialists', 'rationale'],
   };
-  const agent = yield* createAgent({
+  const result = yield* agent({
     systemPrompt: CLASSIFY_PROMPT,
     task: query,
     schema,
@@ -97,9 +97,9 @@ function* classify(
 }
 ```
 
-This is the central pattern: a JSON schema is passed to `createAgent`, which compiles it to a GBNF grammar and constrains every token. The model can only select from `['factual', 'analytical', 'comparative']` -- invalid specialist names are structurally impossible.
+This is the central pattern: a JSON schema is passed to `agent`, which compiles it to a GBNF grammar and constrains every token. The model can only select from `['factual', 'analytical', 'comparative']` -- invalid specialist names are structurally impossible.
 
-`createAgent()` is the single-agent primitive. It creates a branch, generates until stop, and returns an Agent with the raw output. Parse the JSON from `agent.rawOutput`. If parsing fails, the code falls back to a default route:
+`agent()` is the single-agent primitive. It creates a branch, generates until stop, and returns an Agent with the raw output. Parse the JSON from `result.rawOutput`. If parsing fails, the code falls back to a default route:
 
 ```typescript
 try {
@@ -206,14 +206,14 @@ Three markdown files in `tasks/`:
 
 | Aspect | react-agent | reflection | supervisor |
 |--------|-------------|------------|------------|
-| Routing | None | None | Grammar-constrained `createAgent()` |
+| Routing | None | None | Grammar-constrained `agent()` |
 | Agent count | 1 | 1 + manual phases | 1-3 (dynamic, based on classification) |
 | Agent differentiation | N/A | N/A | Different `content` per specialist |
 | Synthesis | Agent's own report | Draft -> critique -> revise chain | Warm trunk generation via `session.prefillUser` |
 | Multi-turn | No | No | Yes (trunk persists between queries) |
-| Branch management | `useAgentPool` | Manual (`Branch.create`, `forkSync`) | `createAgentPool` + `createAgent()` + `commitTurn` |
+| Branch management | `useAgentPool` | Manual (`Branch.create`, `forkSync`) | `agentPool` + `agent()` + `commitTurn` |
 
-The supervisor example is the first to combine multiple framework primitives in a single pipeline: `createAgent()` for classification, `createAgentPool` for parallel specialist research, and `commitTurn` for trunk advancement. It also demonstrates warm trunk continuation -- the session trunk persists across REPL queries, giving follow-up questions full context.
+The supervisor example is the first to combine multiple framework primitives in a single pipeline: `agent()` for classification, `agentPool` for parallel specialist research, and `commitTurn` for trunk advancement. It also demonstrates warm trunk continuation -- the session trunk persists across REPL queries, giving follow-up questions full context.
 
 ## Customization
 

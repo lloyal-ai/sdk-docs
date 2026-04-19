@@ -1,11 +1,11 @@
 ---
 title: "Deep Research"
-description: "The reference pipeline — planning, parallel research, source bridging, synthesis, and convergence evaluation."
+description: "The reference pipeline — planning, sequential KV-chained research, narrative synthesis, and convergence evaluation."
 ---
 
-The reference implementation. Source-agnostic deep research across web, local corpus, or both -- with planning, parallel research, source bridging, synthesis with grounding tools, and multi-sample convergence evaluation.
+The reference implementation. Source-agnostic deep research across web, local corpus, or both -- with chain-shaped planning, sequential KV-chained research via the spine, narrative-arc synthesis, and multi-sample convergence evaluation.
 
-This is the most complex example. It composes every major framework primitive: `createAgent`, `createAgentPool`, `reduce`, `diverge`, `Source`, and `Session.commitTurn`. If you want to understand how a production research pipeline works end to end, this is the code to study.
+This is the most complex example. It composes every major framework primitive: `agent`, `agentPool`, `reduce`, `Source`, and `Session.commitTurn`. If you want to understand how a production research pipeline works end to end, this is the code to study.
 
 **Source**: `examples/deep-research-web/`
 
@@ -70,16 +70,15 @@ if (hasTavily) {
 }
 ```
 
-`CorpusSource` provides local file tools (`search`, `grep`, `read_file`). `WebSource` provides web tools (`web_search`, `fetch_page`). Both implement the same `Source` interface — the harness calls `createAgentPool()` with `source.tools` for each, using source-specific prompts and recursion config. Orchestration lives in the harness, not the source.
+`CorpusSource` provides local file tools (`search`, `grep`, `read_file`). `WebSource` provides web tools (`web_search`, `fetch_page`). Both implement the same `Source` interface — the harness calls `agentPool()` with `source.tools` for each, using source-specific prompts and recursion config. Orchestration lives in the harness, not the source.
 
-Source order matters: sources are researched sequentially, and bridge passes carry discoveries from earlier sources into later ones. The convention is corpus first (fast, local) then web (slower, broader).
+Source order matters: each source's tools are available to all research tasks. The convention is corpus first (fast, local) then web (slower, broader).
 
 **Concurrency parameters:**
 
 ```typescript
-const AGENT_COUNT = 3;     // max sub-questions from planning
 const VERIFY_COUNT = 3;    // independent samples for convergence eval
-const MAX_TOOL_TURNS = 20; // tool calls before forced report
+const MAX_TOOL_TURNS = 10; // tool calls before forced report
 
 const ctx: SessionContext = yield* call(() =>
   createContext({
@@ -92,7 +91,7 @@ const ctx: SessionContext = yield* call(() =>
 );
 ```
 
-`nSeqMax` is sized to accommodate the maximum number of concurrent branches: research agents, plus their sub-agents (from `web_research` or recursive `research` tools), plus synthesis, plus `diverge` samples.
+`nSeqMax` is sized to accommodate the maximum number of concurrent branches: research agent per task, synthesis, and verify samples.
 
 **Trace support:**
 
@@ -107,320 +106,231 @@ When `--trace` is passed, a `JsonlTraceWriter` captures every prompt, completion
 
 ### `harness.ts` -- the full pipeline
 
-The harness is structured as a set of generator functions composed by `handleQuery`. Seven task prompts are loaded at module level:
+The harness is structured as a set of generator functions composed by `handleQuery`. Task prompts and Eta templates are loaded at module level:
 
 ```typescript
-const PLAN = loadTask('plan');
-const ROOT = loadTask('root');
-const BRIDGE = loadTask('bridge');
-const SYNTHESIZE = loadTask('synthesize');
-const VERIFY = loadTask('verify');
-const EVAL = loadTask('eval');
-const REPORT = loadTask('report');
+const PLAN = loadPrompt('plan');         // --- separator → { system, user }
+const FALLBACK = loadPrompt('fallback'); // cold-start root system prompt
+const VERIFY = loadPrompt('verify');
+const EVAL = loadPrompt('eval');
+const RECOVERY = loadPrompt('recovery'); // grammar extraction on agent drop
+const SYNTHESIZE = loadPrompt('synthesize');
+const CORPUS_WORKER_TEMPLATE = loadTemplate('corpus-worker');  // raw Eta string
+const WEB_WORKER_TEMPLATE = loadTemplate('web-worker');        // raw Eta string
 ```
+
+Two loader types: `loadPrompt` splits on `---` to produce `{ system, user }` for task prompts. `loadTemplate` returns raw Eta template strings that are rendered at call time via `renderTemplate` with runtime context (tools, maxTurns, date, taskIndex).
 
 ### Stage 1: Plan (PlanTool + intent routing)
 
 ```typescript
-const planTool = new PlanTool({
-  prompt: PLAN,
-  session: opts.session,
-  maxQuestions: opts.agentCount,
-});
-const plan = (yield* planTool.execute({ query, context })) as PlanResult;
+const planTool = new PlanTool({ prompt: PLAN, session, maxQuestions: 10 });
+const planContext = context
+  ? `Today's date: ${today}\n\n${context}`
+  : `Today's date: ${today}`;
+const plan = (yield* planTool.execute({ query, context: planContext })) as PlanResult;
 const r = route(plan, query, opts.maxTurns);
 ```
 
-`PlanTool` is a grammar-constrained generator that decomposes the query into sub-questions with intent classification. The grammar schema constrains output to:
+`PlanTool` is a grammar-constrained generator that decomposes the query into a SEQUENCE of research tasks with intent classification. The grammar schema constrains output to:
 
 ```json
 {
-  "questions": [
-    { "text": "...", "intent": "research" | "clarify" }
+  "tasks": [
+    { "description": "...", "intent": "research" | "clarify" }
   ]
 }
 ```
 
-The `maxQuestions` parameter bounds the array length in the grammar, preventing the model from generating more sub-questions than the pipeline can handle concurrently.
+Task 1 is always landscape discovery — it surveys the broad category and establishes vocabulary. Tasks 2+ each build on what prior tasks will have surfaced, using pronoun-like references ("for the entities surfaced by task 1", "deepen the benchmarks from task 2"). This forces a real dependency chain rather than independent slices.
 
-If the session has an existing trunk (warm continuation), `PlanTool` formats the plan as a warm turn on the trunk rather than a cold start -- the model sees the prior conversation and can produce follow-up-aware decompositions.
+Today's date is threaded into the plan context so recency-sensitive searches anchor on the current year.
 
 **Routing logic:**
 
 ```typescript
 function route(plan: PlanResult, query: string, maxTurns: number): Route {
-  const research = plan.questions.filter(q => q.intent === 'research');
-  const clarify = plan.questions.filter(q => q.intent === 'clarify');
+  const research = plan.tasks.filter(t => t.intent === 'research');
+  const clarify = plan.tasks.filter(t => t.intent === 'clarify');
 
   if (research.length === 0 && clarify.length > 0)
-    return { type: 'clarify', questions: clarify.map(q => q.text) };
+    return { type: 'clarify', questions: clarify.map(t => t.description) };
 
-  const questions = research.length > 0 ? research.map(q => q.text) : [query];
-  const effectiveMaxTurns = questions.length === 1 ? maxTurns * 2 : maxTurns;
-  return { type: 'research', questions, maxTurns: effectiveMaxTurns };
+  const tasks = research.length > 0
+    ? research
+    : [{ description: query, intent: 'research' as const }];
+  return { type: 'research', tasks, maxTurns };
 }
 ```
 
 Three outcomes:
 
 - **All clarify** -- the query is ambiguous. Returns `{ type: 'clarify' }` to the REPL, which prompts the user for more information and re-runs `handleQuery` with the clarification as `context`.
-- **Decompose** -- research questions are dispatched to parallel agents. Each gets `maxTurns` tool calls.
-- **Passthrough** -- empty questions array means the query is focused enough to investigate directly. The original query becomes a single question with doubled turn budget (`maxTurns * 2`).
+- **Decompose** -- research tasks execute sequentially via the spine. Each gets `maxTurns` tool calls.
+- **Passthrough** -- empty tasks array means the query is focused enough to investigate directly. The original query becomes a single task.
 
-### Stage 2: Research (source iteration + bridge)
+### Stage 2: Research (sequential KV-chained spine)
 
-The research function is the heart of the pipeline. It iterates over configured sources, runs parallel agents for each, and structures discoveries between sources via bridge passes.
-
-**Cold research (first query):**
+The research phase is the heart of the pipeline. It runs tasks SEQUENTIALLY via the `reduce` combinator, with each task's findings prefilled into a shared `queryRoot` branch so later tasks inherit prior research via KV attention.
 
 ```typescript
-function* research(
-  questions: string[], query: string, opts: WorkflowOpts, maxTurns?: number,
-): Operation<{ agentFindings: string; sourcePassages: string; totalTokens: number; totalToolCalls: number; timeMs: number }> {
-  const chunks = yield* withSharedRoot(
-    { systemPrompt: ROOT.system },
-    function*(root) {
-      // Bind each source with runtime context
-      for (const source of opts.sources)
-        yield* source.bind({
-          reranker: opts.reranker,
-          reporterPrompt: REPORT, reportTool,
-          maxTurns: effectiveMaxTurns, trace: opts.trace,
-        });
-
-      let activeQuestions = questions;
-
-      // Research each source sequentially
-      for (let i = 0; i < opts.sources.length; i++) {
-        const source = opts.sources[i];
-        const result = (yield* createAgentPool({
-          questions: activeQuestions,
-        })) as SourceResearchResult;
-
-        // Collect findings...
-        // Bridge between sources (if not the last source)...
-      }
-
-      return opts.sources.flatMap(s => s.getChunks());
+const { answer, totalTokens, totalToolCalls } =
+  yield* withSharedRoot(
+    { systemPrompt: baseWorkerPrompt, tools: queryToolkit.toolsJson, parent: warmParent },
+    function* (queryRoot) {
+      const stats = yield* reduce(
+        r.tasks,
+        { totalTokens: 0, totalToolCalls: 0 },
+        function* (acc, task, i) {
+          const result = yield* runResearchTask({
+            task, taskIndex: i, taskCount: r.tasks.length,
+            queryRoot, primarySource, primaryScorer,
+            allDataTools, workerToolCtx, baseWorkerPrompt,
+            maxTurns, trace, ctx, store, send,
+          });
+          return {
+            totalTokens: acc.totalTokens + result.totalTokens,
+            totalToolCalls: acc.totalToolCalls + result.totalToolCalls,
+          };
+        },
+      );
+      // ... synthesis follows inside the same withSharedRoot scope
     },
   );
-}
 ```
 
 Key details:
 
-1. **`withSharedRoot({ systemPrompt: ROOT.system })`** creates a minimal shared prefix. Note: no tools in the root prompt. Tools are provided per-source by the research tool implementations.
+1. **`withSharedRoot` creates a query-scoped temp root** (`queryRoot`) that lives only for this `handleQuery` call. If `session.trunk` exists, `queryRoot` forks from it (warm continuation). All research tasks and synthesis fork from `queryRoot`.
 
-2. **`source.bind({ reranker })`** late-binds runtime dependencies. For `CorpusSource`, this tokenizes chunks through the reranker and builds a `SearchTool`. For `WebSource`, this wires the reranker to `FetchPageTool` for chunk scoring.
+2. **`reduce(r.tasks, acc, fn)`** sequences tasks. Each iteration receives the accumulated stats and a `ResearchTask` from the plan. The reduce body runs one `agentPool` per task with one agent.
 
-3. **`createAgentPool({ tools: source.tools, ... })`** orchestrates parallel agents with the source's tools. The harness provides the system prompt, recursion shape, and entailment scorer:
-   - **Corpus agents** get: `search` (semantic via reranker), `read_file`, `grep`, `report`, and an optional recursive delegate tool
-   - **Web agents** get: `web_search` (Tavily), `fetch_page` (with reranker chunk scoring + `alsoOnPage` discovery headings), `report`, and an optional recursive delegate tool
+3. **Per-task worker prompts** are rendered via `renderTemplate(WEB_WORKER_TEMPLATE, ctx)` with runtime context including `taskIndex` (for spine-awareness on tasks 1+) and `date` (current date for recency-anchored search queries).
 
-4. The `result` contains findings from each agent plus token/tool-call counts.
-
-**Bridge passes between sources:**
+4. **`extendSpine`** prefills task findings into `queryRoot` between tasks:
 
 ```typescript
-if (i < opts.sources.length - 1 && sectionFindings) {
-  const sourceChunks = source.getChunks();
-  const passages = yield* rerankChunks(sourceChunks, query, opts.reranker, 10, opts.resultMaxChars);
-
-  const bridgeContent = BRIDGE.user
-    .replace('{{agentFindings}}', sectionFindings)
-    .replace('{{sourcePassages}}', passages)
-    .replace('{{query}}', query);
-
-  const discoveries = yield* withSharedRoot(
-    { systemPrompt: BRIDGE.system, tools: reportOnlyToolkit.toolsJson },
-    function*(bridgeRoot) {
-      const pool = yield* useAgentPool({
-        tasks: [{ systemPrompt: BRIDGE.system, content: bridgeContent, tools: reportOnlyToolkit.toolsJson, parent: bridgeRoot }],
-        tools: reportOnlyToolkit.toolMap,
-        terminalTool: 'report',
-        maxTurns: effectiveMaxTurns,
-        trace: opts.trace,
-      });
-      return pool.agents[0]?.result || '';
-    },
-  );
-
-  if (discoveries) {
-    activeQuestions = questions.map(q =>
-      `${q}\n\nPrior research discoveries:\n${discoveries}`
-    );
-  }
+function* extendSpine(ctx, store, queryRoot, userContent, assistantContent) {
+  const messages = [
+    { role: 'user', content: userContent },
+    { role: 'assistant', content: assistantContent },
+  ];
+  const sep = ctx.getTurnSeparator();
+  const { prompt } = ctx.formatChatSync(JSON.stringify(messages), {});
+  const turnTokens = [...sep, ...ctx.tokenizeSync(prompt, false)];
+  yield* call(() => store.prefill([[queryRoot, turnTokens]]));
+  return turnTokens.length;
 }
 ```
 
-The bridge is a distinct agent that runs between sources. It receives the previous source's findings and reranked passages, and structures them into three categories:
+After each task, its findings are tokenized as a user+assistant turn and prefilled into `queryRoot`. The next task's pool forks from the EXTENDED `queryRoot` and sees all prior findings via KV attention — no text re-encoding, no per-agent prefill cost.
 
-1. What was established (preserve evidence verbatim)
-2. Where the evidence is incomplete (identified limitations)
-3. What was not covered (gaps for the next source)
-
-The structured discoveries are injected into the questions for the next source. This prevents the second source from re-investigating established ground and focuses it on evidence gaps.
-
-**Warm research (follow-up queries):**
-
-When the session already has a trunk (warm continuation), `warmResearch` is used instead. It skips `withSharedRoot` for the outer scope (the trunk already provides context) but still creates `withSharedRoot` scopes inside each source's research tool and bridge pass. The logic is otherwise identical.
+5. **Terminal tool protection**: the research policy is configured with `terminalTool: 'report'`, which protects agents mid-generation of the report tool call from `shouldExit` time-budget kills. Agents that start writing their report after a nudge are allowed to complete.
 
 **Recovery — scratchpad extraction for hard-cut agents:**
 
 Hard-cut recovery is controlled by the policy's `onRecovery()` method. Configure via `DefaultAgentPolicyOpts.recovery`:
 
 ```typescript
-const researchPolicy = new DefaultAgentPolicy({
-  budget: { context: { softLimit: 1024 } },
-  recovery: {
-    prompt: { system: 'You are a research reporter.', user: 'Report your findings.' },
-  },
+function createResearchPolicy() {
+  return new DefaultAgentPolicy({
+    budget: {
+      context: { softLimit: 2048, hardLimit: 1024 },
+      time: { softLimit: 120_000, hardLimit: 180_000 },
+    },
+    recovery: { prompt: RECOVERY },
+    terminalTool: 'report',
+  });
+}
+```
+
+After an agent finishes or is killed, the policy decides per-agent whether to extract. The pool prefills the recovery prompt into the agent's branch, runs a grammar-constrained `{ result }` extraction, and records the result with `scratchpad` provenance. A confabulation guard (default: 100 tokens, 2 tool calls) skips agents with insufficient context.
+
+### Stage 3: Synthesize
+
+Synthesis runs inside the same `withSharedRoot` scope as research, so it forks from `queryRoot` with the full task-by-task research spine already in KV:
+
+```typescript
+const synthCtx = { query };
+const synth = yield* agentPool({
+  tasks: [{ content: renderTemplate(SYNTHESIZE.user, synthCtx) }],
+  tools: [reportTool],
+  systemPrompt: renderTemplate(SYNTHESIZE.system, synthCtx),
+  parent: queryRoot,
+  terminalTool: 'report',
+  maxTurns: opts.maxTurns,
+  trace: opts.trace,
 });
+const synthAnswer = synth.agents[0]?.result || '';
 ```
 
-After all agents finish or are killed, the policy decides per-agent whether to extract. The pool forks from each unreported agent's branch, runs a grammar-constrained `{ result }` extraction, and records the result with `scratchpad` provenance. A confabulation guard (default: 100 tokens, 2 tool calls) skips agents with insufficient context. Extraction runs before the `pool:close` trace event, so findings are populated in trace output.
+The synth agent reads prior findings by attending over the user/assistant turns in its inherited KV context — no text re-encoding, no findings blob in the prompt. The `synthesize.eta` prompt instructs the model to:
 
-### Stage 3: Findings Eval + Synthesize
+1. Read every research turn above
+2. Decide what they holistically mean for the user's question
+3. Write a research report with narrative arc: the first `##` section leads with the direct answer, subsequent sections advance, qualify, or challenge it
+4. Use flexible body form: prose, `###` subsections, markdown tables, counterpoints
+5. End with `## Conclusion` (including `### Limitations`) and `## Sources`
 
-Before synthesis, the pipeline evaluates whether research agents agree on key claims:
+### Stage 4: Verify + Eval
 
-```typescript
-const findingsEval = yield* evaluateFindings(res.agentFindings, opts);
-const conflicts = !findingsEval.converged ? findingsEval.conflicts : undefined;
+After synthesis, the pipeline checks whether the answer is consistent by generating multiple independent verify samples and comparing them.
 
-const s = yield* synthesize(res.agentFindings, res.sourcePassages, query, opts, conflicts);
-```
-
-The `evaluateFindings` function uses a grammar-constrained generation that returns `{converged: boolean, conflicts: string[]}`. A contradiction exists when one agent claims something IS the case with evidence while another claims it is NOT the case. Different coverage angles are complementary, not contradictory.
-
-**Synthesis adapts to inference state** via an [Eta template](synthesize.eta):
+**Verify via seeded pool:**
 
 ```typescript
-const rendered = renderTemplate(SYNTHESIZE_TEMPLATE, {
-  agentFindings,
-  sourcePassages: sourcePassages || null,  // omitted when corpus-only
-  conflicts: conflicts || null,             // omitted when converged
+const verifyContent = renderTemplate(VERIFY.user, {
+  agentFindings: answer || '(none)',
+  sourcePassages: '(spine)',
   query,
 });
-
-const sourceTools = conflicts
-  ? opts.sources.flatMap(s => s.tools)
-  : [];
-const synthTools = [...sourceTools, reportTool];
-```
-
-- **Converged** -- report-only toolkit, standard prompt. No grounding needed.
-- **Diverged** -- grounding tools added (search, read_file, grep for corpus; web_search, fetch_page for web). The synthesizer reads the source directly to resolve each conflict.
-- **Multi-source** -- source passages section included with citation instructions.
-- **Single-source** -- source passages section omitted entirely, not filled with "(none)".
-
-The Eta template controls which system prompt clauses, user content sections, and numbered instructions appear based on which variables are truthy. No phantom sections, no wasted attention on absent capabilities.
-
-### Stage 4: Eval (diverge for convergence)
-
-After synthesis, the pipeline checks whether the answer is consistent by generating multiple independent samples and comparing them.
-
-**Verify samples via `diverge`:**
-
-```typescript
-const verifyContent = VERIFY.user
-  .replace('{{agentFindings}}', agentFindings || '(none)')
-  .replace('{{sourcePassages}}', sourcePassages || '(none)')
-  .replace('{{query}}', query);
-
-const samples = yield* diverge({
-  prompt,
-  attempts: opts.verifyCount,
-  params: { temperature: 0.7 },
+const verifyPool = yield* agentPool({
+  tasks: Array.from({ length: opts.verifyCount }, (_, i) => ({
+    content: verifyContent,
+    seed: 2000 + i,
+  })),
+  systemPrompt: VERIFY.system,
 });
 ```
 
-`diverge` creates N independent branches from the same prompt and generates at temperature 0.7. Each sample is an independent answer to the same question given the same evidence. The verify prompt is simpler than the synthesize prompt -- it asks for a direct answer rather than a cited report.
+Each verify task gets a different seed, producing N independent answers to the same question given the same evidence. The verify prompt asks for a direct answer rather than a cited report.
 
 **Grammar-constrained convergence check:**
 
 ```typescript
-const evalSchema = {
-  type: 'object',
-  properties: { converged: { type: 'boolean' } },
-  required: ['converged'],
-};
-const evalAgent = yield* createAgent({
+const evalAgent = yield* agent({
   systemPrompt: EVAL.system,
-  task: evalPrompt,
-  schema: evalSchema,
-});
-let evalConverged: boolean | null = null;
-try { evalConverged = JSON.parse(evalAgent.rawOutput).converged; }
-catch { /* malformed */
-  },
+  task: renderTemplate(EVAL.user, { responses: responsesText }),
+  schema: { type: 'object', properties: { converged: { type: 'boolean' } }, required: ['converged'] },
 });
 ```
 
-The eval agent reads all verify samples and produces a single boolean: `{ "converged": true }` or `{ "converged": false }`. Temperature 0 makes the evaluation deterministic. The grammar ensures the output is valid JSON with exactly one boolean field.
+The eval agent reads all verify samples and produces a single boolean: `{ "converged": true }` or `{ "converged": false }`. The grammar ensures the output is valid JSON with exactly one boolean field.
 
 If samples converge, the synthesis is likely grounded in evidence. If they diverge, the research may have been insufficient or contradictory. The convergence result is reported in the stats output but does not currently trigger re-research -- this is a hook for pipeline extensions.
 
-### Finalize (trunk promotion for multi-turn)
+### Finalize (trunk commit for multi-turn)
 
 ```typescript
-function* promoteTrunk(
-  query: string, response: string, opts: WorkflowOpts,
-): Operation<void> {
-  const ctx: SessionContext = yield* Ctx.expect();
-  const messages = [
-    { role: 'user', content: query },
-    { role: 'assistant', content: response },
-  ];
-  const { prompt } = yield* call(() => ctx.formatChat(JSON.stringify(messages), { enableThinking: false }));
-  const tokens = yield* call(() => ctx.tokenize(prompt, false));
-  const trunk = Branch.create(ctx, 0, {});
-  yield* call(() => trunk.prefill(tokens));
-  yield* call(() => opts.session.promote(trunk));
-}
-
-function* appendTurn(
-  query: string, response: string, opts: WorkflowOpts,
-): Operation<void> {
-  const ctx: SessionContext = yield* Ctx.expect();
-  const sep = ctx.getTurnSeparator();
-  const messages = [
-    { role: 'user', content: query },
-    { role: 'assistant', content: response },
-  ];
-  const { prompt } = ctx.formatChatSync(JSON.stringify(messages), { enableThinking: false });
-  const tokens = ctx.tokenizeSync(prompt, false);
-  yield* call(() => opts.session.trunk!.prefill([...sep, ...tokens]));
-}
+if (answer) yield* call(() => session.commitTurn(query, answer));
 ```
 
-On the first query (cold), `promoteTrunk` creates a new branch at position 0, prefills the query/response pair, and promotes it as the session trunk via `session.promote`. This sets up the persistent conversation state.
+`Session.commitTurn(query, answer)` handles both cold and warm paths internally. On cold start (no trunk), it creates a new branch, prefills the Q&A pair, and promotes as trunk. On warm continuation, it appends the turn to the existing trunk with proper turn separators. The intermediate research spine (in `queryRoot`) is pruned when `withSharedRoot` exits — only the clean Q&A survives on the long-term trunk.
 
-On follow-up queries (warm), `appendTurn` appends the new turn to the existing trunk using `getTurnSeparator()` + formatted tokens. The separator ensures proper turn boundaries in the model's chat format.
+### Prompts
 
-The routing in `handleQuery`:
+Eta templates and task prompts in `prompts/`:
 
-```typescript
-if (warm) {
-  yield* appendTurn(query, findings, opts);
-} else if (findings) {
-  yield* promoteTrunk(query, findings, opts);
-}
-```
-
-### Task prompts
-
-Seven markdown files in `tasks/`:
-
-| File | Purpose |
-|------|---------|
-| `plan.md` | Decompose query into sub-questions with `research`/`clarify` intent. Uses `{{count}}` for max questions, `{{query}}` for the user query. |
-| `root.md` | Minimal shared root system prompt: `"You are a research assistant."` |
-| `bridge.md` | Structure discoveries between sources. Distinguishes established evidence, incomplete evidence, and uncovered topics. |
-| `synthesize.md` | Cross-reference research notes against source passages. Produce cited markdown report. |
-| `verify.md` | Simplified answer prompt for generating independent samples. |
-| `eval.md` | Consistency checker. Compare verify samples and determine if they convey the same core meaning. |
-| `report.md` | Reporter extraction prompt for hard-cut agents. Preserves detail -- explicitly says "do not compress or summarize." |
+| File | Type | Purpose |
+|------|------|---------|
+| `plan.eta` | Task prompt | Decompose query into a chain of research tasks. Task 1 = landscape discovery. Tasks 2+ reference prior task findings via pronoun phrases. |
+| `web-worker.eta` | Eta template | Worker system prompt for web source agents. Rendered with `tools`, `maxTurns`, `date`, `taskIndex`, `siblingTasks`. Tasks 1+ get spine-awareness guidance. |
+| `corpus-worker.eta` | Eta template | Worker system prompt for corpus source agents. Similar structure, corpus-specific tool rules. |
+| `synthesize.eta` | Task prompt | Narrative-arc synthesis: holistic analysis → direct answer → advancing sections → conclusion + limitations + sources. |
+| `recovery.eta` | Task prompt | Grammar extraction prompt for agents dropped before reporting. Forces `{ result }` JSON output. |
+| `verify.eta` | Task prompt | Simplified answer prompt for independent verify samples. |
+| `eval.eta` | Task prompt | Consistency checker: compare verify samples and determine convergence. |
+| `fallback.eta` | Task prompt | Minimal cold-start root prompt for unknown sources. |
 
 ## The full data flow
 
@@ -428,46 +338,42 @@ Seven markdown files in `tasks/`:
 User query
     |
     v
- [PlanTool]  grammar-constrained decomposition
-    |         -> { questions: [{ text, intent }] }
+ [PlanTool]  grammar-constrained chain decomposition
+    |         -> { tasks: [{ description, intent }] }
     |
     v
  [route()]   intent routing
     |         -> clarify? return to user
-    |         -> research questions (or passthrough)
+    |         -> research tasks (or passthrough)
     |
     v
- [research]  for each source:
-    |           source.bind({ reranker })
-    |           scorer = source.createScorer(query)
-    |           createAgentPool({ tools: source.tools, scorer, ... })
-    |             -> withSharedRoot + useAgentPool (parallel agents)
-    |             -> entailment scoring at steering boundaries
-    |             -> policy.onRecovery (scratchpad extraction for hard-cut agents)
-    |           if not last source:
-    |             rerankChunks -> bridge agent -> inject discoveries
+ [withSharedRoot]  create queryRoot (warm from trunk or cold)
     |
     v
- [rerankChunks]  score all buffered chunks against original query
+ [reduce]    sequential task spine:
+    |           for each task:
+    |             renderWorkerPrompt (taskIndex, date, tools)
+    |             agentPool (1 agent, forks from queryRoot)
+    |               -> policy with terminalTool protection
+    |               -> agent.observe(ctx) detects tool selection mid-turn
+    |               -> recovery extraction on agent drop
+    |             extendSpine: prefill findings into queryRoot
+    |             next task inherits extended queryRoot via KV share
     |
     v
- [findingsEval]  grammar-constrained convergence check on agent findings
-    |              -> { converged: boolean, conflicts: string[] }
-    |
-    v
- [synthesize]  report-only (converged) or grounding tools (diverged)
-    |            Eta template controls prompt/tools based on inference state
+ [synthesize]  forks from spine-extended queryRoot
+    |            narrative-arc report: direct answer → advancing sections
     |            -> cited markdown report
     |
     v
- [diverge]  N independent verify samples at temp 0.7
+ [verify]    N seeded verify samples via agentPool
     |
     v
- [evaluate]  grammar-constrained convergence check
+ [eval]      grammar-constrained convergence check
     |          -> { converged: boolean }
     |
     v
- [promote/append]  persist Q&A to session trunk
+ [commitTurn]  persist Q&A to session trunk
 ```
 
 ## Source implementation details
@@ -492,28 +398,27 @@ When `FetchPageTool` has a reranker and the agent provides a `query` argument, f
 
 ## Customization
 
-**Change sources**: Remove or add sources in `main.ts`. The harness code is source-agnostic — it iterates `opts.sources` and calls `createAgentPool()` for each.
+**Change sources**: Remove or add sources in `main.ts`. The harness code is source-agnostic — all source tools are unioned and available to every research agent.
 
 **Create a custom source**: Implement `Source` with `name`, `tools`, `bind()`, and `getChunks()`. See [Custom Source](../guides/custom-source.md).
 
-**Adjust agent count**: Change `AGENT_COUNT` in `main.ts`. This bounds `PlanTool`'s `maxQuestions` and affects how many parallel research agents run per source.
+**Adjust task count**: `PlanTool.maxItems` (default 6) bounds how many research tasks the planner can generate. More tasks = deeper spine chain but longer wall time.
 
-**Adjust findings budget**: Use `--findings-budget <chars>` to control how much reranked text the synthesizer sees. Smaller budgets reduce KV pressure but may miss relevant context.
+**Add pipeline stages**: Insert new generator functions inside the `withSharedRoot` callback in `handleQuery`, between `reduce` and synthesis. Each stage can `extendSpine` to add findings to `queryRoot`.
 
-**Add pipeline stages**: Insert new generator functions between `research` and `synthesize` in `handleQuery`. The pattern is consistent: receive findings, produce structured output, pass forward.
+**Trigger re-research on divergence**: The eval result (`converged: boolean`) is currently informational. Add a loop in `handleQuery` that re-runs research with refined tasks when `converged` is false.
 
-**Trigger re-research on divergence**: The eval result (`converged: boolean`) is currently informational. Add a loop in `handleQuery` that re-runs research with refined questions when `converged` is false.
-
-**Customize prompts**: Edit the seven markdown files in `tasks/`. The `{{placeholder}}` values are replaced at runtime. The bridge prompt's three-category structure (established, incomplete, uncovered) is particularly important for multi-source quality.
+**Customize prompts**: Edit the Eta templates and task prompts in `prompts/`. Template variables are rendered via `renderTemplate()` at call time. Task prompts split on `---` into system and user sections.
 
 ## Related pages
 
 - [Pipelines](/learn/pipelines) -- gentler walkthrough of pipeline concepts
 - [Sources](/learn/sources) -- the `Source` abstraction
-- [RIG Bridges](/reference/rig/bridges) -- bridge pass pattern between sources
-- [Scratchpad Extraction](/reference/scratchpad-extraction) -- `createAgent({ parent })` for scratchpad extraction
+- [Continuous Context Spine](/reference/continuous-context-spine) -- KV spine mechanics and extendSpine pattern
+- [Scratchpad Extraction](/reference/scratchpad-extraction) -- recovery extraction for dropped agents
+- [Agent Policy](/reference/agent-policy) -- shouldExit, terminalTool, shouldExplore, recovery
 - [Grammar & Tool Ordering](/reference/grammar-and-ordering) -- how PlanTool and eval grammars work
-- [Concurrency Model](/reference/concurrency) -- agent pool tick loop and batch decoding
+- [Concurrency Model](/reference/concurrency) -- agent pool tick loop, Agent.observe/finalize
 - [KV Pressure](/reference/kv-pressure) -- pressure settings and agent drops
-- [Branch Lifecycle](/reference/branch-lifecycle) -- fork, prune, and the promote/append pattern
+- [Branch Lifecycle](/reference/branch-lifecycle) -- fork, prune, setLogits/mergeLogits, commitTurn
 - [Tracing](/learn/tracing) -- JSONL trace output and `JsonlTraceWriter`

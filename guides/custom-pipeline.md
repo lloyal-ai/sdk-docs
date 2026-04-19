@@ -106,7 +106,7 @@ function* factCheck(
   yield* opts.events.send({ type: 'factcheck:start' });
   const t = performance.now();
 
-  const pool = yield* createAgentPool({
+  const pool = yield* agentPool({
     tasks: [{ content }],
     tools: [...opts.sources.flatMap(s => s.tools), reportTool],
     systemPrompt: FACTCHECK.system,
@@ -213,12 +213,12 @@ Then handle the new route in `handleQuery`:
 ```typescript
 if (r.type === 'direct') {
   // Single agent, no pool
-  const agent = yield* createAgent({
+  const result = yield* agent({
     systemPrompt: DIRECT_PROMPT,
     task: query,
     schema: answerSchema,
   });
-  yield* call(() => session.commitTurn(query, agent.rawOutput));
+  yield* call(() => session.commitTurn(query, result.rawOutput));
   return { type: 'done' };
 }
 ```
@@ -261,7 +261,7 @@ const researchPolicy = new DefaultAgentPolicy({
   recovery: { prompt: REPORT },
 });
 
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   // ...
   policy: researchPolicy,
 });

@@ -24,14 +24,14 @@ The branch is the ground truth. The agent is the interpretation layer that gives
 ```typescript
 import { Agent } from "@lloyal-labs/lloyal-agents";
 
-// createAgent and createAgentPool return Agents.
+// agent and agentPool return Agents.
 // After completion, each agent exposes:
-agent.result          // what the agent discovered (or null)
-agent.rawOutput       // raw model output from the final turn
-agent.toolCallCount   // how many tools it called
-agent.tokenCount      // how many tokens it generated
-agent.nestedResults   // results from recursive sub-agents
-agent.ppl             // model-level perplexity at completion
+result.result          // what the agent discovered (or null)
+result.rawOutput       // raw model output from the final turn
+result.toolCallCount   // how many tools it called
+result.tokenCount      // how many tokens it generated
+result.nestedResults   // results from recursive sub-agents
+result.ppl             // model-level perplexity at completion
 ```
 
 ### Status model
@@ -66,31 +66,31 @@ Each agent records metadata for every tool invocation — tool name, arguments, 
 
 When a tool spawns sub-agents (recursive tools like `research` or `web_research`), each sub-agent records which agent called the tool that created it. `walkAncestors()` traverses the chain — self → caller → caller's caller — collecting data from each ancestor. Tool guards use this for cross-level deduplication.
 
-## Single agent: `createAgent`
+## Single agent: `agent`
 
 The simplest entry point. One agent, one task, automatic lifecycle:
 
 ```typescript
-import { createAgent } from "@lloyal-labs/lloyal-agents";
+import { agent } from "@lloyal-labs/lloyal-agents";
 
-const agent = yield* createAgent({
+const result = yield* agent({
   systemPrompt: "You are a research assistant.",
   task: "Find information about voice agent architectures.",
   tools: [searchTool, fetchTool, reportTool],
   terminalTool: "report",
 });
 
-console.log(agent.result);
+console.log(result.result);
 ```
 
-`createAgent` handles everything internally: builds the toolkit, creates a shared root, forks an agent branch, runs the tick loop, and prunes all branches when done. You declare what you want — the SDK orchestrates it.
+`agent` handles everything internally: builds the toolkit, creates a shared root, forks an agent branch, runs the tick loop, and prunes all branches when done. You declare what you want — the SDK orchestrates it.
 
 ### Structured output with `schema`
 
 For single agents that should produce structured JSON instead of calling tools:
 
 ```typescript
-const agent = yield* createAgent({
+const result = yield* agent({
   systemPrompt: "You analyze research queries. Output JSON only.",
   task: `Analyze: "${query}"`,
   schema: {
@@ -101,7 +101,7 @@ const agent = yield* createAgent({
     required: ["questions"],
   },
 });
-const plan = JSON.parse(agent.rawOutput);
+const plan = JSON.parse(result.rawOutput);
 ```
 
 The `schema` is compiled to a GBNF grammar and set as an eager constraint — every token is grammar-valid. No retry logic, no post-hoc validation.
@@ -111,7 +111,7 @@ The `schema` is compiled to a GBNF grammar and set as an eager constraint — ev
 When a Session has a trunk (previous turns committed), pass it to continue from the prior conversation state:
 
 ```typescript
-const agent = yield* createAgent({
+const result = yield* agent({
   systemPrompt: EVAL_PROMPT,
   task: evalQuestion,
   schema: evalSchema,
@@ -119,14 +119,14 @@ const agent = yield* createAgent({
 });
 ```
 
-## Parallel agents: `createAgentPool`
+## Parallel agents: `agentPool`
 
 When a task decomposes into sub-questions, run them in parallel:
 
 ```typescript
-import { createAgentPool } from "@lloyal-labs/lloyal-agents";
+import { agentPool } from "@lloyal-labs/lloyal-agents";
 
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: questions.map(q => ({ content: q })),
   tools: [searchTool, fetchTool, reportTool],
   systemPrompt: RESEARCH_PROMPT,
@@ -139,14 +139,14 @@ const pool = yield* createAgentPool({
 // pool.agents[0].result, pool.agents[1].result, ...
 ```
 
-`createAgentPool` composes `withSharedRoot` + toolkit construction + the tick loop internally. Agents fork from a shared root, advance in the same GPU batch, and report independently.
+`agentPool` composes `withSharedRoot` + toolkit construction + the tick loop internally. Agents fork from a shared root, advance in the same GPU batch, and report independently.
 
 ### Per-task system prompts
 
 Each task can carry its own system prompt while sharing the same KV prefix:
 
 ```typescript
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: questions.map((q, i) => ({
     content: q,
     systemPrompt: renderPromptForAgent(q, i, questions),
@@ -164,7 +164,7 @@ Per-task prompts are formatted independently by each agent's `setupAgent` call �
 When `recursive` is enabled, agents can spawn sub-pools via a delegation tool:
 
 ```typescript
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks: questions.map(q => ({ content: q })),
   tools: [searchTool, fetchTool, reportTool],
   systemPrompt: RESEARCH_PROMPT,
@@ -179,7 +179,7 @@ const pool = yield* createAgentPool({
 });
 ```
 
-The delegation tool calls `createAgentPool` recursively — sub-agents inherit the calling agent's full KV state via Continuous Context. Recursion depth is bounded by KV pressure, not by a hardcoded limit.
+The delegation tool calls `agentPool` recursively — sub-agents inherit the calling agent's full KV state via Continuous Context. Recursion depth is bounded by KV pressure, not by a hardcoded limit.
 
 ### Recovery
 
@@ -203,7 +203,7 @@ When `true`, agents are pruned immediately after reporting. This frees KV mid-po
 
 ## `useAgent` and `useAgentPool`
 
-`createAgent` and `createAgentPool` are the scoped wrappers — branches are pruned when they return. When you need branches to stay alive after the pool completes (for forking, verification, or follow-up):
+`agent` and `agentPool` are the scoped wrappers — branches are pruned when they return. When you need branches to stay alive after the pool completes (for forking, verification, or follow-up):
 
 ```typescript
 import { useAgent, useAgentPool } from "@lloyal-labs/lloyal-agents";
@@ -231,7 +231,7 @@ while (!next.done) {
 const pool = next.value;     // AgentPoolResult
 ```
 
-Most code never uses these directly — `createAgent` and `createAgentPool` handle the Subscription drain and scope cleanup internally.
+Most code never uses these directly — `agent` and `agentPool` handle the Subscription drain and scope cleanup internally.
 
 ## Agent Policy
 
@@ -268,7 +268,7 @@ const policy = new DefaultAgentPolicy({
   recovery: { prompt: REPORT_PROMPT },
 });
 
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks, tools, systemPrompt,
   policy,
 });
@@ -325,7 +325,7 @@ With sharing:    900 shared + 3 x 30 unique = 990 GPU decode ops
 Savings:         64% fewer decode operations
 ```
 
-When a recursive tool spawns sub-agents, `createAgentPool` forks from the calling agent's branch instead of creating a new root. Sub-agents inherit every tool call, every tool result, every token the parent generated — **2 tokens instead of ~760** for the prefill.
+When a recursive tool spawns sub-agents, `agentPool` forks from the calling agent's branch instead of creating a new root. Sub-agents inherit every tool call, every tool result, every token the parent generated — **2 tokens instead of ~760** for the prefill.
 
 <Tip>
 For the full picture — KV layout, position-aware decode, nested sharing, measured numbers — see [Prefix Sharing](/reference/prefix-sharing).
@@ -336,7 +336,7 @@ For the full picture — KV layout, position-aware decode, nested sharing, measu
 When agents delegate to sub-agents via recursive tools, inner results bubble up through `nestedResults`:
 
 ```typescript
-const pool = yield* createAgentPool({
+const pool = yield* agentPool({
   tasks, tools, systemPrompt,
   recursive: { name: "web_research", ... },
 });

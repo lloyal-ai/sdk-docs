@@ -102,7 +102,7 @@ const result = composePrompt(
   steps,
 );
 
-// result.tools is a Tool[] — pass directly to createAgentPool
+// result.tools is a Tool[] — pass directly to agentPool
 ```
 
 Each step is a pure function: receive state, return state (possibly with additions). Steps that return unchanged state are no-ops. Compose left-to-right via `reduce`.
