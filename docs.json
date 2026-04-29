@@ -1,0 +1,131 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "aspen",
+  "name": "lloyal HDK",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#10B981",
+    "light": "#34D399",
+    "dark": "#059669"
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "fonts": {
+    "heading": {
+      "family": "Quicksand",
+      "weight": 600
+    },
+    "body": {
+      "family": "Quicksand",
+      "weight": 400
+    }
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/lloyal-ai/sdk"
+    },
+    "links": [
+      {
+        "label": "npm",
+        "href": "https://www.npmjs.com/package/@lloyal-labs/lloyal-agents"
+      }
+    ]
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Get Started",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "learn/introduction",
+              "learn/quick-start",
+              "learn/thinking-in-lloyal",
+              "learn/tools",
+              "learn/agents",
+              "learn/sources",
+              "learn/pipelines",
+              "learn/sessions",
+              "learn/tracing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "reference/concurrency",
+              "reference/kv-pressure",
+              "reference/agent-policy",
+              "reference/search-strategy",
+              "reference/prefix-sharing",
+              "reference/skill-catalog",
+              "reference/continuous-context-spine",
+              "reference/grammar-and-ordering",
+              "reference/scratchpad-extraction",
+              "reference/prompt-composition",
+              "reference/branch-lifecycle"
+            ]
+          },
+          {
+            "group": "RIG",
+            "pages": [
+              "reference/rig/overview",
+              "reference/rig/corpus-source",
+              "reference/rig/web-source",
+              "reference/rig/custom-sources",
+              "reference/rig/bridges",
+              "reference/rig/pipeline"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/custom-tool",
+              "guides/custom-source",
+              "guides/custom-pipeline",
+              "guides/deployment"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/react-agent",
+              "examples/reflection",
+              "examples/compare"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API",
+        "href": "https://lloyal-ai.github.io/sdk/"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/lloyal-ai/sdk"
+    }
+  }
+}
