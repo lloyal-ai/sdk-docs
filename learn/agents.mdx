@@ -83,7 +83,7 @@ const result = yield* agent({
 console.log(result.result);
 ```
 
-`agent` handles everything internally: builds the toolkit, creates a shared root, forks an agent branch, runs the tick loop, and prunes all branches when done. You declare what you want — the SDK orchestrates it.
+`agent` handles everything internally: builds the toolkit, creates a shared root, forks an agent branch, runs the tick loop, and prunes all branches when done. You declare what you want — the HDK orchestrates it.
 
 ### Structured output with `schema`
 
@@ -124,12 +124,13 @@ const result = yield* agent({
 When a task decomposes into sub-questions, run them in parallel:
 
 ```typescript
-import { agentPool } from "@lloyal-labs/lloyal-agents";
+import { agentPool, parallel } from "@lloyal-labs/lloyal-agents";
 
 const pool = yield* agentPool({
-  tasks: questions.map(q => ({ content: q })),
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+  ),
   tools: [searchTool, fetchTool, reportTool],
-  systemPrompt: RESEARCH_PROMPT,
   terminalTool: "report",
   maxTurns: 20,
   policy: researchPolicy,
@@ -139,47 +140,151 @@ const pool = yield* agentPool({
 // pool.agents[0].result, pool.agents[1].result, ...
 ```
 
-`agentPool` composes `withSharedRoot` + toolkit construction + the tick loop internally. Agents fork from a shared root, advance in the same GPU batch, and report independently.
+`agentPool` composes `withSharedRoot` + toolkit construction + the tick loop internally. The `orchestrate` callback declares the execution shape (`parallel`, `chain`, `fanout`, `dag`, or any custom `Orchestrator` generator); each `SpawnSpec` carries its own `content` + `systemPrompt`. Agents fork from a shared root, advance in the same GPU batch, and report independently.
 
-### Per-task system prompts
+### `agentPool` options, by significance
 
-Each task can carry its own system prompt while sharing the same KV prefix:
+The `CreateAgentPoolOpts` type has many knobs but most of them have sensible defaults. Reach for them in roughly the order you'd ask the questions:
+
+#### Required
+
+- **`orchestrate`** — what shape (`parallel` / `chain` / `fanout` / `dag` / custom). Mandatory; no default makes sense.
+- **`tools`** — what data access. Optional in the type but practically required (otherwise use `useAgent`).
+- **`terminalTool`** — name string for the "I'm done" tool (e.g. `'report'`). Without it, agents exit via free-text-stop or recovery extraction — both heavier and less clean. Practically required for any harness with non-trivial tool use.
+
+#### "What about follow-up questions?" — `session`
+
+`Session` (from `@lloyal-labs/sdk`) is **the** multi-turn knob. It owns the **trunk** — a long-lived KV branch that persists across queries within the same model context. After a pool exits, the harness calls `session.commitTurn(query, answer)` and the trunk is extended with that Q&A turn. The next pool forks from the (now extended) trunk and the agent reads prior Q&A via KV attention.
+
+```typescript
+import { Session } from "@lloyal-labs/sdk";
+
+const session = new Session({ ctx, store });
+
+// First query
+yield* agentPool({ orchestrate, tools, session });
+yield* call(() => session.commitTurn(query1, answer1));
+
+// Follow-up — agents fork from session.trunk, see prior Q&A
+yield* agentPool({ orchestrate: chain([followup]), tools, session });
+yield* call(() => session.commitTurn(followup, answer2));
+```
+
+A `Session` IS the persistent state. Not a message array that gets re-tokenized — a literal KV branch on the same model context. Cold start = no trunk, pool creates a fresh root at position 0. Warm = trunk exists, pool forks from it. The trunk is the only thing that survives the harness's lifetime; everything else (research branches, sub-pools, delegations) is pruned on scope exit.
+
+If `session.trunk` is set and you don't pass `parent`, `agentPool` forks from the trunk automatically. If you pass both, `parent` wins (use this for sub-pools that need to fork from a specific calling agent's branch).
+
+#### "What about sub-agents?" — `parent`
+
+For warm-path forking: `agentPool({ parent: context.branch })`. The new pool's root forks from the calling agent's branch instead of cold-starting. Sub-agents inherit the parent's full attention state — every tool call, every result, every token. `DelegateTool` from `@lloyal-labs/rig` uses this internally; you'd reach for it directly when threading roots between harness stages.
+
+Precedence: `parent ?? session?.trunk ?? cold-start`.
+
+#### "How do I tune budgets and recovery?" — `policy`
+
+The default `DefaultAgentPolicy` is fine to start. You'll customize it when:
+- The default time budget (`time: { softLimit: 120_000, hardLimit: 180_000 }`) is too tight for your tool calls.
+- You want a custom recovery prompt for `recoverInline` extraction.
+- You want extra tool guards (the default has dedup guards for `web_search` / `fetch_page` and a research-before-delegation gate).
+
+```typescript
+const policy = new DefaultAgentPolicy({
+  budget: {
+    context: { softLimit: 2048, hardLimit: 1024 },
+    time: { softLimit: 240_000, hardLimit: 360_000 },
+  },
+  recovery: { prompt: REPORT_PROMPT },
+});
+
+yield* agentPool({ orchestrate, tools, policy });
+```
+
+#### "How long do agents run?" — `maxTurns`
+
+Default 100 — almost always too generous. Research pools cap at 10. This is a per-agent turn cap, not pool-wide. A "turn" is one tool-call → result-settle round.
+
+#### "I have many concurrent agents — KV is filling up" — `pruneOnReport`
+
+Set `true` for parallel pools where each agent's branch grows large and you want sibling agents to recover headroom mid-flight. The agent's branch is pruned immediately after the terminal tool fires. Spine extensions (which live on a separate root) are unaffected.
+
+#### "I have many agents sharing the same tool palette" — `systemPrompt` (catalog mode)
+
+When set, `agentPool` runs in catalog mode: the chat header (system + tool schemas) is prefilled onto an inner queryRoot once at setup; every agent inherits via metadata-only KV prefix-share instead of re-emitting the schemas in its own suffix. See [Skill Catalog](/reference/skill-catalog) for the full convention and tradeoffs (notably: in catalog mode, `extendRoot` writes to the inner root, not the warmParent).
+
+For chains where you want spine extensions to persist past pool exit (so post-pool synth can attend to them), put the catalog on the **harness's** outer `withSharedRoot`, not on `agentPool` directly.
+
+#### "I'm running a thinking-mode model" — `enableThinking`
+
+Default `false`. Set `true` for Qwen3 thinking-mode and similar; the chat template emits `<think>` block delimiters and the parser handles them as reasoning content (separate from the tool-call stream).
+
+#### RIG-specific knobs
+
+- **`scorer`** — entailment scorer (from a `Source.createScorer(query)`). Used by tools (search reranking, DelegateTool's echo gate) for semantic coherence checks. Propagates through `ToolContext` to all recursion depths.
+- **`echoThreshold`** (default 0.8) — cosine threshold for the delegation echo gate. Sub-questions whose similarity to the parent task exceeds this get rejected before sub-agents spawn — prevents degenerate recursion where each level re-asks the same question in different words.
+- **`checkAncestorEcho`** (default false) — whether echo detection walks the full ancestor chain or only the immediate parent.
+
+#### Diagnostic
+
+- **`trace`** — when true, emits per-token entropy and surprisal on `agent:produce` events. The TraceWriter itself is set globally via `initAgents`.
+
+
+
+### Per-spec system prompts
+
+Each spec carries its own system prompt — they're required, not optional:
 
 ```typescript
 const pool = yield* agentPool({
-  tasks: questions.map((q, i) => ({
-    content: q,
-    systemPrompt: renderPromptForAgent(q, i, questions),
-  })),
-  systemPrompt: DEFAULT_PROMPT,  // shared root prefix + fallback
+  orchestrate: parallel(
+    questions.map((q, i) => ({
+      content: q,
+      systemPrompt: renderPromptForAgent(q, i, questions),
+    })),
+  ),
   tools: [searchTool, reportTool],
   terminalTool: "report",
 });
 ```
 
-Per-task prompts are formatted independently by each agent's `setupAgent` call — the shared root provides the KV prefix, individual agents diverge after fork.
+Per-spec prompts are formatted independently by each agent's `setupAgent` call — the shared root provides the KV prefix, individual agents diverge after fork.
 
-### Recursive agents
+If you want a single role + tool palette amortized at the root once across N agents, opt into the **catalog convention**: pass `systemPrompt` on `agentPool` (or, more typically, on a wrapping `withSharedRoot`). See [Skill Catalog](/reference/skill-catalog).
 
-When `recursive` is enabled, agents can spawn sub-pools via a delegation tool:
+### Recursive agents (delegation)
+
+For agents that spawn sub-pools, use `DelegateTool` from `@lloyal-labs/rig`. It's a tool: pass an instance into the parent agent's toolkit, and when the model calls it, the tool itself runs `agentPool` internally — sub-agents inherit the calling agent's full KV state via Continuous Context.
 
 ```typescript
-const pool = yield* agentPool({
-  tasks: questions.map(q => ({ content: q })),
-  tools: [searchTool, fetchTool, reportTool],
-  systemPrompt: RESEARCH_PROMPT,
-  terminalTool: "report",
-  recursive: {
-    name: "web_research",
-    description: "Spawn parallel sub-agents to investigate sub-questions.",
-    argsSchema: { type: "object", properties: { questions: { type: "array", items: { type: "string" } } }, required: ["questions"] },
-    extractTasks: (args) => args.questions as string[],
+import { DelegateTool } from "@lloyal-labs/rig";
+
+const delegate = new DelegateTool({
+  name: "web_research",
+  description: "Spawn parallel sub-agents to investigate sub-questions.",
+  argsSchema: {
+    type: "object",
+    properties: { questions: { type: "array", items: { type: "string" } } },
+    required: ["questions"],
   },
+  extractTasks: (args) => args.questions as string[],
+  systemPrompt: RESEARCH_PROMPT,
+  poolOpts: {
+    tools: [searchTool, fetchTool, reportTool],
+    terminalTool: "report",
+    scorer,
+  },
+});
+
+const pool = yield* agentPool({
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+  ),
+  tools: [searchTool, fetchTool, reportTool, delegate],
+  terminalTool: "report",
   scorer,   // propagated to all depths via ToolContext
 });
 ```
 
-The delegation tool calls `agentPool` recursively — sub-agents inherit the calling agent's full KV state via Continuous Context. Recursion depth is bounded by KV pressure, not by a hardcoded limit.
+Recursion depth is bounded by KV pressure, not by a hardcoded limit.
 
 ### Recovery
 
@@ -222,7 +327,13 @@ const verifyBranch = agent.branch.forkSync();
 `useAgentPool` returns a `Subscription<AgentEvent, AgentPoolResult>` — events stream during execution, result is the close value:
 
 ```typescript
-const sub = yield* useAgentPool({ tasks, tools, ... });
+const sub = yield* useAgentPool({
+  root,
+  orchestrate: parallel(specs),
+  toolsJson: toolkit.toolsJson,
+  tools: toolkit.toolMap,
+  // ...
+});
 let next = yield* sub.next();
 while (!next.done) {
   handleEvent(next.value);  // AgentEvent
@@ -269,7 +380,8 @@ const policy = new DefaultAgentPolicy({
 });
 
 const pool = yield* agentPool({
-  tasks, tools, systemPrompt,
+  orchestrate: parallel(specs),  // each spec carries its own systemPrompt
+  tools,
   policy,
 });
 ```
@@ -317,15 +429,18 @@ Pressure management is automatic. You don't check headroom in your tools. The po
 
 ## Prefix sharing
 
-The shared root is the key efficiency mechanism. System prompt + tool schemas are decoded into KV once. Every agent fork inherits them.
+Every agent forks from a shared root branch — that's the cheap part (`Branch.forkSync` is metadata-only). What gets prefilled onto the root, and inherited via KV prefix-share, depends on whether you opt into the catalog convention:
+
+- **Default (no `systemPrompt` on `withSharedRoot` / `agentPool`):** the shared root holds only a turn separator. Each agent's `setupAgent` formats its own `[system + tools + user]` suffix and tokenizes that onto its branch. Tools are re-emitted per spawn — fine for small pools, wasteful for many siblings sharing the same tool palette.
+- **Catalog mode (`systemPrompt` + `toolsJson` on `withSharedRoot`):** the root is prefilled with the chat header (system + embedded tool schemas) once. Every agent inherits those tokens via metadata-only KV share. Agent suffixes carry only the per-spec `[system, user]` (a thin role assignment + task), no tools. See [Skill Catalog](/reference/skill-catalog).
 
 ```
-Without sharing: 3 agents x 900 tokens = 2,700 GPU decode ops
-With sharing:    900 shared + 3 x 30 unique = 990 GPU decode ops
-Savings:         64% fewer decode operations
+Default:        3 agents x ~900 tokens of prompt+tools = 2,700 unique cells
+Catalog mode:   ~900 shared root + 3 x ~30 per-agent suffix = ~990 unique cells
+Savings:        ~64% fewer decode operations
 ```
 
-When a recursive tool spawns sub-agents, `agentPool` forks from the calling agent's branch instead of creating a new root. Sub-agents inherit every tool call, every tool result, every token the parent generated — **2 tokens instead of ~760** for the prefill.
+When a `DelegateTool` spawns sub-agents, the inner `agentPool` forks from the calling agent's branch (warm path) instead of creating a new root. Sub-agents inherit every tool call, every tool result, every token the parent generated — **2 tokens instead of ~760** for the prefill.
 
 <Tip>
 For the full picture — KV layout, position-aware decode, nested sharing, measured numbers — see [Prefix Sharing](/reference/prefix-sharing).
@@ -333,12 +448,12 @@ For the full picture — KV layout, position-aware decode, nested sharing, measu
 
 ## Nested results
 
-When agents delegate to sub-agents via recursive tools, inner results bubble up through `nestedResults`:
+When agents delegate to sub-agents via a `DelegateTool`, inner results bubble up through `nestedResults`:
 
 ```typescript
 const pool = yield* agentPool({
-  tasks, tools, systemPrompt,
-  recursive: { name: "web_research", ... },
+  orchestrate: parallel(specs),
+  tools: [...baseTools, new DelegateTool({ ... })],
 });
 
 // Primary findings — what each agent reported

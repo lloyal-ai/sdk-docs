@@ -49,9 +49,8 @@ The bridge runs as a single agent inside `withSharedRoot` with report-only tools
 
 ```typescript
 const bridge = yield* agentPool({
-  tasks: [{ content: bridgeContent }],
+  orchestrate: parallel([{ content: bridgeContent, systemPrompt: BRIDGE.system }]),
   tools: [reportTool],
-  systemPrompt: BRIDGE.system,
   terminalTool: "report",
   maxTurns: 2,
   trace: opts.trace,

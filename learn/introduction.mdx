@@ -1,7 +1,9 @@
 ---
-title: Introduction
-description: TypeScript SDK for recursive local agents with Continuous Context.
+title: lloyal HDK
+description: Harness Development Kit — Agentic AI for consumer hardware.
 ---
+
+Compose harnesses — orchestrated systems of agents that share live attention state. Inference, the agent loop, and retrieval all run in the Node process you started; no separate inference server, no Docker, no HTTP boundary between your code and the model.
 
 <Frame>
   <img
@@ -10,111 +12,253 @@ description: TypeScript SDK for recursive local agents with Continuous Context.
   />
 </Frame>
 
-- **Offline first** — no API key, no network required, scale to cloud
-- **Tools that spawn agents** — the model decides when to go deeper
-- **Multi-hop tool use** — emergent hypothesis refinement and adaptive tool use
-- **Shared KV prefix** — agents inherit full attention from parent
-- **Tree search** — fork sampler, grammar, and metrics atomically for LATS / MCTS
-- **Branch comparison** — N attempts from one origin, measure agreement
-- **Parallel agents, amortized compute** — N agents advance in one GPU pass (bin-packed)
-
-## What you can build
+The kit rests on three pillars.
 
 <CardGroup cols={3}>
-  <Card title="Research pipelines" icon="magnifying-glass">
-    Search, read, hypothesize, verify — across local files, web, databases, or
-    any data source.
+  <Card title="Zero-dependency drop-in" icon="bolt" href="#zero-dependency-drop-in">
+    Native binding. No daemon, no Docker, no HTTP boundary between your code and the model.
   </Card>
-  <Card title="Personal assistants" icon="robot">
-    Multi-turn agents with persistent KV state, connected to any service or API.
+  <Card title="Continuous Context" icon="memory" href="#continuous-context">
+    Agents share KV state, not strings. Breaks the "runs locally but is a toy" barrier.
   </Card>
-  <Card title="Code agents" icon="code">
-    Navigate codebases, trace dependencies, run tests, propose changes.
-  </Card>
-  <Card title="Data analysis" icon="chart-bar">
-    Query databases, aggregate results, produce reports with source attribution.
-  </Card>
-  <Card title="Support agents" icon="headset">
-    Search knowledge bases, follow troubleshooting trees, escalate with full
-    context.
-  </Card>
-  <Card title="Your workflow" icon="arrows-split-up-and-left">
-    Any process where agents need tools, shared state, and structured cleanup.
+  <Card title="Retrieval Interleaved Generation" icon="magnifying-glass" href="#retrieval-interleaved-generation">
+    Retrieval inside the generation loop. Cross-encoder reranking, entailment scoring, attention-aware refinement.
   </Card>
 </CardGroup>
 
-## Traditional Agents: There's no attention continuity between LLM calls.
+## Zero-dependency drop-in
 
-Each request re-encodes the full context and re-computes attention from scratch. The KV state from the prior call — the specific weighted relationships the model found between tokens — is gone. The next call re-reads a transcript of what a previous generation produced and re-computes Q·Kᵀ over the entire sequence.
+Drop in intelligence. No ollama daemon to keep alive. No LM Studio app running in the background. No Docker container. No HTTP boundary between your agent code and the model. `npm i`, point at a GGUF on disk, and you're orchestrating agents in the same Node process that runs your application.
 
-Every agent framework today works this way. Call a tool, get a result, rebuild the prompt, make a new request. The model's prior attention state is discarded. Continuity is simulated by making the model re-read its own output as text.
+<Tabs>
+  <Tab title="lloyal HDK">
+    ```typescript
+    import { createContext } from "@lloyal-labs/lloyal.node";
+    import { initAgents, agentPool, parallel } from "@lloyal-labs/lloyal-agents";
 
-## Continuous Context Agents: Agents branch, inherit, and build on each other's attention state.
+    const ctx = yield* call(() => createContext({ modelPath: "model.gguf" }));
+    yield* initAgents(ctx);
 
-They share a physical frontier in the KV cache. Every branch inherits the full attention state of its parent — prior generations, tool results, and prefilled context remain addressable at their original positions. Forking is O(1) metadata. Context is never re-encoded.
+    const pool = yield* agentPool({
+      orchestrate: parallel(tasks),
+      tools, terminalTool: 'report',
+    });
+    ```
+
+    Single process. One install. The `Branch` your agent forks is the same object the inference loop mutates — no IPC, no JSON-over-HTTP, no model server protocol.
+  </Tab>
+  <Tab title="ollama">
+    ```bash
+    # Install daemon, keep it running
+    brew install ollama
+    ollama serve &
+    ollama pull llama3
+    ```
+
+    ```typescript
+    // HTTP-out from your code; KV state never visible
+    const res = await fetch("http://localhost:11434/api/generate", { ... });
+    ```
+
+    Separate process. JSON over HTTP. Stateless from your code's perspective.
+  </Tab>
+  <Tab title="LM Studio">
+    Desktop GUI to load and serve models. Local HTTP server speaks an OpenAI-compatible API. Same architectural boundary as ollama: separate process, no shared state with your agent code.
+  </Tab>
+  <Tab title="vLLM / TGI">
+    Containerized GPU server. Production-grade throughput, but the deployment surface is a Docker image, a model checkpoint, and a runtime — not "hardware you own and edit on."
+  </Tab>
+</Tabs>
 
 <Note>
-  When the model computes Q·Kᵀ for its next token, it attends over all K vectors
-  at positions 0..N — including those written during prior tool result prefills.
-  Child branches attend over the parent's KV vectors at shared positions — the
-  same physical key-value pairs, not a re-encoding. No information bottleneck.
-  No lossy compression step.
+  **Dependency footprint.** `@lloyal-labs/sdk` ships with zero production dependencies. `@lloyal-labs/lloyal-agents` adds [`effection`](https://frontside.com/effection/) (structured concurrency) and [`eta`](https://eta.js.org/) (templates). `@lloyal-labs/rig` adds `@mozilla/readability` and `linkedom` for web scraping. The `@lloyal-labs/lloyal.node` native binding is the only piece that touches the GPU.
+</Note>
+
+## Continuous Context
+
+Most agent frameworks pass strings between stages. A transcript of what one agent generated becomes a prompt for the next; every step re-encodes the full context from text. The model's prior attention state — the specific weighted relationships it found between tokens — is discarded and rebuilt each call.
+
+**lloyal agents share live attention state.** When stage 2 starts decoding, stage 1's findings are already in its KV at their original positions; its first generated token attends over them directly. No re-tokenization. No re-encoding. No "summarize, paste, re-prompt" information bottleneck.
+
+<Tabs>
+  <Tab title="Traditional agent loop">
+    ```
+    Stage 1 generates response
+      ↓ extract findings as text
+      ↓ build new prompt: system + tools + findings_string + query
+      ↓ send to inference (re-tokenize, re-encode, re-attend over everything)
+      ↓ Stage 2 attends over re-tokenized findings
+    ```
+    Re-encode every stage. Information serialized through text at every boundary.
+  </Tab>
+  <Tab title="Continuous Context loop">
+    ```
+    Stage 1 generates (decoded into KV positions 0..N)
+      ↓ extendRoot prefills [user, asst] turn onto queryRoot
+      ↓ Stage 2 forks queryRoot at the extended position (O(1) metadata)
+      ↓ Stage 2's first token attends over positions 0..N+turn directly
+    ```
+    Fork is metadata-only. Findings are the same physical K/V pairs, not a re-encoding.
+  </Tab>
+</Tabs>
+
+<Note>
+  When the model computes Q·Kᵀ for its next token, it attends over all K vectors at positions 0..N — including those written during prior tool result prefills. Child branches share the same physical key-value pairs at inherited positions; not a re-encoding, the same vectors.
 </Note>
 
 A fork is a metadata operation on shared KV cells — O(1) cost, zero tensor copy. Three agents forked from the same root attend to the same physical key-value pairs for the prefix while writing their own unique context above the fork point.
 
-When a tool returns a result, it's prefilled directly into the agent's KV cache. The model's next generation step sees the complete result at its original position in the attention window.
+### Why this breaks the "runs locally but is a toy" barrier
 
-When a sub-agent forks from a parent, it inherits every tool call, every tool result, every token the parent generated. The sub-agent's first token attends over the parent's full accumulated state.
+Re-encoding 900 tokens of system prompt and tool schemas per agent step is prohibitive on consumer hardware. Most local-LLM agent demos fall off a performance cliff at the second hop: three agents at 16K context each, each re-decoding the prefix, hits the wall in seconds.
 
-## What emerges from this
+With Continuous Context, that prefix is decoded once and inherited by every fork. Measured across a real pipeline: **4.4× fewer tokens processed** than a prompt-rebuilding approach. Same harness code runs on a 32K cloud GPU or a 16K laptop — depth adapts to the hardware.
 
-Attention continuity changes what agents do with tools. We observe agents forming and testing hypotheses through iterative tool use — narrowing, discovering, hypothesizing, then verifying — not prompted, but emergent from the attention mechanics. Later search queries reference concepts **absent from the original question**, discovered during earlier reads and still physically present in the KV cache.
+<CardGroup cols={3}>
+  <Card title="Skill catalog" icon="book-open" href="/reference/skill-catalog">
+    Tool schemas and role descriptions live at the root once. Mixed-role agents (researcher, comparer, synthesizer) inherit the catalog via prefix-share and select skill by name — no per-agent schema injection.
+  </Card>
+  <Card title="Scratchpad extraction" icon="compress" href="/reference/scratchpad-extraction">
+    Compress fetched pages on an ephemeral fork before they enter the spine. The compressed summary persists in attention; raw text is freed.
+  </Card>
+  <Card title="Prefix sharing" icon="layer-group" href="/reference/prefix-sharing">
+    System prompt and shared root decoded once. Every fork from that root inherits at zero marginal cost.
+  </Card>
+</CardGroup>
 
-See [Concurrency Model — The Decision Boundary](/reference/concurrency#the-decision-boundary) for the full mechanism with receipts from real pipeline runs.
+### What emerges
 
-## Why this runs on your laptop (and phone)
+Attention continuity changes what agents do with tools. Watching real pipelines, agents form and test hypotheses through iterative retrieval — narrowing, discovering, hypothesizing, then verifying — emergent from the attention mechanics, not from prompted instruction. Later searches reference concepts **absent from the original question**, discovered during earlier reads and still physically present in the KV cache.
 
-Prefix sharing, scratchpad extraction, and position-aware forking aren't performance optimizations. Without them, Continuous Context Agents don't exist on consumer hardware — they'd need a datacenter. The efficiency is what makes the architecture **possible at 16K context.**
+<Tip>
+  Full mechanics with traces from real runs in [Continuous Context Spine](/reference/continuous-context-spine).
+</Tip>
 
-Three agents sharing a 16K window can't fit if each re-decodes 900 tokens of tool schemas. With prefix sharing, those tokens are decoded once. Every fork inherits them. Measured across a real pipeline: **4.4x fewer tokens processed** than a prompt-rebuilding approach.
+## Retrieval Interleaved Generation
 
-A single web search result can be 1,500–3,700 tokens. Scratchpad extraction attends to the full result on an ephemeral branch, compresses it via grammar-constrained generation, then prunes the branch. The compressed result stays; the ephemeral KV is freed.
+Classical RAG is a *pre-processing* step: embed the query, run a similarity search, concatenate top chunks into the prompt, generate. One shot, static context, no feedback loop between what the model reads and what it asks for next.
 
-ContextPressure reads available headroom and makes real-time orchestration decisions — how many sub-agents to spawn, when to extract partial findings, when to synthesize early. Same pipeline code on a 32K cloud GPU or a 16K laptop. Depth adapts to the hardware.
+**RIG inverts this.** Retrieval happens *inside* the generation loop. The agent emits a tool call → a `Source` returns chunks → a cross-encoder reranker scores them against the original query → results are prefilled into the agent's KV at the call position → the next decoded token attends over them and decides what to ask for next. Hypothesis-driven, not bag-of-keywords.
 
-Runs fully offline — no API keys, no network, no data leaving the device.
+<Tabs>
+  <Tab title="Classical RAG">
+    <Steps>
+      <Step title="Embed query">
+        Query passed through an embedding model → dense vector.
+      </Step>
+      <Step title="ANN search">
+        Vector similarity search over the index → top-K chunks by cosine distance.
+      </Step>
+      <Step title="Concatenate">
+        Build prompt: `system + retrieved_chunks + query`.
+      </Step>
+      <Step title="Generate">
+        One inference call. Done.
+      </Step>
+    </Steps>
+    Static context. The model never re-shapes retrieval based on what it learned.
+  </Tab>
+  <Tab title="Retrieval Interleaved Generation">
+    <Steps>
+      <Step title="Agent generates">
+        PRODUCE phase samples a tool call (`web_search`, `fetch_page`, `search_corpus`, custom).
+      </Step>
+      <Step title="Source returns chunks">
+        `Source<TCtx, TChunk>` queries the backend (web, corpus, vector store, database).
+      </Step>
+      <Step title="Reranker scores">
+        Cross-encoder scores chunks against the original query. `shouldProceed` floor gate (default `0.25`) drops irrelevant.
+      </Step>
+      <Step title="Prefill at call position">
+        SETTLE phase prefills the result into the agent's KV at the position where the call was made. Probe text optionally appended.
+      </Step>
+      <Step title="Attend and refine">
+        Next PRODUCE attends over the prefilled result. The agent's next query is shaped by what it just read.
+      </Step>
+    </Steps>
+    Dynamic. Each call is shaped by everything that came before in attention — including chunks the model has already cross-encoded against the original intent.
+  </Tab>
+</Tabs>
+
+The kit ships:
+
+<AccordionGroup>
+  <Accordion title="Pluggable Source abstraction" icon="puzzle-piece">
+    `Source<TCtx, TChunk>` is a small abstract base. Implement `name`, a `tools` getter, `bind(ctx)`, and `getChunks()`; inherit `createScorer(query)`. `WebSource` (Tavily-backed) and `CorpusSource` (filesystem-backed) ship with the kit; custom sources for vector stores, databases, JIRA, email, anything — all surface as Tools through the same path and all benefit from the rest of the RIG stack.
+  </Accordion>
+  <Accordion title="Cross-encoder reranker — four scoring roles" icon="layer-group">
+    The reranker (Qwen3-Reranker-0.6B by default, auto-downloaded by the reference harness) drives an `EntailmentScorer` with four distinct methods:
+
+    - **`scoreEntailmentBatch`** — texts vs. the original query. Boundary entailment for retrieved content.
+    - **`scoreRelevanceBatch`** — dual-score `min(toolQueryScore, originalQueryScore)`. Used in exploit mode when KV pressure tightens focus.
+    - **`scoreSimilarityBatch`** — texts vs. an arbitrary reference. Powers echo detection at delegation boundaries (the agent's own task as reference).
+    - **`shouldProceed`** — floor gate. Default `_entailmentFloor = 0.25`.
+
+    One model. Four roles. The reranker is RIG infrastructure, not a fetch optimization.
+  </Accordion>
+  <Accordion title="Dynamic prompt composition" icon="code">
+    Eta templates parameterize on harness state. `web-worker.eta` adapts on `it.agentCount > 1` (sibling-task awareness for parallel mode) and `it.taskIndex > 0` (build-on-prior-research for chain mode). Synthesis prompts adapt on convergence state and source presence. Prompts are functions of the harness's current situation, not fixed strings.
+  </Accordion>
+  <Accordion title="Pressure-aware tool gating" icon="gauge">
+    `DefaultAgentPolicy` denies non-terminal tool calls when KV is over budget. The terminal tool (`report`) always passes — the agent can finish even under pressure. The explore/exploit gate (`_exploreContext = 0.4` by default) flips the reranker's chunk-filtering mode when ≤40% of context remains. Retrieval is bounded by the available compute, not by guesswork.
+  </Accordion>
+  <Accordion title="Default delegation guards" icon="shield-halved">
+    Out of the box: research-before-delegate (`_minToolCalls = 2` — agents must do at least one search and one read before delegating), fetch-URL dedup, search-query dedup, and `echoThreshold = 0.8` for paraphrased recursion. Production failure modes prevented at the framework layer, not at every harness author's expense.
+  </Accordion>
+  <Accordion title="Continuous Context across delegation" icon="diagram-project">
+    `DelegateTool`'s warm path forks sub-agents from `parent: context.branch`. The sub-agent inherits the calling agent's full KV state — system prompt, tool schemas, prior search results, prior page reads — at zero marginal cost. The deeper an investigation goes, the richer the attention state at depth.
+  </Accordion>
+</AccordionGroup>
+
+## What you can build
+
+<CardGroup cols={3}>
+  <Card title="Research pipelines" icon="magnifying-glass" href="/reference/rig/pipeline">
+    Plan → research (web, corpus, custom sources) → bridge → synthesize → verify. The [RIG Pipeline reference](/reference/rig/pipeline) covers the architectural patterns.
+  </Card>
+  <Card title="DAG workflows" icon="diagram-project">
+    Investigate two leads in parallel, compare across N axes, fold into a synthesis. `examples/compare/` runs as a 6-node DAG.
+  </Card>
+  <Card title="Cron actors" icon="clock" href="/learn/quick-start">
+    Daily digests, weekly summaries, scheduled monitors. Stateless per-run or trunk-persistent across runs via Sessions.
+  </Card>
+  <Card title="Multi-turn assistants" icon="robot" href="/learn/sessions">
+    Persistent KV state across turns. Tomorrow's pool forks from yesterday's trunk and reads prior conversation through attention.
+  </Card>
+  <Card title="Code agents" icon="code">
+    Navigate codebases, trace dependencies, propose changes. `DelegateTool` recursively investigates with full KV inherited.
+  </Card>
+  <Card title="Custom sources" icon="database" href="/learn/sources">
+    Implement `Source<TCtx, TChunk>` for any backend — vector store, JIRA, email, SQL. Surfaces as tools through the same RIG stack.
+  </Card>
+</CardGroup>
 
 ## The stack
 
 ```
-Your application
+Your harness
     ↓
-@lloyal-labs/rig              Tools, data sources, pipeline building blocks
+@lloyal-labs/rig              Tools, sources, RIG building blocks
     ↓
-@lloyal-labs/lloyal-agents    Continuous Context Agent orchestration
+@lloyal-labs/lloyal-agents    Continuous Context agent orchestration
     ↓
 @lloyal-labs/sdk              Inference runtime: branches, sessions, KV cache
     ↓
 @lloyal-labs/lloyal.node      Native GPU backend (macOS · Linux · Windows)
 ```
 
-- **[Tools](/learn/tools)**: Anything an agent can call — databases, APIs, filesystems, web search, services. You define the interface.
-- **[Agent Pools](/learn/agents)**: Parallel agents on shared KV. System prompt decoded once, inherited by every fork.
-- **[Sources](/learn/sources)**: Any data backend — local files, web, vector stores, email, JIRA. Five-method contract.
-- **[Pipelines](/learn/pipelines)**: Compose generator stages into any workflow your application needs.
+- **[Tools](/learn/tools)** — anything an agent can call: databases, APIs, filesystems, web search, services. You define the interface; the model dispatches uniformly.
+- **[Agent Pools](/learn/agents)** — parallel agents on shared KV. Orchestrators (`parallel` / `chain` / `fanout` / `dag`) reshape the harness without changing the call.
+- **[Sources](/learn/sources)** — any data backend: web, corpus, vector store, database. Five-line contract; full RIG stack inherited.
+- **[Pipelines](/learn/pipelines)** — compose pool stages into research → synth → verify workflows.
 
 ## Start building
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="/learn/quick-start">
-    Your first agent with tools in 5 minutes.
+    Build a daily digest harness in five minutes — research, draft, deliver, all on a local model.
   </Card>
-  <Card
-    title="Thinking in lloyal"
-    icon="brain"
-    href="/learn/thinking-in-lloyal"
-  >
+  <Card title="Thinking in lloyal" icon="brain" href="/learn/thinking-in-lloyal">
     New to generators and structured concurrency? Start with the mental model.
   </Card>
 </CardGroup>

@@ -40,9 +40,10 @@ function* research(query: string): Operation<string> {
   const plan = JSON.parse(result.rawOutput);
 
   const pool = yield* agentPool({
-    tasks: plan.questions.map(q => ({ content: q })),
+    orchestrate: parallel(
+      plan.questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+    ),
     tools: [searchTool, reportTool],
-    systemPrompt: RESEARCH_PROMPT,
     terminalTool: "report",
   });
   return pool.agents.map(a => a.result);
@@ -220,7 +221,7 @@ const tw = yield* Trace.expect();
   </Step>
 
   <Step title="Read a pipeline">
-    Then `examples/deep-research-web/harness.ts` — plan, research, synthesize, evaluate. Each stage composes `agent` and `agentPool`.
+    Then `examples/compare/harness.ts` — research two subjects in parallel, compare across three axes concurrently, synthesize. A 6-node DAG composed with `agentPool({ orchestrate: dag(...) })`.
   </Step>
 
   <Step title="Run with --trace">

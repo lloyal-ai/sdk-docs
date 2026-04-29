@@ -65,10 +65,10 @@ This is tight. If agents hit large tool results (web pages, long search results)
 
 ### LLAMA_CTX_SIZE environment variable
 
-The reference harness reads `LLAMA_CTX_SIZE` from the environment:
+Examples read `LLAMA_CTX_SIZE` from the environment when no explicit `--n-ctx` flag is passed:
 
 ```bash
-LLAMA_CTX_SIZE=32768 npx tsx examples/deep-research-web/main.ts model.gguf
+LLAMA_CTX_SIZE=32768 npx tsx examples/react-agent/main.ts model.gguf --corpus ./docs
 ```
 
 If unset, defaults to 16384.

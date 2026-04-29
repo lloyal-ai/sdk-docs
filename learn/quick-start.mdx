@@ -1,195 +1,240 @@
 ---
 title: Quick Start
-description: Build your first tool-using agent in 5 minutes.
+description: Build a daily news digest agent that researches, drafts, and emails itself to you — in five minutes.
 ---
 
+Tomorrow morning, an email lands in your inbox. Subject: *Daily Digest — 2026-04-30*. Body: a one-line headline summarizing the day, three or four stories with sources, a one-line "watching" closer.
 
-You'll create an agent that uses tools, reasons about results, and produces findings — all running locally on your machine.
+You wrote ~100 lines of TypeScript on Monday. Now it runs on a cron, on a local model, costing $0 in inference. This page is how you build it.
 
 ## Prerequisites
 
-Two files:
+Four things you'll need on hand:
 
-- **Inference model** (GGUF, tool calling support): [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF) (~2.5 GB at Q4_K_M)
-- **Reranker model** (GGUF, for semantic search): [Qwen3-Reranker-0.6B](https://huggingface.co/QuantFactory/Qwen3-Reranker-0.6B-GGUF) (~400 MB at Q4_K_M)
+1. **Inference model** — any instruction-tuned GGUF with native tool calling. [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF) (~2.5 GB at Q4_K_M) is the reference choice.
+2. **Reranker** — a small cross-encoder (`Qwen3-Reranker-0.6B`, ~400 MB at Q4_K_M). Required for any RIG-based harness — it powers chunk reranking on `fetch_page`, semantic echo guards on delegation, entailment scoring against the original query, and explore/exploit decisions at tool-dispatch time. Treat it as standard RIG infrastructure, like the inference model itself.
+3. **Tavily API key** — free tier with 1k searches/month at [tavily.com](https://tavily.com).
+4. **Mailgun API key + domain** — free sandbox at [mailgun.com](https://www.mailgun.com); the sandbox domain works for emailing yourself.
 
-<Tip>
-Any instruction-tuned GGUF model with native tool support works — Qwen3, Llama 3.x, Mistral, and more. The framework detects the model's chat template and generates grammar constraints automatically.
-</Tip>
+Set the env vars:
+
+```bash
+export TAVILY_API_KEY="tvly-..."
+export MAILGUN_API_KEY="..."
+export MAILGUN_DOMAIN="sandbox-xxxxx.mailgun.org"
+export DIGEST_TO="you@example.com"
+```
 
 ## Install
 
 ```bash
-npm i @lloyal-labs/lloyal-agents @lloyal-labs/lloyal.node effection
+npm i @lloyal-labs/lloyal-agents @lloyal-labs/lloyal.node @lloyal-labs/sdk @lloyal-labs/rig effection
 ```
 
-## Create two simple tools
+## The harness
 
-Before connecting to databases or APIs, start with the basics. Here are two tools any agent can use:
-
-```typescript tools.ts
-import { Tool } from "@lloyal-labs/lloyal-agents";
+```typescript daily-digest.ts
+import { main, call } from "effection";
+import { createContext } from "@lloyal-labs/lloyal.node";
+import {
+  initAgents, agentPool, chain, Tool,
+} from "@lloyal-labs/lloyal-agents";
 import type { JsonSchema, Operation } from "@lloyal-labs/lloyal-agents";
+import { WebSource, TavilyProvider, reportTool } from "@lloyal-labs/rig";
 
-class CalculatorTool extends Tool<{ expression: string }> {
-  readonly name = "calculate";
-  readonly description = "Evaluate a math expression and return the result.";
+// ── Mailgun delivery tool — wraps the v3 Messages API ──────────
+class MailgunTool extends Tool<{ subject: string; html: string; to: string }> {
+  readonly name = "send_email";
+  readonly description = "Send an HTML email via Mailgun. Use this once the digest is fully drafted.";
   readonly parameters: JsonSchema = {
     type: "object",
     properties: {
-      expression: { type: "string", description: "Math expression to evaluate" },
+      subject: { type: "string", description: "Email subject line" },
+      html:    { type: "string", description: "Email body, HTML" },
+      to:      { type: "string", description: "Recipient address" },
     },
-    required: ["expression"],
+    required: ["subject", "html", "to"],
   };
 
-  *execute(args: { expression: string }): Operation<unknown> {
-    try {
-      const result = Function(`"use strict"; return (${args.expression})`)();
-      return { result: Number(result) };
-    } catch {
-      return { error: "Invalid expression" };
-    }
+  *execute(args: { subject: string; html: string; to: string }): Operation<unknown> {
+    const apiKey = process.env.MAILGUN_API_KEY!;
+    const domain = process.env.MAILGUN_DOMAIN!;
+    const auth = Buffer.from(`api:${apiKey}`).toString("base64");
+    const result: unknown = yield* call(() =>
+      fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Basic ${auth}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          from: `Daily Digest <digest@${domain}>`,
+          to: args.to,
+          subject: args.subject,
+          html: args.html,
+        }).toString(),
+      }).then(r => r.json()),
+    );
+    return result;  // { id, message: 'Queued. Thank you.' } on success
   }
 }
 
-class TimeTool extends Tool<Record<string, never>> {
-  readonly name = "current_time";
-  readonly description = "Get the current date and time.";
-  readonly parameters: JsonSchema = { type: "object", properties: {} };
+const TOPIC = process.argv[3] || "AI safety news this week";
+const RECIPIENT = process.env.DIGEST_TO || "me@example.com";
+const TODAY = new Date().toISOString().slice(0, 10);
 
-  *execute(): Operation<unknown> {
-    return { time: new Date().toISOString() };
-  }
-}
+const RESEARCH_PROMPT = `You are a researcher. Use web_search to surface 3-5 stories on the topic, then fetch_page on the highest-signal results to extract details. Anchor queries on the current year. When done, call report() with a concise list — each story: title, source URL, 2-sentence summary, key claim.`;
 
-export { CalculatorTool, TimeTool };
-```
-
-<Note>
-A Tool is a generator function that returns an Operation. It can do anything — call APIs, query databases, read files, run shell commands, even spawn more agents. These two are deliberately simple.
-</Note>
-
-## Run an agent
-
-```typescript agent.ts
-import { main, call } from "effection";
-import { createContext } from "@lloyal-labs/lloyal.node";
-import { initAgents, agent } from "@lloyal-labs/lloyal-agents";
-import { CalculatorTool, TimeTool } from "./tools";
-
-const MODEL = process.argv[2] || "model.gguf";
+const DIGEST_PROMPT = `Read the research turn above. Draft a daily digest in HTML:
+  <h2>headline summarizing the day in one line</h2>
+  <ol> for each story: <li><b>title</b> (<a href="url">source</a>) — 2-3 sentence summary, then bold key claim.</li>
+  <p><i>Watching:</i> one-line forward look.</p>
+Once the digest HTML is ready, call send_email() with subject "Daily Digest — ${TODAY}", html=<your draft>, to="${RECIPIENT}". Then call report() with "sent: <message_id>".`;
 
 await main(function* () {
-  // 1. Load model
-  const ctx = yield* call(() =>
-    createContext({ modelPath: MODEL, nCtx: 8192, nSeqMax: 4, typeK: "q4_0", typeV: "q4_0" }),
-  );
+  // 1. Load model + reranker
+  const ctx = yield* call(() => createContext({
+    modelPath: process.argv[2] || "model.gguf",
+    nCtx: 32768,
+    nSeqMax: 4,
+    typeK: "q4_0",
+    typeV: "q4_0",
+  }));
+  const reranker = yield* call(() => createContext({
+    modelPath: process.env.RERANKER_PATH || "reranker.gguf",
+    nCtx: 4096, nSeqMax: 1, typeK: "q4_0", typeV: "q4_0",
+    pooling: "mean",
+  }));
 
-  // 2. Initialize runtime
   yield* initAgents(ctx);
 
-  // 3. Run agent
-  const result = yield* agent({
-    systemPrompt: "You are a helpful assistant with access to a calculator and clock. Use your tools to answer precisely.",
-    task: "What is 7 * 13 + the current hour of the day?",
-    tools: [new CalculatorTool(), new TimeTool()],
+  // 2. Wire sources and tools
+  const web = new WebSource(new TavilyProvider(process.env.TAVILY_API_KEY!));
+  yield* web.bind({ reranker });
+
+  // 3. Two-step chain — research, then synth-and-deliver
+  const pool = yield* agentPool({
+    orchestrate: chain(
+      [
+        { content: `Topic: ${TOPIC}`,    systemPrompt: RESEARCH_PROMPT },
+        { content: `Compose and send.`,  systemPrompt: DIGEST_PROMPT },
+      ],
+      (spec, i) => ({
+        task: { ...spec, seed: 100 + i },
+        userContent: i === 0
+          ? `Step 1: research "${TOPIC}"`
+          : `Step 2: compose digest, send via Mailgun`,
+      }),
+    ),
+    tools: [...web.tools, new MailgunTool(), reportTool],
+    terminalTool: "report",
+    maxTurns: 10,
   });
 
-  console.log(result.result ?? result.rawOutput ?? "No output");
+  pool.agents.forEach((a, i) => {
+    console.log(`\n=== step ${i + 1} ===`);
+    console.log(a.result || "(no result)");
+  });
 });
 ```
 
-## Run it
-
 ```bash
-npx tsx agent.ts ./models/Qwen3-4B-Q4_K_M.gguf
+npx tsx daily-digest.ts ./models/Qwen3-4B-Instruct-Q4_K_M.gguf "AI safety news this week"
 ```
 
-The agent will:
-1. Call `calculate` with `7 * 13` → get `91`
-2. Call `current_time` → get the current hour
-3. Add them together and respond
-
-All inference runs locally. No API calls leave your machine.
+Open your inbox. The digest's there.
 
 ## What just happened
 
-<Steps>
-  <Step title="Model loaded into GPU memory">
-    `createContext` loads the GGUF file, allocates KV cache, and prepares the inference backend.
-  </Step>
-  <Step title="Runtime initialized">
-    `initAgents` sets up the inference session, branch store, and event infrastructure. This is the scope in which all agents run.
-  </Step>
-  <Step title="Agent created with tools">
-    `agent` handled everything: serialized tool schemas into the system prompt, created a shared KV prefix, forked an agent branch, and ran the tick loop. Each tool result was prefilled into the agent's KV cache before the next generation step.
-  </Step>
-  <Step title="Cleanup happened automatically">
-    When `agent` returned, all branches were pruned. No leaked GPU state. The `Agent` object holds the result — the GPU resources are already freed.
-  </Step>
-</Steps>
+When step 2's agent starts decoding, this is what its KV holds:
 
-## What you get back
-
-`agent` returns an `Agent` — a completed agent with everything it found:
-
-```typescript
-result.result        // findings from the terminal tool (if set)
-result.rawOutput     // raw model output from the final turn
-result.tokenCount    // total tokens generated
-result.toolCallCount // number of tool calls made
+```
+┌──────────────────────────────────────────────────┐
+│  System prompt + tool schemas                    │  ← prefilled at root
+├──────────────────────────────────────────────────┤
+│  user:   "Step 1: research 'AI safety…' "        │  ← extendRoot turn
+│  asst:   "Found 5 stories. (1) <title>… (2) …"   │  ← step 1's REAL report
+│          (URLs, summaries, claims — all of it)   │     in attention
+├──────────────────────────────────────────────────┤
+│  user:   "Step 2: compose digest, send via …"    │  ← step 2's task
+└──────────────────────────────────────────────────┘
+                ↑
+        step 2's agent forks here
 ```
 
-## Scale to parallel agents
+Step 2's agent **attends over** step 1's report on every token it generates. When it drafts the digest, the URLs, summaries, and key claims are already in its attention window — it doesn't need them re-fed in a prompt, doesn't need to be "told" what step 1 found, doesn't need re-tokenization. It composes from the source material directly, then calls `send_email` with the result, then `report`.
 
-When a single agent isn't enough — multiple sub-questions, different angles of investigation — use `agentPool`:
+You didn't write code to:
+- Extract step 1's findings into a string and stuff them into step 2's prompt
+- Re-tokenize the research (cost compounds in long chains and hurts wall time)
+- Manage the sequencing between steps
+- Clean up step 1's branch when step 2 starts
+- Wire up the model's grammar to disambiguate `web_search` from `fetch_page` from `send_email` from `report`
+
+The framework did all of it. **The chain orchestrator's `userContent` is what becomes the curated turn on the spine; `extendRoot` writes it; the tick loop's Phase 0 prefills it onto the spine root before step 2 forks.** See [Continuous Context](/reference/continuous-context-spine) for the full mechanics.
+
+## Make it yours
+
+The whole orchestration is one parameter — `orchestrate`. Drop in any of these to reshape the harness:
 
 ```typescript
-import { agentPool } from "@lloyal-labs/lloyal-agents";
+// Independent topics — fan out, no spine extension. Each agent runs on the same GPU.
+orchestrate: parallel(topics.map(t => ({ content: t, systemPrompt: RESEARCH_PROMPT, seed })))
 
-const pool = yield* agentPool({
-  tasks: [
-    { content: "What is the population of Tokyo?" },
-    { content: "What is the population of New York?" },
-    { content: "What is the population of London?" },
-  ],
-  tools: [searchTool, reportTool],
-  systemPrompt: "You are a research assistant. Use your tools to find accurate data.",
-  terminalTool: "report",
-});
+// A landscape pass that informs N parallel domain agents
+orchestrate: fanout(landscapeStep, domainSteps)
 
-// Each agent investigated independently, sharing the same GPU and KV prefix
-pool.agents.forEach(a => console.log(a.result));
+// Arbitrary dependency graph — research two topics in parallel, compare, synth
+orchestrate: dag([
+  { id: 'research_A', task: { content: topicA, systemPrompt: RESEARCH_PROMPT } },
+  { id: 'research_B', task: { content: topicB, systemPrompt: RESEARCH_PROMPT } },
+  { id: 'compare',    dependsOn: ['research_A', 'research_B'],
+    task: { content: 'Compare A vs B', systemPrompt: COMPARE_PROMPT } },
+  { id: 'synth',      dependsOn: ['compare'],
+    task: { content: 'Synthesize',     systemPrompt: SYNTH_PROMPT } },
+])
 ```
 
-All three agents fork from the same shared root — the system prompt and tool schemas are decoded once. They advance in the same GPU batch. When one finishes, its KV is freed for the others.
+The `dag` shape is what `examples/compare/` uses — a real harness that compares two subjects across multiple axes in 250 LOC. Read it after this quick-start.
 
-## Now connect to real data
+## What you didn't have to write
 
-These two tools are toys. The real power comes from connecting agents to your data:
+- A message-array threading scheme — agents read prior steps from KV directly
+- A token-budget tracker — the policy enforces soft and hard limits per agent
+- A retry-on-error path — tool errors prefill back as `{ error: "..." }` and the agent adapts
+- A teardown handler — Effection scope exits prune branches automatically
+- Any explicit thread/worker code — one fiber per agent, cooperatively scheduled, all on one `llama_context`
+
+## Next 5 minutes
 
 <CardGroup cols={2}>
-  <Card title="Search your files" icon="file-lines" href="/reference/rig/corpus-source">
-    Semantic search, grep, and file reading over local documents.
+  <Card title="Run it on a cron" icon="clock">
+    Wrap the `main()` in a node-cron entry. The harness is stateless per-run; each invocation starts fresh.
   </Card>
-  <Card title="Search the web" icon="globe" href="/reference/rig/web-source">
-    Web search + page fetching with any search provider (Tavily, Brave, or your own).
+  <Card title="Add a follow-up across days" icon="arrows-rotate" href="/learn/sessions">
+    Wrap in a `Session` and call `commitTurn(query, answer)` after the pool. Tomorrow's run forks from the trunk and reads yesterday's digest via attention — "give me the new news since yesterday's digest" works without re-prompting.
   </Card>
-  <Card title="Query databases" icon="database" href="/reference/rig/custom-sources">
-    Build a source that wraps SQL queries, vector search, or any API.
+  <Card title="DAG: compare two topics" icon="diagram-project" href="/examples/compare">
+    `examples/compare/` runs `research → compare-axes → synth` as a 6-node DAG. Same `agentPool` call, different `orchestrate` argument.
   </Card>
-  <Card title="Build any tool" icon="wrench" href="/learn/tools">
-    The Tool interface is one method. If you can write a function, you can build a tool.
+  <Card title="Recursive delegation" icon="code-branch" href="/learn/agents">
+    Add a `DelegateTool` to the `tools` array. Agents can call it to spawn parallel sub-agents that inherit the calling agent's full KV via warm-path forking — useful when one of your stories warrants a deeper dive.
   </Card>
 </CardGroup>
 
-## Next
+## What to read next
 
 <CardGroup cols={2}>
-  <Card title="Tools" icon="wrench" href="/learn/tools">
-    Deep dive into the Tool abstraction — sync, async, recursive, and terminal tools.
-  </Card>
   <Card title="Thinking in lloyal" icon="brain" href="/learn/thinking-in-lloyal">
-    If `function*` and `yield*` look unfamiliar, start here.
+    `function*` and `yield*` look unfamiliar at first. After 30 minutes they read like sequential code with automatic cleanup.
+  </Card>
+  <Card title="Agents and pools" icon="users" href="/learn/agents">
+    The full options walkthrough on `agentPool` — when to reach for each, and how `useAgent` / `useAgentPool` differ.
+  </Card>
+  <Card title="Pipelines" icon="diagram-project" href="/learn/pipelines">
+    Compose multiple pool stages into research → synth → verify pipelines.
+  </Card>
+  <Card title="Continuous Context" icon="memory" href="/reference/continuous-context-spine">
+    The KV spine — the mechanism that made step 2 see step 1's research without re-prompting. The thing that makes recursive delegation work in production.
   </Card>
 </CardGroup>

@@ -1,281 +1,113 @@
 ---
 title: "Build a Custom Pipeline"
-description: "Fork the reference harness, add/remove stages, modify routing, and configure sources."
+description: "Fork the compare harness, reshape the DAG, swap sources, and customize budget and recovery."
 ---
 
-This guide walks through forking the reference deep-research harness and customizing it. The harness in `examples/deep-research-web/harness.ts` implements a five-stage pipeline:
+This guide walks through forking the [compare example](/examples/compare) and customizing it. Compare is a 6-node DAG that researches two subjects in parallel, compares them across three axes, and synthesizes — and it demonstrates the [skill catalog](/reference/skill-catalog) convention for mixed-role pools. It's a good fork target because the topology is non-trivial (multi-parent edges, multi-child convergence) but small enough to read end-to-end.
 
-```
-Plan -> Research -> [Bridge ->] Synthesize -> Eval
-```
+For the architectural patterns behind these customizations, see the [RIG Pipeline reference](/reference/rig/pipeline).
 
-Each stage is a generator function that yields Effection operations. You compose stages by calling them in sequence from the entry point (`handleQuery`). Adding, removing, or reordering stages is a matter of editing that sequence.
-
-## Fork the reference harness
-
-Copy the harness and its task prompts:
+## Fork the harness
 
 ```bash
-cp -r examples/deep-research-web/ examples/my-pipeline/
+cp -r examples/compare/ examples/my-harness/
 ```
 
 The key files:
 
 | File | Purpose |
-|------|---------|
-| `harness.ts` | Stage functions, routing logic, entry point |
+|---|---|
+| `harness.ts` | DAG topology, orchestrator, pool setup |
 | `main.ts` | CLI entry, model loading, source configuration |
-| `tui.ts` | Terminal UI event renderer |
-| `tasks/*.md` | Prompt files for each stage |
+| `prompts/*.eta` | Per-skill system prompts + skill catalog |
+| `tui/` | Ink TUI (optional — drop this if you don't need a renderer) |
 
-The harness imports sources as a typed array and is source-agnostic. You configure which sources to use in `main.ts`.
+The harness is **source-agnostic** — sources are loaded in `main.ts` and passed to `handleCompare`. The DAG topology is hard-coded in `harness.ts` and easy to reshape.
 
-## Stage anatomy
+## Reshape the DAG
 
-Every stage is a generator function with the signature:
-
-```typescript
-function* stageName(
-  inputs...,
-  opts: WorkflowOpts,
-): Operation<StageResult> {
-  // Emit start event
-  yield* opts.events.send({ type: 'stage:start', ... });
-  const t = performance.now();
-
-  // Do work (create branches, run agents, generate)
-  const result = yield* withSharedRoot(
-    { systemPrompt: PROMPT.system, tools: toolkit.toolsJson },
-    function*(root) {
-      const pool = yield* useAgentPool({ ... });
-      return pool;
-    },
-  );
-
-  // Emit done event with timing
-  const timeMs = performance.now() - t;
-  yield* opts.events.send({ type: 'stage:done', timeMs, ... });
-
-  return result;
-}
-```
-
-The pattern: emit an event, do work inside `withSharedRoot`, emit a completion event. The `withSharedRoot` scope guarantees the shared root branch is pruned when the stage ends, freeing KV for the next stage.
-
-## Add a new stage
-
-Suppose you want a "fact-check" stage that runs after synthesis but before eval. The stage takes the synthesis output and runs agents to verify individual claims.
-
-### 1. Create the task prompt
-
-Create `tasks/factcheck.md`:
-
-```markdown
-You are a fact-checking agent. Verify each claim against the source material.
-For each claim, determine: supported, unsupported, or partially supported.
----
-Claims to verify:
-{{claims}}
-
-Source passages:
-{{sourcePassages}}
-```
-
-The `---` separator splits system prompt (above) from user content (below). The `loadTask()` helper parses this format.
-
-### 2. Load the prompt
-
-In `harness.ts`, add:
+The DAG is just an array of `DAGNode` objects:
 
 ```typescript
-const FACTCHECK = loadTask('factcheck');
+const nodes: DAGNode[] = [
+  { id: "research_web_X",   task: { ... }, userContent: `Research findings on ${x}:` },
+  { id: "research_corp_Y",  task: { ... }, userContent: `Research findings on ${y}:` },
+  ...axes.map<DAGNode>((axis, i) => ({
+    id: `compare_axis_${i + 1}`,
+    dependsOn: ["research_web_X", "research_corp_Y"],
+    task: { ... },
+    userContent: `Comparison along axis "${axis}":`,
+  })),
+  { id: "synthesize", dependsOn: ["compare_axis_1", "compare_axis_2", "compare_axis_3"], task: { ... } },
+];
 ```
 
-### 3. Write the stage function
+To customize:
+
+- **Add a node** — append a new entry. List its dependencies in `dependsOn`. The orchestrator awaits each declared dep's task before spawning.
+- **Remove a node** — delete the entry, drop its id from any downstream `dependsOn` lists.
+- **Reshape edges** — change `dependsOn`. The orchestrator will handle whatever topology you declare (acyclic only — cycles aren't checked but will deadlock).
+
+`userContent` controls what gets prefilled onto the spine when the node completes. If you don't want a node's result to flow downstream as conversation history, omit `userContent`.
+
+## Add a fact-check stage
+
+Suppose you want a fact-check stage between `compare_axis_*` and `synthesize`. Verify each axis's claims against the source material before synthesizing:
 
 ```typescript
-function* factCheck(
-  claims: string,
-  sourcePassages: string,
-  opts: WorkflowOpts,
-): Operation<{ verified: string; timeMs: number }> {
-  const content = FACTCHECK.user
-    .replace('{{claims}}', claims)
-    .replace('{{sourcePassages}}', sourcePassages);
-
-  yield* opts.events.send({ type: 'factcheck:start' });
-  const t = performance.now();
-
-  const pool = yield* agentPool({
-    tasks: [{ content }],
-    tools: [...opts.sources.flatMap(s => s.tools), reportTool],
-    systemPrompt: FACTCHECK.system,
-    terminalTool: 'report',
-    maxTurns: opts.maxTurns,
-    trace: opts.trace,
-  });
-
-  const timeMs = performance.now() - t;
-  yield* opts.events.send({ type: 'factcheck:done', timeMs });
-
-  return { verified: pool.agents[0]?.result || '', timeMs };
-}
-```
-
-### 4. Wire into the entry point
-
-In `handleQuery`, insert the call between synthesis and eval:
-
-```typescript
-// Research -> Synthesize -> Fact-check -> Eval -> Finalize
-const res = yield* research(r.questions, query, opts, r.maxTurns);
-const s = yield* synthesize(res.agentFindings, res.sourcePassages, query, opts);
-
-// New stage
-const fc = yield* factCheck(
-  s.pool.agents[0]?.result || '',
-  res.sourcePassages,
-  opts,
-);
-
-// Use fact-checked output for eval and trunk promotion
-const findings = fc.verified || s.pool.agents[0]?.result || '';
-```
-
-### 5. Add event types
-
-Extend `WorkflowEvent` in `tui.ts` with the new events:
-
-```typescript
-export type StepEvent =
-  | { type: 'factcheck:start' }
-  | { type: 'factcheck:done'; timeMs: number }
-  // ... existing events
-```
-
-## Remove a stage
-
-To skip the eval stage, remove the `diverge` + `evaluate` calls from `handleQuery` and return the synthesis result directly:
-
-```typescript
-const s = yield* synthesize(res.agentFindings, res.sourcePassages, query, opts);
-const findings = s.pool.agents[0]?.result || '';
-
-// Skip eval, go straight to finalize
-if (warm) {
-  yield* appendTurn(query, findings, opts);
-} else if (findings) {
-  yield* promoteTrunk(query, findings, opts);
-}
-```
-
-Each stage is independent. Removing one does not affect others as long as the data flow connects.
-
-## Modify routing logic
-
-The `route()` function maps plan output to pipeline behavior:
-
-```typescript
-function route(plan: PlanResult, query: string, maxTurns: number): Route {
-  const research = plan.questions.filter(q => q.intent === 'research');
-  const clarify = plan.questions.filter(q => q.intent === 'clarify');
-
-  if (research.length === 0 && clarify.length > 0)
-    return { type: 'clarify', questions: clarify.map(q => q.text) };
-
-  const questions = research.length > 0 ? research.map(q => q.text) : [query];
-  const effectiveMaxTurns = questions.length === 1 ? maxTurns * 2 : maxTurns;
-  return { type: 'research', questions, maxTurns: effectiveMaxTurns };
-}
-```
-
-The logic: all-clarify returns to user, empty array passes the original query through, research questions get dispatched. Mixed intent drops clarify questions.
-
-To add a new route type (e.g., "direct answer" for simple questions):
-
-```typescript
-type Route =
-  | { type: 'clarify'; questions: string[] }
-  | { type: 'research'; questions: string[]; maxTurns: number }
-  | { type: 'direct' };
-
-function route(plan: PlanResult, query: string, maxTurns: number): Route {
-  // Add intent classification in PlanTool grammar
-  if (plan.questions.length === 0 && plan.directAnswer)
-    return { type: 'direct' };
-
-  // ... existing logic
-}
-```
-
-Then handle the new route in `handleQuery`:
-
-```typescript
-if (r.type === 'direct') {
-  // Single agent, no pool
-  const result = yield* agent({
-    systemPrompt: DIRECT_PROMPT,
-    task: query,
-    schema: answerSchema,
-  });
-  yield* call(() => session.commitTurn(query, result.rawOutput));
-  return { type: 'done' };
-}
-```
-
-## Change plan prompts
-
-`PlanTool` uses a grammar-constrained generation pass. The grammar enforces the output shape (`{ questions: [{ text, intent }] }`), while the prompt controls the decomposition strategy.
-
-Edit `tasks/plan.md` to change how queries are broken down:
-
-```markdown
-You decompose research queries into focused sub-questions.
-Each sub-question should target a single concept or claim.
-Classify as "research" (answerable via search) or "clarify" (needs user input).
-Return an empty array if the query is focused enough to investigate directly.
----
-Analyze this query and produce up to {{count}} sub-questions.
-
-Query: {{query}}
-```
-
-The `{{count}}` placeholder is replaced with `opts.agentCount` at runtime. Keep sub-question count aligned with agent count to avoid idle agents.
-
-To change the maximum number of sub-questions, adjust `agentCount` in `main.ts`:
-
-```typescript
-const AGENT_COUNT = 5;  // More agents = more parallel questions
-```
-
-## Configure budget and recovery
-
-Context pressure, time limits, and scratchpad recovery are configured on the policy's `budget` and `recovery` options. The defaults (`softLimit: 1024`, `hardLimit: 128`) work for most pipelines.
-
-```typescript
-const researchPolicy = new DefaultAgentPolicy({
-  budget: {
-    context: { softLimit: 2048 },  // Reserve more KV for downstream work
-    time: { softLimit: 480_000, hardLimit: 600_000 },  // nudge 8min, kill 10min
+...axes.map<DAGNode>((axis, i) => ({
+  id: `factcheck_axis_${i + 1}`,
+  dependsOn: [`compare_axis_${i + 1}`],
+  task: {
+    content: `Verify claims in the comparison along axis "${axis}".`,
+    systemPrompt: renderTemplate(FACTCHECK, { axis }),
+    seed: 4000 + i,
   },
-  recovery: { prompt: REPORT },
-});
-
-const pool = yield* agentPool({
-  // ...
-  policy: researchPolicy,
-});
+  userContent: `Fact-check on axis "${axis}":`,
+})),
+{
+  id: "synthesize",
+  dependsOn: ["factcheck_axis_1", "factcheck_axis_2", "factcheck_axis_3"],   // ← updated
+  task: { ... },
+},
 ```
 
-Higher `softLimit` means agents are nudged earlier, preserving room for synthesis and eval. Lower `softLimit` lets agents run longer but risks synthesis running out of KV.
+Add a `FACTCHECK` template under `prompts/` and load it like the other templates. If the fact-check skill needs additional tools beyond the existing palette, list them in the skill catalog so the model knows they exist.
 
-For reporter sub-pools (bridge agents), use the default policy — they only need one `report()` call and don't need recovery or time limits.
+## Change skills
 
-The general rule: research pools get a policy with budget + recovery; reporter/synthesis pools use the default.
+Each per-spec `systemPrompt` starts with `Apply the **<skill>** skill.` The skills are described in `prompts/skill-catalog.eta`, which is what gets prefilled onto `queryRoot`:
+
+```eta
+The agent system message will tell you which skill to apply. Use only that skill's tools.
+
+## Skills
+
+### web_research
+- Tools: web_search, fetch_page, report
+- Use to investigate topics on the live web.
+
+### compare
+- Tools: report
+- Use when comparing two researched subjects along an axis.
+
+### synthesize
+- Tools: report
+- Use when integrating multiple comparisons into a final report.
+```
+
+To add a new skill:
+
+1. Document it in `skill-catalog.eta` with its tool subset and intended use.
+2. Add the per-skill system prompt template to `prompts/`.
+3. Load and render it in `harness.ts`.
+4. The new skill's nodes prepend `Apply the **<your_skill>** skill.` in their system prompt.
+
+The schemas for the new skill's tools must already be in the toolkit at `withSharedRoot({ toolsJson })` — only role-level skill selection happens via prompt; tool registration happens in `main.ts` when sources are bound.
 
 ## Configure sources
 
-Sources are configured in `main.ts` and passed to the harness as an array:
+Sources are configured in `main.ts` and passed as a typed array. Compare's flow is `web + corpus`, but the `Source` contract is uniform — swap in any combination:
 
 ```typescript
 const sources: Source<SourceContext, Chunk>[] = [];
@@ -289,23 +121,79 @@ if (corpusDir) {
 if (process.env.TAVILY_API_KEY) {
   sources.push(new WebSource(new TavilyProvider()));
 }
+// Add custom sources here — vector stores, databases, JIRA, anything that
+// implements Source<TCtx, TChunk>. See /learn/sources.
 ```
 
-Sources run sequentially during research. After source N completes, its branches are pruned and KV is freed for source N+1. Between sources, a bridge structures discoveries as durable context for the next source.
+If you only want one research lane, drop the corresponding research node from the DAG and remove the `dependsOn` on it from descendants. The orchestrator scales to whatever topology you declare.
 
-Source order matters: put the source with the strongest grounding first. The bridge carries structured discoveries forward, so later sources build on earlier findings rather than re-covering the same ground.
+## Choose an orchestrator
 
-## Warm vs cold paths
-
-The harness handles both cold (first query, no prior context) and warm (follow-up query, trunk exists) paths:
+Compare inlines a custom `dagWithEvents` orchestrator that emits per-node lifecycle events for the Ink TUI. If you don't need a TUI, use the framework's stock `dag()`:
 
 ```typescript
-const warm = !!opts.session.trunk;
-const res = warm
-  ? yield* warmResearch(r.questions, query, opts, r.maxTurns)
-  : yield* research(r.questions, query, opts, r.maxTurns);
+import { dag } from "@lloyal-labs/lloyal-agents";
+
+const pool = yield* withSharedRoot({ ... }, function* (queryRoot) {
+  return yield* agentPool({
+    orchestrate: dag(nodes),       // ← stock orchestrator, no TUI hooks
+    tools, parent: queryRoot, terminalTool: "report", maxTurns,
+  });
+});
 ```
 
-The cold path (`research`) wraps everything in `withSharedRoot`. The warm path (`warmResearch`) skips the outer root since it builds on the existing trunk. After completion, cold promotes a new trunk via `promoteTrunk`; warm appends to the existing trunk via `appendTurn`.
+Other shapes if your pipeline isn't a DAG:
 
-This branching is not a mode switch to eliminate -- it reflects the physical difference between starting from position 0 (no prior tokens in KV) and continuing from an existing position (prior conversation tokens present in KV).
+- `chain([spec1, spec2, ...], (spec, i) => { ... })` — sequential stages with `extendRoot` between them
+- `parallel([spec1, spec2, ...])` — independent agents on shared KV
+- `fanout(landscapeSpec, [domainSpec1, ...])` — landscape pass that informs N parallel domain agents
+
+See [Concurrency](/reference/concurrency) for the full orchestrator catalog.
+
+## Configure budget and recovery
+
+Context pressure, time limits, and scratchpad recovery are configured on the policy:
+
+```typescript
+const policy = new DefaultAgentPolicy({
+  budget: {
+    context: { softLimit: 2048 },                            // nudge with 2k cells left
+    time: { softLimit: 480_000, hardLimit: 600_000 },        // nudge 8min, kill 10min
+  },
+  recovery: { prompt: REPORT },                              // grammar-constrained extraction
+});
+
+const pool = yield* agentPool({
+  // ...
+  policy,
+});
+```
+
+Higher `softLimit` means agents are nudged earlier, preserving room for downstream stages. Lower `softLimit` lets agents run longer but risks downstream stages running out of KV.
+
+The general rule: research pools (broad investigation, longer running) get a policy with budget + recovery. Reporter or synthesis pools that just need one `report()` call use the default policy.
+
+## Warm vs cold
+
+If your harness is reused across queries (e.g. a REPL), wire `Session.commitTurn` to extend the trunk:
+
+```typescript
+const result = yield* handleCompare(session, sources, reranker, opts);
+if (result.answer) {
+  yield* call(() => session.commitTurn(query, result.answer));
+}
+```
+
+Tomorrow's query forks from `session.trunk` and reads yesterday's Q&A through KV attention. See [Sessions](/learn/sessions) for the multi-turn lifecycle.
+
+## Customize the TUI
+
+If you want to keep the Ink TUI but render a different topology, the renderer is parameterized by `dag:topology` and `dag:node:spawn` events emitted by `dagWithEvents`. Adjust the layout in `tui/DagCanvas.tsx` to handle your new node shapes. If you don't need a TUI, delete `tui/` and drop the `emitDagEvent` plumbing from `harness.ts`.
+
+## See also
+
+- [Compare example](/examples/compare) — the canonical fork target
+- [RIG Pipeline reference](/reference/rig/pipeline) — architectural patterns for retrieval-interleaved harnesses
+- [Skill Catalog](/reference/skill-catalog) — the convention for mixed-role pools
+- [Concurrency](/reference/concurrency) — orchestrator catalog and the five-phase tick loop
+- [Sources](/learn/sources) — implementing `Source<TCtx, TChunk>` for custom backends

@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "lloyal-agents",
+  "name": "lloyal HDK",
   "logo": {
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
@@ -65,6 +65,8 @@
         "reference/agent-policy",
         "reference/search-strategy",
         "reference/prefix-sharing",
+        "reference/skill-catalog",
+        "reference/continuous-context-spine",
         "reference/grammar-and-ordering",
         "reference/scratchpad-extraction",
         "reference/prompt-composition",
@@ -79,7 +81,7 @@
         "reference/rig/web-source",
         "reference/rig/custom-sources",
         "reference/rig/bridges",
-        "reference/rig/deep-research"
+        "reference/rig/pipeline"
       ]
     },
     {
@@ -96,8 +98,7 @@
       "pages": [
         "examples/react-agent",
         "examples/reflection",
-        "examples/supervisor",
-        "examples/deep-research"
+        "examples/compare"
       ]
     }
   ],

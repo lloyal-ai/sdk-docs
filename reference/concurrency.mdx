@@ -1,30 +1,33 @@
 ---
 title: "Concurrency Model"
-description: "Four-phase tick loop, decision boundary, shared resources, and recursive agent spawning."
+description: "Five-phase tick loop, decision boundary, shared resources, and recursive agent spawning."
 ---
 
 The agent pool runs multiple agents on shared GPU compute through a single `llama_context`. This document covers the execution model, how it enables multi-hop reasoning, how resources are shared across nested pools, and how tools can spawn sub-agents recursively.
 
-## Four-Phase Tick Loop
+## Tick Loop
 
-The agent pool runs a four-phase tick loop:
+The agent pool runs a five-phase tick loop. Phase 0 drains orchestrator-queued work (new agent spawns and spine extensions); the remaining four phases drive per-agent decode and tool dispatch:
 
 ```
-PRODUCE  — sample all active agents, collect tool calls
-COMMIT   — batch-decode produced tokens (single GPU call)
-SETTLE   — drain settled tool results, batch prefill, reset grammars
-DISPATCH — execute collected tool calls sequentially via scoped() + call()
+PHASE 0 — SPAWN+EXTEND  drain pendingSpawns and pendingExtends, batched into one store.prefill
+PHASE 1 — PRODUCE       sample all active agents, collect tool calls
+PHASE 2 — COMMIT        batch-decode produced tokens (single GPU call)
+PHASE 3 — SETTLE        drain settled tool results, batch prefill, reset grammars
+PHASE 4 — DISPATCH      execute collected tool calls (currently sequential)
 ```
 
-**PRODUCE** samples one token per agent per tick via `produceSync()`. Each token is accumulated into `rawOutput` and pushed to `entries` for COMMIT. After accumulation, `agent.observe(ctx)` runs a partial parse (`parseChatOutput` with `isPartial: true`) to detect which tool the agent is generating — this populates `agent.currentTool` as soon as the tool name appears in the stream, before the turn completes. When `produceSync()` returns `isStop: true`, `agent.finalize(ctx)` runs the strict parse — extracting tool calls, content, and reasoning from the complete turn. Terminal tools (e.g. `report`) are intercepted immediately — findings extracted, agent marked done, never dispatched. Non-terminal tool calls are collected for the DISPATCH phase.
+**Phase 0 (SPAWN+EXTEND)** is the rendezvous point with the orchestrator fiber. The orchestrator runs in its own spawn (a child of the pool scope), sibling to the tick loop. When orchestrator code calls `ctx.spawn(spec)` or `ctx.extendRoot(userContent, assistantContent)`, those requests don't issue native calls directly — they queue into `pendingSpawns` / `pendingExtends` and suspend on an Effection [`action()`][action]. The tick fiber drains both queues at the start of each tick, batches the prefills (new agent suffixes + spine extension turns) into a single `store.prefill(prefillPairs)` call, and resolves the suspended actions with their delta token counts. This keeps the **single-fiber discipline** invariant: every native `store.prefill` / `store.commit` call comes from the tick loop's fiber, never from the orchestrator's. Concurrent `extendRoot` calls in flat-mode DAGs (multiple sibling tasks completing simultaneously) cannot race against each other or against per-agent setup — they all serialize through the next Phase 0 drain.
+
+**Phase 1 (PRODUCE)** samples one token per agent per tick via `produceSync()`. Each token is accumulated into `rawOutput` and pushed to `entries` for COMMIT. After accumulation, `agent.observe(ctx)` runs a partial parse (`parseChatOutput` with `isPartial: true`) to detect which tool the agent is generating — this populates `agent.currentTool` as soon as the tool name appears in the stream, before the turn completes. When `produceSync()` returns `isStop: true`, `agent.finalize(ctx)` runs the strict parse — extracting tool calls, content, and reasoning from the complete turn. Terminal tools (e.g. `report`) are intercepted immediately — findings extracted, agent marked done, never dispatched. Non-terminal tool calls are collected for the DISPATCH phase.
 
 `agent.currentTool` is used by `shouldExit` to protect agents mid-generation of the terminal tool from time-budget kills. See [Agent Policy — shouldExit](/reference/agent-policy#shouldexit--pre-generate-kill-gate).
 
-**COMMIT** batch-decodes all produced tokens in a single `store.commit(entries)` call — one GPU dispatch for all agents.
+**Phase 2 (COMMIT)** batch-decodes all produced tokens in a single `store.commit(entries)` call — one GPU dispatch for all agents.
 
-**SETTLE** drains the `settledBuffer` — tool results from the previous tick's DISPATCH. Each result is pressure-gated: if it exceeds headroom, the result is rejected and the agent is marked done. Surviving results are batch-prefilled via `store.prefill()`. If the dispatched tool defines a `probe` (optional getter on the Tool class), the probe text is prefilled immediately after the tool result — nudging the model to reason in prose before the lazy grammar triggers the next tool call. Then agents transition back to `generating` with grammar state reset.
+**Phase 3 (SETTLE)** drains the `pendingSettled` buffer — tool results from the previous tick's DISPATCH. Each result is pressure-gated: if it exceeds headroom, the result is rejected and the agent is marked done. Surviving results are batch-prefilled via `store.prefill()`. If the dispatched tool defines a `probe` (optional getter on the Tool class), the probe text is prefilled immediately after the tool result — nudging the model to reason in prose before the lazy grammar triggers the next tool call. Then agents transition back to `generating` with grammar state reset.
 
-**DISPATCH** executes collected tool calls sequentially. Before each tool, the pool creates a fresh `ContextPressure` snapshot (reflecting KV consumed by SETTLE) and evaluates `policy.shouldExplore(agent, pressure)` to determine explore vs exploit mode. The `explore` flag and `pressurePercentAvailable` are passed to the tool via `ToolContext`. Each tool runs inside `scoped()` + `call()`:
+**Phase 4 (DISPATCH)** executes collected tool calls. Before each tool, the pool creates a fresh `ContextPressure` snapshot (reflecting KV consumed by SETTLE) and evaluates `policy.shouldExplore(agent, pressure)` to determine explore vs exploit mode. The `explore` flag and `pressurePercentAvailable` are passed to the tool via `ToolContext`. Each tool runs inside `scoped()` + `call()`:
 
 ```typescript
 try {
@@ -114,11 +117,11 @@ KV pressure governs agent lifecycle at four points:
 
 1. **Prefill gate** — at pool setup, the pool computes the total suffix cost (formatted chat tokens) for all agents. If the total exceeds headroom, agents are dropped from the end until the remaining suffixes fit. Dropped agents are marked `done` before generating a single token. This is the primary mechanism that limits sub-agent count in nested pools — outer agents' live branches consume headroom that the inner pool's prefill gate measures against.
 
-2. **PRODUCE hard-cut** — agents are killed before `produceSync()` when remaining drops below `hardLimit`. Pure safety net.
+2. **PRODUCE hard-cut** — agents are killed before `produceSync()` when remaining drops below `hardLimit`. The kill reserves the `hardLimit` cells for `recoverInline` to extract findings via the eager-report grammar. Terminal-tool protection (`agent.currentTool === terminalTool`) yields to critical — mid-report agents get killed if they push past the threshold, and recovery takes over with a budget-aware prompt.
 
 3. **PRODUCE soft-cut** — non-terminal tool calls are denied when headroom is negative. Terminal tools (e.g. `report`) always pass.
 
-4. **SETTLE rejection** — tool results that would cross the `softLimit` floor are rejected and the agent is marked done.
+4. **SETTLE deferral** — tool results that would cross the `softLimit` floor are deferred to the next tick, giving siblings a chance to free KV (parallel) or the spine to accept the next turn (chain). If `deferred` items have no active siblings, the stall-breaker consults `policy.onSettleReject` — which returns a budget-aware nudge (replacing the oversized result) or idle (drop + recovery). Distinct drop reasons: `pressure_settle_reject` (policy-driven) vs `settle_stall_break` (hook absent).
 
 ### Event Channel
 
@@ -128,13 +131,59 @@ Inner agent events flow through the same `Events` channel. The TUI or event coll
 
 Each pool level runs its own `formatChatSync()` call, producing its own grammar, lazy grammar triggers, and parser spec. The inner pool's agents have their own tool schemas. `parseChatOutput()` uses the per-agent format stored at setup time. There is no cross-contamination between inner and outer tool parsing.
 
+### `RootFmt` — catalog mode
+
+When `withSharedRoot` is given a `systemPrompt` + `toolsJson`, it formats the chat header once at setup, prefills it onto the root, and stashes the resulting `FormatConfig` (parser, grammar, format, triggers) on the `RootFmt` Effection context:
+
+```typescript
+export const RootFmt = createContext<FormatConfig | null>('lloyal.rootFmt', null);
+```
+
+`setupAgent` probes `RootFmt` when initializing each per-spec agent. If it's set, the agent skips re-emitting tool schemas in its own suffix — they're already in attention via metadata-only KV prefix-share — and inherits the parser/grammar/format/triggers directly from the root setup. The agent's per-spec `systemPrompt` formats as `[system, user]` (a second system in lineage; the model handles role shifts), tokenizes onto the agent's branch as the suffix.
+
+When `RootFmt` is unset (`withSharedRoot` called without `systemPrompt`), each agent emits its own tools in its own suffix as in earlier versions of the framework — the pool runs in "non-shared mode" and `extendRoot` writes to `warmParent` (the harness-supplied root) rather than the inner withSharedRoot's root. This is the right default for chains that need spine extensions to persist past pool exit.
+
+See [Skill Catalog](/reference/skill-catalog) for the prompt convention this enables.
+
+### `dag()` is Task-as-Future
+
+The `dag(nodes)` orchestrator uses [Effection's Task as Future][task] pattern to coordinate dependencies. Each node body runs as a child Task; a node's dependencies are encoded as `yield* tasks.get(depId)!` in its own body — `Task<T>` extends `Future<T>` extends `Operation<T>`, so awaiting another task IS the cross-task rendezvous primitive.
+
+```typescript
+const tasks = new Map<string, Task<void>>();
+
+function* runNode(n: DAGNode): Operation<void> {
+  for (const depId of n.dependsOn ?? []) {
+    yield* tasks.get(depId)!;   // rendezvous on dep's Task
+  }
+  const agent = yield* ctx.waitFor(yield* ctx.spawn(n.task));
+  if (agent.result && n.userContent) {
+    yield* ctx.extendRoot(n.userContent, agent.result);
+  }
+}
+
+for (const n of nodes) {
+  tasks.set(n.id, yield* spawn(() => runNode(n)));
+}
+for (const t of tasks.values()) yield* t;
+```
+
+What this buys versus the older recursive-spawnNode-with-mutable-Set pattern:
+
+- **No mutable bookkeeping.** "Node N is done" IS the Task; the runtime tracks lifetimes for free.
+- **No double-spawn race.** Each node spawns exactly once (one entry per `tasks.set`). The earlier pattern checked a `completed` set then spawned, leaving a window where a sibling root completing between check-and-spawn could trigger duplicate spawns.
+- **Failure propagates through dep edges automatically.** If node A throws, every task awaiting A's Task receives the same error, and structured concurrency halts the rest.
+
+[task]: https://frontside.com/effection/api/v4/Task
+[action]: https://frontside.com/effection/api/v4/action
+
 ### `ContextPressure` Across Nested Pools
 
 Both inner and outer pools create `ContextPressure` snapshots from the same `SessionContext`. Each snapshot captures `nCtx`, `cellsUsed`, `remaining`, and derives `percentAvailable` (0–100 integer). `cellsUsed` increments on every decode and prefill, and **decrements** when branches are pruned (each branch subtracts its unique cells: `position - fork_head`). This means pressure is live — when an inner pool completes and its branches are pruned, `remaining` and `percentAvailable` recover. The outer pool's next DISPATCH sees the freed headroom. `percentAvailable` drives `policy.shouldExplore()` — the explore/exploit decision at each DISPATCH, which can flip back to explore as pressure recovers. Two thresholds govern behavior:
 
-- **`softLimit`** (default 1024) — remaining KV floor for new work. SETTLE rejects tool results that would cross this floor. PRODUCE hard-cuts non-terminal tool calls when headroom is negative. Set to account for downstream pool needs (reporters, verification).
+- **`softLimit`** (default 1024) — remaining KV floor for new work. SETTLE defers tool results that would cross this floor. PRODUCE nudges non-terminal tool calls with a word-budget message ("within N words") when headroom is negative. Terminal tools pass.
 
-- **`hardLimit`** (default 128) — crash-prevention floor. Agents killed immediately before `produceSync()`. Pure safety net.
+- **`hardLimit`** (default 512) — crash-prevention floor AND recovery-extraction reserve. Agents killed immediately before `produceSync()` when `remaining < hardLimit`; `recoverInline` runs in the reserved cells. Must be >= context's `nBatch` — the pool validates at startup and throws `Invariant Violation` if not.
 
 <Tip>
 For recursive pipelines, the outer pool's `softLimit` must account for the inner pool's KV consumption. An inner pool with 3 agents, each consuming ~500 tokens of shared prefix + tool results, needs ~1500 tokens of headroom. Set the outer pool's `softLimit` accordingly.
@@ -181,24 +230,23 @@ When the inner `useAgentPool` does `yield* Ctx.expect()`, it gets the same `Sess
 
 ### Inner pool execution
 
-The inner `withSharedRoot` forks from the calling agent's branch (warm path) or creates a fresh root (cold path). Inner agents inherit the calling agent's full attention state — every prior tool call, every tool result, every token generated. The inner `useAgentPool` runs the same four-phase tick loop as the outer pool. Inner agents share the same `BranchStore` and compete for the same KV cache slots.
+The inner `withSharedRoot` forks from the calling agent's branch (warm path) or creates a fresh root (cold path). Inner agents inherit the calling agent's full attention state — every prior tool call, every tool result, every token generated. The inner `useAgentPool` runs the same five-phase tick loop as the outer pool. Inner agents share the same `BranchStore` and compete for the same KV cache slots.
 
 ```typescript
 *execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
   const { toolMap, toolsJson } = this._toolkit;
 
   return yield* withSharedRoot(
-    { systemPrompt, tools: toolsJson, parent: context?.branch },
-    //                                 ^^^^^^^^^^^^^^^^^^^^^^
+    { systemPrompt, toolsJson, parent: context?.branch },
+    //                          ^^^^^^^^^^^^^^^^^^^^^^
     // Warm path: fork from calling agent's branch (2 tokens vs ~760)
     function*(root) {
       const pool = yield* useAgentPool({
-        tasks: args.questions.map(q => ({
-          systemPrompt,
-          content: q,
-          tools: toolsJson,
-          parent: root,
-        })),
+        root,
+        orchestrate: parallel(
+          args.questions.map(q => ({ content: q, systemPrompt })),
+        ),
+        toolsJson,
         tools: toolMap,
         terminalTool: 'report',
         pruneOnReport: true,     // free KV mid-pool
@@ -216,7 +264,7 @@ The inner `withSharedRoot` forks from the calling agent's branch (warm path) or 
 
 When `parent` is provided, the shared root forks from the parent branch and prefills only the turn separator — **2 tokens** instead of ~760 for the full system prompt. The system prompt is already in the parent's KV. Sub-agents attend over the same physical key-value pairs at shared positions.
 
-Hard-cut recovery is controlled by the policy via `onRecovery()`. When agents are killed by KV pressure before calling `report()`, the policy decides per-agent whether to extract. The pool forks from the agent's branch, generates with a grammar-constrained schema, and captures partial findings. Configure via `DefaultAgentPolicyOpts.recovery`.
+Hard-cut recovery is controlled by the policy via `onRecovery(agent, pressure)`. When agents are killed by KV pressure before calling `report()`, the policy decides per-agent whether to extract, and renders its extraction prompt with the live `<%= it.budget %>` so the model knows its token ceiling. The pool generates against the agent's own branch (no fork — the agent's full research context is already present), captures findings via JSON-schema grammar, and emits diagnostic trace events (`pool:recoveryProduce` + `pool:recoveryReport` / `pool:recoveryFailed`). Configure via `DefaultAgentPolicyOpts.recovery`.
 
 ### Result propagation
 
@@ -265,15 +313,28 @@ Level 2: Deeper research agents (if a level-1 agent calls research)
          Same prompt. Same tools. Same prescribed process.
 ```
 
-One toolkit at every level — composed by `agentPool()`:
+One toolkit at every level — `DelegateTool` makes the toolkit self-referential by running its own `agentPool()` when called:
 
 ```typescript
-const pool = yield* agentPool({
-  tasks: questions.map(q => ({ content: q })),
-  tools: [...source.tools, reportTool],
+import { DelegateTool } from '@lloyal-labs/rig';
+
+const baseTools = [...source.tools, reportTool];
+
+const delegate = new DelegateTool({
+  name: 'research',
   systemPrompt: RESEARCH_PROMPT,
+  poolOpts: { tools: [...baseTools, /* nested delegate added below */], terminalTool: 'report' },
+});
+// Note: for unbounded depth, share a single DelegateTool reference so its
+// poolOpts.tools list includes itself — the pattern compares to the
+// classic Y-combinator self-reference.
+
+const pool = yield* agentPool({
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+  ),
+  tools: [...baseTools, delegate],
   terminalTool: 'report',
-  recursive: { name: 'research' },   // self-referential delegation
 });
 ```
 
@@ -300,7 +361,7 @@ For a single-level recursive tool with up to 3 inner agents and `maxTurns: 6`, a
 
 ## Receipts
 
-Actual tool trajectories from `deep-research` corpus runs against a DOJ antitrust complaint document. Three parallel agents, `AGENT_COUNT=3`, `MAX_TOOL_TURNS=20`, Qwen3-4B-Instruct, `nCtx=16384`. Query: *"How does the DOJ connect Apple's iPod-era success to its current monopoly practices?"*
+Actual tool trajectories from a corpus-research harness run against a DOJ antitrust complaint document. Three parallel agents, `AGENT_COUNT=3`, `MAX_TOOL_TURNS=20`, Qwen3-4B-Instruct, `nCtx=16384`. Query: *"How does the DOJ connect Apple's iPod-era success to its current monopoly practices?"*
 
 <Tabs>
   <Tab title="A0 — hypothesis-driven grep">

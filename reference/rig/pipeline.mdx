@@ -1,0 +1,182 @@
+---
+title: "RIG Pipeline Reference"
+description: "Reference architecture for retrieval-interleaved harnesses — Plan, Research, Bridge, Synthesize, Eval. Patterns to compose, not a fixed recipe."
+---
+
+A RIG pipeline composes the HDK's primitives — `agentPool`, `useAgent`, `withSharedRoot`, `Source`, `diverge` — into a research → synthesize → verify workflow. This reference describes the architectural patterns that consistently appear when building such pipelines, so you can pick the ones you need and skip the rest.
+
+## Pipeline Shape
+
+A representative pipeline:
+
+```
+Plan → Research → [Bridge →] Findings Eval → Synthesize → Eval
+```
+
+Not every pipeline needs every stage. A simple harness might be `Research → Synthesize`. A multi-source pipeline adds `Bridge` between sources. A high-stakes pipeline adds `Findings Eval` to detect agent disagreement and `Eval` to detect synthesis instability.
+
+Each stage runs inside the [tick loop](/reference/concurrency). Stages share two coordination patterns:
+
+1. **Single `withSharedRoot` at the harness level.** The catalog (system prompt + tool palette) is amortized at `queryRoot` once. All pools and post-pool `useAgent` calls inherit it via prefix-share. See [Skill Catalog](/reference/skill-catalog).
+2. **Spine accumulation via `extendRoot`.** Per-stage findings are prefilled onto `queryRoot` as user+assistant turns. Downstream agents fork `queryRoot` and attend to the accumulated spine via KV — no re-encoding, no message threading.
+
+## Stage Walkthrough
+
+<Steps>
+  <Step title="Plan">
+    Grammar-constrained decomposition of the user query into sub-questions.
+
+    A `PlanTool` uses `agent()` with a JSON-schema grammar to produce structured output:
+
+    ```json
+    {
+      "questions": [
+        { "text": "What are the mechanisms of X?", "intent": "research" },
+        { "text": "Can you clarify what you mean by Y?", "intent": "clarify" }
+      ]
+    }
+    ```
+
+    A small router inspects the result:
+
+    - **All research** — decompose into parallel sub-questions
+    - **All clarify** — return clarification questions to the user (no research run)
+    - **Mixed** — drop clarify, dispatch research
+    - **Empty** — passthrough; investigate the original query directly (often with double `maxTurns` since it runs solo)
+  </Step>
+  <Step title="Research">
+    The harness calls `agentPool()` with the planned sub-questions. Agents interleave retrieval and generation — searching, reading, hypothesizing, searching again — inside the [tick loop](/reference/concurrency#tick-loop).
+
+    All agents within a source run concurrently on shared GPU compute. When multiple sources are configured, sources run sequentially, each getting the full KV budget.
+
+    ```typescript
+    for (const source of opts.sources)
+      yield* source.bind({ reranker });
+
+    for (const source of opts.sources) {
+      const scorer = source.createScorer(query);
+      const baseTools = [...source.tools, reportTool];
+      const delegate = new DelegateTool({
+        name: 'web_research',
+        extractTasks: (a) => a.questions as string[],
+        systemPrompt: RESEARCH_PROMPT,
+        poolOpts: { tools: baseTools, terminalTool: 'report', scorer },
+      });
+
+      const pool = yield* agentPool({
+        orchestrate: parallel(
+          activeQuestions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+        ),
+        tools: [...baseTools, delegate],
+        terminalTool: 'report',
+        policy: researchPolicy,
+        pruneOnReport: true,
+        scorer,
+        echoThreshold: 0.8,
+      });
+      // Bridge between sources (see next step)
+    }
+    ```
+
+    **Entailment scoring** steers agents toward productive threads. The `scorer` (created per source, per query via `source.createScorer()`) uses the reranker as a real-time cross-encoder. Three checks at the delegation boundary:
+
+    - **Tool-result content** — reranked by entailment score before the agent sees it, demoting lexically similar but semantically irrelevant chunks.
+    - **Delegation entailment** — proposed sub-questions scored against the original query. Questions that don't entail are filtered before spawning inner pools.
+    - **Echo detection** — surviving questions scored against the agent's own task. If all are paraphrases (similarity > `echoThreshold`), the delegation is rejected — the agent is nudged to report instead of re-delegating.
+
+    **Content boundaries** behave differently based on explore/exploit mode (`DefaultAgentPolicy._exploreContext`, default `0.4`):
+
+    - **Explore mode** (default, KV > 40% available): scored against the **agent's local query only** — preserving serendipitous discovery of bridging content.
+    - **Exploit mode** (KV ≤ 40% available): `scoreRelevanceBatch` applies dual scoring — `min(toolQueryScore, originalQueryScore)` per chunk. Tightens focus when headroom is low.
+
+    The policy evaluates `shouldExplore()` at each DISPATCH with a fresh pressure snapshot — so an agent that starts exploring can transition to exploit mid-run as KV fills. Agents killed by context pressure are recovered via `policy.onRecovery()` (a confabulation guard skips agents with insufficient context).
+
+    Recursive delegation returns both primary results and `nestedResults` — inner sub-agent findings that would otherwise be lost when the outer agent cherry-picks during its own report.
+  </Step>
+  <Step title="Bridge">
+    Runs between sources when multiple sources are configured. A single agent structures discoveries from the completed source into three tiers: what was established, where evidence is incomplete, what was not covered. These discoveries condition the next source's sub-questions. See [Bridges](/reference/rig/bridges).
+  </Step>
+  <Step title="Findings Eval">
+    Grammar-constrained evaluation of whether research agents agree on key claims. Returns `{ converged, conflicts[] }`.
+
+    A contradiction exists when one agent claims something IS the case with specific evidence while another claims it is NOT. Different coverage angles are complementary, not contradictory. An agent with direct quotes makes a stronger claim than one reporting "not found."
+
+    ```typescript
+    const findingsEval = yield* evaluateFindings(res.agentFindings, opts);
+    // { converged: false, conflicts: ["Agent 1 claims X with quotes. Agent 2 found no X."] }
+    ```
+
+    This drives the next step — when findings converge, synthesis is straightforward; when they diverge, the synthesizer gets grounding tools.
+  </Step>
+  <Step title="Synthesize">
+    A synthesis agent integrates findings into a structured report with source attribution.
+
+    The synthesizer's prompt and tools adapt to inference state via an [Eta template](/reference/prompt-composition):
+
+    - **Converged findings** — report-only toolkit, standard synthesis prompt. No grounding needed.
+    - **Diverged findings** — grounding tools (search, read_file, grep) added to toolkit, conflicts section in prompt. The synthesizer reads the source directly to resolve each conflict — no majority voting.
+    - **Multi-source** — source passages section included with citation instructions.
+    - **Single-source** — source passages section omitted entirely.
+  </Step>
+  <Step title="Eval">
+    Multi-branch semantic comparison via `diverge()`.
+
+    Fork N branches from a shared frontier. Generate independently with the same verify prompt. Check convergence:
+
+    ```typescript
+    const samples = yield* diverge({
+      prompt,
+      attempts: opts.verifyCount,
+      params: { temperature: 0.7 },
+    });
+    ```
+
+    A grammar-constrained evaluator compares the responses:
+
+    - **Converged** — branches agree, the model is confident
+    - **Diverged** — branches disagree, the answer needs refinement
+  </Step>
+</Steps>
+
+## Reasoning Modes
+
+For the Research stage specifically, two orchestration shapes are common:
+
+- **Sequential (chain)** — each task forks `queryRoot` at its current extended position; on report, `extendRoot` writes the curated `[user, asst]` turn onto `queryRoot`; the next task sees prior findings via KV attention. Worker prompts can adapt on `taskIndex > 0` to target gaps and named entities from earlier findings rather than re-investigating. Synth runs as a post-pool `useAgent` that forks the fully-extended `queryRoot`.
+
+- **Parallel (flat)** — all tasks fork `queryRoot` simultaneously; no spine extension; each agent runs independently with sibling-task awareness in its prompt. Findings are concatenated into the synth's user message as text. Synth runs as a `useAgent` but consumes findings via text injection, not via attention.
+
+Pick sequential when later tasks should genuinely build on earlier ones. Pick parallel when sub-questions are independent and time-budget headroom is plentiful.
+
+## Warm vs Cold
+
+Pipelines typically handle both cold starts (first query) and warm continuations (follow-up questions) automatically:
+
+<Tabs>
+  <Tab title="Cold (first query)">
+    Research runs inside `withSharedRoot`. A shared prefix branch is created, agents fork from it. After synthesis, `promoteTrunk` creates a new trunk with the query-response pair for future warm turns.
+  </Tab>
+  <Tab title="Warm (follow-up)">
+    Prior conversation tokens are physically present in the trunk's KV cache. Research runs against the existing trunk via a warm path — sources bind and execute without creating a new shared root. After synthesis, `appendTurn` prefills the new query-response pair onto the existing trunk.
+  </Tab>
+</Tabs>
+
+## Defaults to start with
+
+Most pipelines work with these defaults:
+
+- **3 research agents** in parallel, **20 max tool turns** per agent.
+- **3 verify branches** in `Eval` if used.
+- **Context size 16384 tokens** (configurable per-harness).
+- `DefaultAgentPolicy` with `softLimit: 1024`, `_minToolCalls: 2`, `echoThreshold: 0.8`, `_exploreContext: 0.4`.
+
+Tighten or loosen these as your harness matures. The framework's defaults err on the side of agents reporting earlier rather than running out of KV.
+
+## See also
+
+- [Skill Catalog](/reference/skill-catalog) — the catalog convention for mixed-role pools
+- [Continuous Context Spine](/reference/continuous-context-spine) — how `extendRoot` and prefix sharing compose
+- [Concurrency Model](/reference/concurrency) — the five-phase tick loop and DAG orchestration
+- [Sources](/learn/sources) — the `Source<TCtx, TChunk>` contract
+- [Bridges](/reference/rig/bridges) — multi-source pipelines
+- [Compare](/examples/compare) — a worked DAG harness using these patterns

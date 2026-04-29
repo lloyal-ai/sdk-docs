@@ -49,9 +49,10 @@ interface EntailmentScorer {
 const scorer = source.createScorer(query);
 
 const pool = yield* agentPool({
-  tasks: questions.map(q => ({ content: q })),
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+  ),
   tools: [...source.tools, reportTool],
-  systemPrompt: RESEARCH_PROMPT,
   terminalTool: 'report',
   scorer,   // propagated to all depths via ToolContext
 });

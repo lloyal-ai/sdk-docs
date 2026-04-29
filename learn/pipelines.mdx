@@ -24,9 +24,10 @@ function* plan(query: string): Operation<string[]> {
 
 function* research(questions: string[]): Operation<string[]> {
   const pool = yield* agentPool({
-    tasks: questions.map(q => ({ content: q })),
+    orchestrate: parallel(
+      questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+    ),
     tools: [searchTool, fetchTool, reportTool],
-    systemPrompt: RESEARCH_PROMPT,
     terminalTool: "report",
   });
   return pool.agents.map(a => a.result).filter(Boolean);
@@ -34,9 +35,10 @@ function* research(questions: string[]): Operation<string[]> {
 
 function* synthesize(findings: string[], query: string): Operation<string> {
   const pool = yield* agentPool({
-    tasks: [{ content: buildSynthPrompt(findings, query) }],
+    orchestrate: parallel([
+      { content: buildSynthPrompt(findings, query), systemPrompt: SYNTH_PROMPT },
+    ]),
     tools: [...groundingTools, reportTool],
-    systemPrompt: SYNTH_PROMPT,
     terminalTool: "report",
   });
   return pool.agents[0]?.result || "";
@@ -123,9 +125,13 @@ function* codeReview(diff: string): Operation<string> {
 
   // Stage 2: One agent per file — each searches the codebase for context
   const reviews = yield* agentPool({
-    tasks: files.map(f => ({ content: `Review changes to ${f.path}:\n${f.diff}` })),
+    orchestrate: parallel(
+      files.map(f => ({
+        content: `Review changes to ${f.path}:\n${f.diff}`,
+        systemPrompt: REVIEW_PROMPT,
+      })),
+    ),
     tools: [grepTool, readFileTool, reportTool],
-    systemPrompt: REVIEW_PROMPT,
     terminalTool: "report",
   });
 
@@ -150,9 +156,8 @@ function* supportTicket(ticket: string): Operation<{ response: string; confident
 
   // Stage 2: Search knowledge base for relevant articles
   const pool = yield* agentPool({
-    tasks: [{ content: ticket }],
+    orchestrate: parallel([{ content: ticket, systemPrompt: KB_PROMPT }]),
     tools: [kbSearchTool, kbReadTool, reportTool],
-    systemPrompt: KB_PROMPT,
     terminalTool: "report",
   });
 
@@ -228,9 +233,10 @@ const findings = yield* reduce(
   { sections: [], questions },
   function*(acc, source, i) {
     const pool = yield* agentPool({
-      tasks: acc.questions.map(q => ({ content: q })),
+      orchestrate: parallel(
+        acc.questions.map(q => ({ content: q, systemPrompt: sourcePromptFor(source) })),
+      ),
       tools: [...source.tools, reportTool],
-      systemPrompt: sourcePromptFor(source),
       terminalTool: "report",
     });
 

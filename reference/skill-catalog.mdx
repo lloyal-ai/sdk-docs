@@ -1,0 +1,163 @@
+---
+title: Skill Catalog
+description: A prompt convention for tool amortization without role coupling — list tools grouped by skill at the root systemPrompt, request a skill explicitly per-agent.
+---
+
+A pool's agents typically share a tool palette but want **different roles**. Compare's DAG runs `web_research`, `corpus_research`, `compare`, and `synth` agents in one pool — every agent sees the full tool palette in its KV, but each should only use the subset that matches its role. The naive options either duplicate tool schemas across N agents (tokens wasted) or force every agent to share the same role (no mixed-role pools).
+
+The skill catalog convention solves both problems with a single prompt-level pattern and one framework knob.
+
+## The convention
+
+**Catalog at root.** Pass the harness's `withSharedRoot` a `systemPrompt` that lists tools grouped by skill, plus a rule: *"Use only the tools for a given skill when that particular skill is requested explicitly."* Pass `toolsJson` alongside so the chat template emits the tool schemas embedded in the same root system block. Tool schemas appear once in physical KV; every agent forking from the root inherits them via metadata-only KV prefix-share.
+
+**Skill assignment per-agent.** Each agent's per-spec `systemPrompt` opens with `Apply the **<skill>** skill.` followed by its task-specific guidance. The model reads two systems in lineage — the catalog at root, the role assignment in the agent's own suffix — and selects tools accordingly.
+
+```
+queryRoot KV
+  <|im_start|>system
+  You are an assistant working as part of a multi-agent workflow. You have
+  access to the tools below, grouped by skill. You should only use the
+  tools for a given skill when that particular skill is requested
+  explicitly in your task instructions.
+
+  # Skills
+
+  ## web_research
+  Tools: web_search, fetch_page
+  Use when: …
+
+  ## corpus_research
+  Tools: grep, read_file, search
+  Use when: …
+
+  ## compare
+  Tools: report
+  Use when: …
+
+  ## synth
+  Tools: report
+  Use when: …
+
+  # Tool selection rule
+  …
+
+  Examples of GOOD tool selection:
+  - System: "Apply the web_research skill. Subject: …"
+    Tool sequence: web_search → fetch_page → report
+
+  Examples of BAD tool selection:
+  - System: "Apply the corpus_research skill. …"
+    WRONG: assistant calls web_search.
+    (web_search belongs to web_research, not corpus_research.)
+
+  [tool schemas embedded by chat template]
+  <|im_end|>
+
+Agent A (forks queryRoot):
+  inherits queryRoot prefix via metadata-only KV share
+  <|im_start|>system
+  Apply the **web_research** skill.
+  <task-specific guidance, PROCESS, etc.>
+  <|im_end|>
+  <|im_start|>user
+  <task>
+  <|im_end|>
+  <|im_start|>assistant
+```
+
+Two systems in lineage. The model sees the catalog (which tools belong to which skill, when each is appropriate) at the root, and the role assignment (`Apply the web_research skill`) in the agent's own suffix. Tool dispatch is grammar-restricted to whatever the catalog at root surfaced — same set across all agents — but the per-agent role channels the model toward the correct subset.
+
+## The framework knob
+
+`withSharedRoot` accepts `systemPrompt` and `toolsJson`:
+
+```typescript
+import { withSharedRoot, agentPool, parallel, createToolkit } from '@lloyal-labs/lloyal-agents';
+
+const tools = [...sources.flatMap(s => s.tools), reportTool];
+const toolkit = createToolkit(tools);
+const skillCatalog = renderTemplate(SKILL_CATALOG_TEMPLATE, { /* hasWeb, hasCorpus, ... */ });
+
+yield* withSharedRoot(
+  {
+    parent: session.trunk ?? undefined,
+    systemPrompt: skillCatalog,         // ← catalog at root
+    toolsJson: toolkit.toolsJson,       // ← tool schemas in the same root block
+  },
+  function* (queryRoot) {
+    return yield* agentPool({
+      orchestrate: dag(nodes),          // mixed-role DAG (research → compare → synth)
+      tools,
+      parent: queryRoot,
+      terminalTool: 'report',
+    });
+  },
+);
+```
+
+What happens at setup:
+1. `withSharedRoot` formats `[{ role: 'system', content: skillCatalog }]` with `{ tools: toolsJson, addGenerationPrompt: false, enableThinking: false }`.
+2. Tokenizes the result and prefills onto the root branch — the catalog text plus tool-schema tokens land in physical KV exactly once.
+3. The resulting `FormatConfig` (parser, grammar, format, triggers) is stashed on the `RootFmt` Effection context.
+4. The body runs (`agentPool`, etc.). Every agent forking from the inner root inherits the catalog+tools prefix via `Branch.forkSync`'s metadata-only KV sharing.
+5. `setupAgent` probes `RootFmt` and skips re-emitting the tool schemas in each agent's suffix — they're already in attention via prefix-share. The agent's per-spec `systemPrompt` formats as `[system, user]` (a second system in lineage) and tokenizes onto the agent's branch.
+
+When `RootFmt` is set, agents inherit the parser/grammar/format/triggers from the root setup — no per-spawn re-formatting. When it isn't (no `systemPrompt` on the wrapping `withSharedRoot`), agents emit their own tools in their own suffix as before.
+
+## When to use
+
+- **Mixed-role parallel pools.** Compare's DAG, any harness with multiple agent kinds drawing from one tool palette. Tools amortized at root; per-agent roles preserved.
+- **Tool-heavy chains.** A 5-step research chain re-emitting tool schemas per spawn wastes ~700 tokens per step. Catalog at root drops that to zero past step 1.
+- **You want the model to enforce skill discipline soft-side.** The catalog's GOOD/BAD examples teach the boundary. The model can still call any tool (grammar permits all), but the role assignment + examples push it toward the right subset.
+
+## When not to use
+
+- **Single-role pools where every spawn has the exact same role.** The catalog convention helps when roles differ; if they don't, just put the role in `agentPool({ systemPrompt })` without the skill scoping (or skip the convention entirely — re-emitting tools per spawn is fine for small pools).
+- **Hard tool gating.** This is a soft enforcement — the model can ignore the rule. If you need to *prevent* certain tool calls per agent, you need per-agent grammar restriction (a future evolution; not currently exposed).
+
+## Where to look
+
+- `examples/compare/prompts/skill-catalog.eta` — concrete catalog with four skills (`web_research`, `corpus_research`, `compare`, `synth`) and literal few-shot transcripts.
+- `examples/compare/harness.ts` — see how `SKILL_CATALOG` and `toolkit.toolsJson` are passed to `withSharedRoot`.
+- `packages/agents/src/shared-root.ts` — `SharedRootOptions.systemPrompt` / `toolsJson` and the `RootFmt` setting flow.
+- `packages/agents/src/context.ts` — `RootFmt` context definition.
+- `packages/agents/src/agent-pool.ts` — `setupAgent`'s shared-mode branch (the path that skips per-spec tool emission when `RootFmt` is present).
+
+## Worked example: compare's catalog
+
+Compare runs four roles in one pool — two research workers (web + corpus), three compare-axis workers, one synth. The catalog at root teaches the model the skill→tools mapping; each per-role prompt prepends `Apply the <skill> skill.`:
+
+```
+prompts/research-web.eta:1     Apply the **web_research** skill.
+prompts/research-corpus.eta:1  Apply the **corpus_research** skill.
+prompts/compare.eta:1          Apply the **compare** skill.
+prompts/synthesize.eta:1       Apply the **synth** skill.
+```
+
+The catalog opens:
+
+```
+You are an assistant working as part of a multi-agent workflow. You have
+access to the tools below, grouped by skill. You should only use the
+tools for a given skill when that particular skill is requested
+explicitly in your task instructions.
+```
+
+Then lists the four skills, the rule, and concrete few-shot transcripts (GOOD: `web_research` agent calls `web_search → fetch_page → report`; BAD: `corpus_research` agent calls `web_search` — wrong skill). The compare and synth agents have only `report` in their skill, so they correctly avoid retrieval — synthesizing from the prior research turns already in conversation history.
+
+## Spine compatibility
+
+Putting the catalog on the harness's outer `withSharedRoot` (rather than on `agentPool` itself) is load-bearing for any harness whose synth runs *post-pool* via a separate `useAgent`. `agentPool({ systemPrompt })` would create a *nested* `withSharedRoot` whose root is pruned at pool exit — chain extensions land on that transient inner root, and a post-pool `useAgent({ parent: queryRoot })` would fork an empty branch.
+
+When the catalog lives on the harness's outer `withSharedRoot`, `agentPool` runs in non-shared mode internally; `extendRoot` writes onto the outer queryRoot; synth's `useAgent` forks the same root and sees the chain extensions via attention. See [Continuous Context Spine](/reference/continuous-context-spine) for the spine mechanics.
+
+For pools whose synth runs as a *node inside the same `agentPool`* (compare's DAG), this distinction doesn't matter — synth's branch forks from the same spineRoot the chain extensions land on.
+
+## See also
+
+- [Concurrency](/reference/concurrency) — how `setupAgent` reads `RootFmt` and the five-phase tick loop
+- [Prefix Sharing](/reference/prefix-sharing) — the metadata-only KV share that makes the catalog amortization free
+- [Continuous Context Spine](/reference/continuous-context-spine) — why catalog placement matters for spine-via-attention patterns
+- [RIG Pipeline](/reference/rig/pipeline) — reference architecture using this convention
+- [Compare](/examples/compare) — worked example with the catalog over a 6-node DAG

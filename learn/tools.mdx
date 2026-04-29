@@ -127,19 +127,28 @@ When `terminalTool` is set and the agent has other tools, the agent must call at
 
 A tool can spawn sub-agents. `execute()` runs inside the pool's Effection scope, so it has access to all contexts — `Ctx`, `Store`, `Events`. This is how a `web_research` tool dispatches sub-investigators.
 
-You don't need to write recursive tools manually. `agentPool` builds one for you when you pass `recursive`:
+You don't need to write recursive tools manually. `DelegateTool` from `@lloyal-labs/rig` is a tool whose `execute()` runs `agentPool` internally — drop one into your toolkit and the parent agent can delegate by calling it like any other tool:
 
 ```typescript
-const pool = yield* agentPool({
-  tasks: questions.map(q => ({ content: q })),
-  tools: [searchTool, fetchTool, reportTool],
+import { DelegateTool } from "@lloyal-labs/rig";
+
+const delegate = new DelegateTool({
+  name: "web_research",
+  description: "Spawn parallel sub-agents to investigate sub-questions.",
+  extractTasks: (args) => args.questions as string[],
   systemPrompt: RESEARCH_PROMPT,
-  terminalTool: "report",
-  recursive: {
-    name: "web_research",
-    description: "Spawn parallel sub-agents to investigate sub-questions.",
-    extractTasks: (args) => args.questions as string[],
+  poolOpts: {
+    tools: [searchTool, fetchTool, reportTool],
+    terminalTool: "report",
   },
+});
+
+const pool = yield* agentPool({
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+  ),
+  tools: [searchTool, fetchTool, reportTool, delegate],
+  terminalTool: "report",
 });
 ```
 
@@ -147,7 +156,7 @@ The inner pool shares the same GPU and KV cache. Sub-agents inherit the calling 
 
 ## Passing tools
 
-Pass Tool instances directly to `agent` or `agentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map.
+Pass Tool instances directly to `agent` or `agentPool`. The HDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map.
 
 ```typescript
 const result = yield* agent({

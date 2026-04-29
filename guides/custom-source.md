@@ -145,18 +145,24 @@ const db = await connectDatabase(connectionString);
 const source = new DatabaseSource(db);
 yield* source.bind({ reranker });
 
+const SYSTEM = `You are a database analyst. Use query() to run SQL
+  and describe() to inspect table schemas. Report your findings.`;
+
+const delegate = new DelegateTool({
+  name: 'investigate',
+  description: 'Delegate sub-questions to parallel agents.',
+  extractTasks: (args) => args.questions as string[],
+  systemPrompt: SYSTEM,
+  poolOpts: { tools: [...source.tools, reportTool], terminalTool: 'report' },
+});
+
 const pool = yield* agentPool({
-  tools: source.tools,
-  systemPrompt: `You are a database analyst. Use query() to run SQL
-    and describe() to inspect table schemas. Report your findings.`,
-  tasks: questions,
-  terminalTool: { name: 'report', tool: reportTool },
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: SYSTEM })),
+  ),
+  tools: [...source.tools, reportTool, delegate],
+  terminalTool: 'report',
   maxTurns: 10,
-  recursive: {
-    name: 'investigate',
-    description: 'Delegate sub-questions to parallel agents.',
-    extractTasks: (args) => args.questions as string[],
-  },
   policy: new DefaultAgentPolicy({ recovery: { prompt: REPORT } }),
   pruneOnReport: true,
 });
@@ -179,10 +185,12 @@ if (process.env.TAVILY_API_KEY) {
 // In the pipeline:
 for (const source of sources) {
   yield* source.bind({ reranker });
+  const sysPrompt = PROMPTS[source.name] ?? DEFAULT_PROMPT;
   const pool = yield* agentPool({
-    tools: source.tools,
-    systemPrompt: PROMPTS[source.name] ?? DEFAULT_PROMPT,
-    tasks: questions,
+    orchestrate: parallel(
+      questions.map(q => ({ content: q, systemPrompt: sysPrompt })),
+    ),
+    tools: [...source.tools, reportTool],
     ...opts,
   });
 }

@@ -147,52 +147,62 @@ class GrepTool extends Tool<{ pattern: string; ignoreCase?: boolean }> {
 
 ## Step 4: Build a recursive tool
 
-Tools can spawn sub-agents. Instead of writing a custom recursive tool, use `agentPool()` with `recursive`. It handles the circular toolkit wiring internally:
+Tools can spawn sub-agents. Instead of writing a custom recursive tool, use `DelegateTool` from `@lloyal-labs/rig` — its `execute()` runs `agentPool` internally. Drop one into your toolkit and the parent agent can delegate by calling it like any other tool:
 
 ```typescript
-import { agentPool } from '@lloyal-labs/lloyal-agents';
+import { agentPool, parallel } from '@lloyal-labs/lloyal-agents';
+import { DelegateTool } from '@lloyal-labs/rig';
+
+const delegate = new DelegateTool({
+  name: 'research',
+  description: 'Spawn parallel sub-agents to investigate sub-questions.',
+  argsSchema: {
+    type: 'object',
+    properties: { questions: { type: 'array', items: { type: 'string' } } },
+    required: ['questions'],
+  },
+  extractTasks: (args) => args.questions as string[],
+  systemPrompt: RESEARCH_PROMPT,
+  poolOpts: {
+    tools: [searchTool, grepTool, readFileTool, reportTool],
+    terminalTool: 'report',
+    maxTurns: 20,
+  },
+});
 
 const pool = yield* agentPool({
-  tasks: questions.map(q => ({ content: q })),
-  tools: [searchTool, grepTool, readFileTool, reportTool],
-  systemPrompt: RESEARCH_PROMPT,
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+  ),
+  tools: [searchTool, grepTool, readFileTool, reportTool, delegate],
   terminalTool: 'report',
   maxTurns: 20,
-  recursive: {
-    name: 'research',
-    description: 'Spawn parallel sub-agents to investigate sub-questions.',
-    argsSchema: {
-      type: 'object',
-      properties: { questions: { type: 'array', items: { type: 'string' } } },
-      required: ['questions'],
-    },
-    extractTasks: (args) => args.questions as string[],
-  },
 });
 ```
 
-`agentPool()` creates the recursive delegate tool, adds it to the toolkit, and wires the circular reference. Agents see `research` as a callable tool. When they call it, another `agentPool()` runs internally with the same config. Recursion to arbitrary depth, bounded by KV.
+Agents see `research` as a callable tool. When they call it, `DelegateTool.execute()` runs another `agentPool()` internally with the configured `poolOpts`. Recursion to arbitrary depth, bounded by KV.
 
 ## Step 5: Pass tools to the pool
 
-Pass Tool instances directly to `agent` or `agentPool`. The SDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map:
+Pass Tool instances directly to `agent` or `agentPool`. The HDK builds the toolkit internally — serializes schemas for the prompt and builds the dispatch map:
 
 ```typescript
 const pool = yield* agentPool({
-  tasks: questions.map(q => ({ content: q })),
+  orchestrate: parallel(
+    questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+  ),
   tools: [
     new SearchTool(chunks, reranker),
     new ReadFileTool(resources),
     new GrepTool(resources),
     reportTool,
   ],
-  systemPrompt: RESEARCH_PROMPT,
   terminalTool: 'report',
   maxTurns: 20,
 });
 ```
 
-When `recursive` is set, the recursive delegate tool is added to the toolkit automatically — you don't include it in the tools array.
+When you want delegation, instantiate a `DelegateTool` and add it to the `tools` array alongside the others — it's a tool, not a config option.
 
 ## Tool ordering rules
 
@@ -234,9 +244,8 @@ Register it as `terminalTool` in the pool options:
 
 ```typescript
 const pool = yield* agentPool({
-  tasks: [{ content: query }],
+  orchestrate: parallel([{ content: query, systemPrompt: RESEARCH_PROMPT }]),
   tools: [searchTool, reportTool],
-  systemPrompt: RESEARCH_PROMPT,
   terminalTool: 'report',  // Matches ReportTool.name
 });
 ```
@@ -321,9 +330,10 @@ If your tool spawns sub-agents, pass `context.branch` as `parent` for [warm path
 ```typescript
 *execute(args: { questions: string[] }, context?: ToolContext): Operation<unknown> {
   return yield* agentPool({
-    tasks: args.questions.map(q => ({ content: q })),
+    orchestrate: parallel(
+      args.questions.map(q => ({ content: q, systemPrompt: RESEARCH_PROMPT })),
+    ),
     tools: [searchTool, reportTool],
-    systemPrompt: RESEARCH_PROMPT,
     terminalTool: 'report',
     parent: context?.branch,
   });

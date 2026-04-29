@@ -117,21 +117,21 @@ Position 900-950:  Agent reasoning + web_research call
 
 The KV spine is the chain of decoded state within a single agent's branch. Sub-agents inherit it at zero cost. Delegation results are JSON-serialized and prefilled back into the calling agent's branch during SETTLE, extending the spine for subsequent tool calls.
 
-### KV spine — between task stages (`extendSpine`)
+### KV spine — between task stages (`extendRoot`)
 
-The harness sequences tasks via a `reduce` combinator inside a `withSharedRoot` scope. A query-scoped `queryRoot` branch is created once; all tasks fork from it, and between tasks, findings are prefilled directly into `queryRoot` as user+assistant turns via the `extendSpine` helper.
+The harness sequences tasks via a `reduce` combinator inside a `withSharedRoot` scope. A query-scoped `queryRoot` branch is created once; all tasks fork from it, and between tasks, findings are prefilled directly into `queryRoot` as user+assistant turns via the `extendRoot` helper.
 
 ```
 queryRoot (position 0)
   └─ Task 1 pool forks from queryRoot (position 0)
        → Agent searches, fetches, reports → findings A
-       → extendSpine: prefill [user: "Task 1", assistant: findings A] into queryRoot
+       → extendRoot: prefill [user: "Task 1", assistant: findings A] into queryRoot
          queryRoot advances to position 500
 
   └─ Task 2 pool forks from queryRoot (position 500)
        → Agent inherits Task 1's findings via KV share (zero re-encoding)
        → Searches for entities from Task 1 → findings B
-       → extendSpine: prefill [user: "Task 2", assistant: findings B] into queryRoot
+       → extendRoot: prefill [user: "Task 2", assistant: findings B] into queryRoot
          queryRoot advances to position 1100
 
   └─ Task 3 pool forks from queryRoot (position 1100)
@@ -141,9 +141,60 @@ queryRoot (position 0)
 
 Each task's pool forks from the EXTENDED `queryRoot`. Findings are decoded once into `queryRoot`; every subsequent fork shares them at zero marginal cost. No text re-encoding per agent.
 
+### `extendRoot` is queue-and-drain serialized
+
+`PoolContext.extendRoot` does NOT issue a native `store.prefill` from the orchestrator's fiber. It queues a request onto `pendingExtends` and suspends on an Effection [`action()`][action] until the tick loop's Phase 0 (SPAWN+EXTEND) drains it. The drain batches all pending extends with all pending fork suffixes into a single `store.prefill(prefillPairs)` call, then resolves each suspended action with its delta token count.
+
+This matters in flat-mode DAGs where multiple sibling tasks complete near-simultaneously. Without queue-and-drain, two `extendRoot` calls firing from separate fibers would race into `store.prefill` and violate the single-fiber discipline (only the tick loop's fiber issues native model calls). The action-based rendezvous serializes them through the next Phase 0 without blocking the orchestrator's other work.
+
+[action]: https://frontside.com/effection/api/v4/action
+
+### Where to put the spine: harness `withSharedRoot` vs `agentPool({ systemPrompt })`
+
+Spine extensions write to the pool's `spineRoot`. Two configurations decide which branch that is:
+
+- **`agentPool` invoked WITHOUT `systemPrompt`** (the common case for chains that need cross-pool spine persistence). `spineRoot = warmParent` — the root the harness passed in via `parent:`. The harness's outer `withSharedRoot` owns this root for its full scope, so extensions persist past pool exit and a post-pool `useAgent({ parent: queryRoot })` forks the spine and attends to all chain extensions.
+- **`agentPool` invoked WITH `systemPrompt`** (catalog mode). `agentPool` internally creates a *nested* `withSharedRoot` whose root carries the catalog. `spineRoot = inner root`. Extensions write to that inner root, which gets pruned at `agentPool` exit. A post-pool `useAgent({ parent: queryRoot })` would fork the OUTER queryRoot and find an empty branch — chain extensions disappeared with the inner root.
+
+Two patterns both work; pick by where the synth runs:
+
+```typescript
+// Pattern A: synth as a DAG node INSIDE the pool (compare's pattern)
+yield* withSharedRoot({ parent: session.trunk }, function*(queryRoot) {
+  return yield* agentPool({
+    orchestrate: dag(nodes),    // research → compare → synth as nodes
+    systemPrompt: skillCatalog, // catalog mode is fine: synth's branch
+                                // forks the inner spineRoot
+    parent: queryRoot,
+    tools, terminalTool: 'report',
+  });
+});
+
+// Pattern B: synth as a separate useAgent AFTER the pool
+yield* withSharedRoot(
+  {
+    parent: session.trunk,
+    systemPrompt: skillCatalog,    // ← catalog on harness root
+    toolsJson: toolkit.toolsJson,  // ← so spine extensions land here
+  },
+  function*(queryRoot) {
+    yield* agentPool({
+      orchestrate: chain(tasks),
+      // NO systemPrompt — non-shared mode, spineRoot = queryRoot
+      parent: queryRoot,
+      tools, terminalTool: 'report',
+    });
+    // synth forks queryRoot and sees all chain extensions via attention
+    return yield* useAgent({ parent: queryRoot, /* ... */ });
+  },
+);
+```
+
+See [Skill Catalog](/reference/skill-catalog) for the catalog convention and [Concurrency](/reference/concurrency#rootfmt--catalog-mode) for the `RootFmt` context that drives shared-mode behavior.
+
 ### How they compose
 
-Within a task, the KV spine operates through delegation — sub-agents inherit the calling agent's KV state. Between tasks, `extendSpine` extends `queryRoot` with tokenized user+assistant turns. The synthesis pool forks from the fully-extended `queryRoot` and attends over the complete research chain. After synthesis, `queryRoot` is pruned (scope exit frees all intermediate KV). Only the final Q&A persists on the session trunk via `session.commitTurn`.
+Within a task, the KV spine operates through delegation — sub-agents inherit the calling agent's KV state. Between tasks, `extendRoot` extends `queryRoot` with tokenized user+assistant turns. The synthesis pool forks from the fully-extended `queryRoot` and attends over the complete research chain. After synthesis, `queryRoot` is pruned (scope exit frees all intermediate KV). Only the final Q&A persists on the session trunk via `session.commitTurn`.
 
 Within-query spine compounds evidence task-by-task via KV share. Cross-query spine stays minimal (one Q&A turn per query on the trunk).
 

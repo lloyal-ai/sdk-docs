@@ -10,7 +10,7 @@ This guide covers common failure modes in lloyal-agents pipelines and how to dia
 From the CLI:
 
 ```bash
-npx tsx examples/deep-research-web/main.ts model.gguf --trace
+npx tsx examples/react-agent/main.ts model.gguf --corpus ./docs --trace
 ```
 
 This creates a `trace-{timestamp}.jsonl` file with every branch creation, prompt format, tool dispatch, agent turn, and pressure event.
@@ -64,7 +64,7 @@ Key event types from `packages/agents/src/trace-types.ts`:
 3. Verify the model supports tool calling. If the model's chat template does not handle tools, `formatChatSync` will produce `CHAT_FORMAT_CONTENT_ONLY` or `CHAT_FORMAT_GENERIC`, and agent setup will throw. If you catch/suppress this error, agents will run without tool awareness.
 
 **Common causes:**
-- Missing `tools` in the task spec: `tasks: [{ systemPrompt, content, parent: root }]` -- forgot `tools: toolsJson`
+- Missing `tools` on the pool: `agentPool({ orchestrate, tools: [], ... })` — empty array means no tools available to the agent
 - Wrong model: base model instead of instruction-tuned, or instruction-tuned without tool-call training
 - Empty tools array: `tools: []` means no tools available to the agent
 

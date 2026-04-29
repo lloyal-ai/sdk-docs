@@ -1,16 +1,16 @@
 ---
 title: "React Agent"
-description: "Single agent with corpus tools — the simplest example of ReAct (Reason + Act) with lloyal-agents."
+description: "Single agent with corpus tools — the simplest example of ReAct (Reason + Act) with the lloyal HDK."
 ---
 
-The simplest example: one agent with corpus tools answers a question using the ReAct (Reason + Act) pattern. The agent searches a local knowledge base, reads matching sections, and reports findings with evidence.
+The simplest example: one agent with corpus tools answers a question using the ReAct (Reason + Act) pattern. The agent searches a local knowledge base, reads matching sections, and reports findings with evidence. No pools, no DAGs — just `useAgent` running a single research loop.
 
 **Source**: `examples/react-agent/`
 
 ## Prerequisites
 
-- A GGUF instruction-tuned model with tool calling support (e.g. [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF))
-- A GGUF reranker model for semantic search (e.g. [Qwen3-Reranker-0.6B](https://huggingface.co/QuantFactory/Qwen3-Reranker-0.6B-GGUF))
+- A GGUF instruction-tuned model with native tool calling (e.g. [Qwen3-4B-Instruct](https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF))
+- A GGUF reranker model (e.g. [Qwen3-Reranker-0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF))
 - A text corpus (directory of `.md`/`.txt` files, or a single file)
 
 ## Run it
@@ -21,155 +21,66 @@ npx tsx examples/react-agent/main.ts ./models/Qwen3-4B-Q4_K_M.gguf \
   --query "What are the main architectural decisions?"
 ```
 
-Without `--query`, the agent drops into an interactive REPL where you can ask multiple questions. Other options:
+Without `--query`, the agent drops into an interactive REPL. Other flags:
 
-- `--reranker <path>` -- custom reranker model path
-- `--verbose` -- show stderr from the inference backend
-- `--trace` -- emit raw prompt/completion traces
-- `--jsonl` -- machine-readable output (run once, no REPL)
+- `--reranker <path>` — custom reranker model path
+- `--verbose` — show stderr from the inference backend
+- `--trace` — emit raw prompt/completion traces
+- `--jsonl` — machine-readable output (run once, no REPL)
 
 ## Code walkthrough
 
-### `main.ts` -- CLI entry point
+### `main.ts` — bootstrap
 
-The entry point handles argument parsing, model loading, and the REPL loop.
-
-**Load the corpus and build tools:**
+The entry point parses args, loads the model + reranker, builds corpus tools, and runs the REPL loop. The same shape as any HDK harness:
 
 ```typescript
-const resources = loadResources(corpusDir!);
-const chunks = chunkResources(resources);
-```
-
-`loadResources` reads files from the corpus path into memory. `chunkResources` splits them into paragraph-level chunks that the reranker can score individually. These are pure data transforms -- no model involvement yet.
-
-**Load models:**
-
-```typescript
-const ctx: SessionContext = yield* call(() =>
-  createContext({
-    modelPath,
-    nCtx: 16384,
-    nSeqMax: 16,
-    typeK: "q4_0",
-    typeV: "q4_0",
-  }),
-);
-
-const reranker = yield* call(() =>
-  createReranker(rerankModelPath, { nSeqMax: 8, nCtx: 4096 }),
-);
+const ctx = yield* call(() => createContext({ modelPath, nCtx: 16384, ... }));
+const reranker = yield* call(() => createReranker(rerankModelPath, { ... }));
 yield* call(() => reranker.tokenizeChunks(chunks));
-```
 
-`createContext` loads the main model and allocates a KV cache with Q4 quantization. `createReranker` loads a separate small model for scoring chunk relevance. `tokenizeChunks` pre-tokenizes every chunk through the reranker so scoring is fast at query time.
-
-**Build tools and initialize agents:**
-
-```typescript
 const { toolMap, toolsJson } = createTools({ resources, chunks, reranker });
 const { session, events } = yield* initAgents<WorkflowEvent>(ctx);
 ```
 
-`createTools` builds four tools from the loaded resources:
-- `search` -- semantic search via the reranker (returns ranked chunks)
-- `grep` -- regex pattern matching across all files
-- `read_file` -- read specific line ranges from a file
-- `report` -- submit final findings (the terminal tool)
+`createTools` builds four tools from the loaded corpus:
 
-`initAgents` sets up the agent runtime and returns a typed event channel. The TUI subscribes to this channel to render progress:
+- `search` — semantic search via the reranker (returns ranked chunks)
+- `grep` — regex pattern matching across all files
+- `read_file` — read specific line ranges from a file
+- `report` — submit final findings (the terminal tool)
+
+`initAgents` returns the `Session` and a typed event channel. The TUI subscribes to the channel; pipeline logic emits events. Presentation and orchestration are decoupled.
+
+### `harness.ts` — one `useAgent` call
+
+The whole harness is ~45 lines. The core is a single `useAgent`:
 
 ```typescript
-const view = createView({ model, reranker, chunkCount });
-yield* spawn(function* () {
-  yield* view.subscribe(events);
+const agent = yield* useAgent({
+  systemPrompt: RESEARCH.system,
+  task: query,
+  tools: [...opts.tools, reportTool],
+  terminalTool: 'report',
+  maxTurns: opts.maxTurns,
+  trace: opts.trace,
+  policy: new DefaultAgentPolicy({
+    budget: { context: { softLimit: 2048 } },
+  }),
 });
 ```
 
-All presentation is decoupled from pipeline logic through the `Channel<WorkflowEvent>` boundary.
+`useAgent` handles everything: it creates a branch, formats the prompt through the model's chat template, prefills it, runs the [five-phase tick loop](/reference/concurrency#tick-loop) until the agent calls `report` (the terminal tool) or exhausts `maxTurns`, then prunes the branch on scope exit.
 
-**REPL loop:**
+The `softLimit: 2048` tells the policy to nudge the agent when fewer than 2048 KV cells remain. At the default `hardLimit`, `shouldExit` kills the agent and `recoverInline` extracts whatever findings are in attention via grammar-constrained extraction.
 
-```typescript
-for (const input of yield* each(inputSignal)) {
-  if (!input || input === "/quit") break;
-  yield* handleQuery(input, harnessOpts);
-  yield* each.next();
-  rl.prompt();
-}
-```
-
-Each query is dispatched to `handleQuery` in the harness. The Effection signal bridges Node's readline into structured concurrency scope.
-
-### `harness.ts` -- the workflow
-
-The harness is where the agent actually runs. It is short -- about 45 lines of pipeline code.
-
-**Task loading:**
-
-```typescript
-function loadTask(name: string): { system: string; user: string } {
-  const raw = fs.readFileSync(path.resolve(__dirname, `tasks/${name}.md`), 'utf8').trim();
-  const sep = raw.indexOf('\n---\n');
-  if (sep === -1) return { system: raw, user: '' };
-  return { system: raw.slice(0, sep).trim(), user: raw.slice(sep + 5).trim() };
-}
-
-const RESEARCH = loadTask('research');
-```
-
-Task prompts live in `tasks/research.md`. The convention is system prompt above `---`, user content below. This separates prompt engineering from pipeline code -- modify the markdown file to change agent behavior without touching TypeScript.
-
-**`handleQuery` -- the core pipeline:**
-
-```typescript
-export function* handleQuery(query: string, opts: HarnessOpts): Operation<void> {
-  const { result: pool } = yield* withSharedRoot(
-    { systemPrompt: RESEARCH.system, tools: opts.toolsJson },
-    function*(root) {
-      const pool = yield* useAgentPool({
-        tasks: [{
-          systemPrompt: RESEARCH.system,
-          content: query,
-          tools: opts.toolsJson,
-          parent: root,
-        }],
-        tools: opts.toolMap,
-        maxTurns: opts.maxTurns,
-        terminalTool: 'report',
-        trace: opts.trace,
-        policy: new DefaultAgentPolicy({
-          budget: { context: { softLimit: 2048 } },
-          recovery: { prompt: REPORT },
-        }),
-        pruneOnReport: true,     // free KV immediately when agent reports
-      });
-
-      return { result: pool };
-    },
-  );
-}
-```
-
-Two framework primitives do all the work:
-
-1. `withSharedRoot` creates a shared KV prefix containing the system prompt and tool schemas. This prefix is computed once and shared across all agents that fork from `root`. When the callback exits, all branches under this root are pruned automatically.
-
-2. `useAgentPool` runs one agent (a single-element `tasks` array) that generates tokens, calls tools, and reports findings. The agent runs inside the four-phase tick loop (produce, commit, settle, dispatch) until it calls `report` (the `terminalTool`) or exhausts `maxTurns`.
-
-The `budget: { context: { softLimit: 2048 } }` tells the policy to nudge agents when fewer than 2048 KV cells remain, and kill via `shouldExit` at the default hardLimit (128).
-
-**Recovery — hard-cut scratchpad extraction:**
-
-If the agent exhausts `maxTurns` or is killed by KV pressure without calling `report`, the policy's `onRecovery()` decides to extract. The pool forks from the agent's branch, runs a grammar-constrained extraction (`{ result: string }`), and records the result with `scratchpad` provenance. A confabulation guard (configured via `recovery.minTokens` and `recovery.minToolCalls`) skips agents with insufficient context.
-
-### `tasks/research.md` -- the system prompt
+### `tasks/research.md` — the system prompt
 
 ```markdown
 You are a research assistant analyzing a knowledge base. Your tools:
-- **search**: semantic relevance ranking -- discover related content by meaning
-- **grep**: regex pattern matching -- use for precise, exhaustive retrieval
-- **read_file**: read specific line ranges -- verify and get full context
+- **search**: semantic relevance ranking — discover related content by meaning
+- **grep**: regex pattern matching — use for precise, exhaustive retrieval
+- **read_file**: read specific line ranges — verify and get full context
 - **report**: submit your final findings with evidence
 
 Research process:
@@ -180,46 +91,38 @@ Research process:
 5. When you have sufficient evidence, call report with your findings.
 ```
 
-The prompt guides the agent through a specific research workflow: broad search first, then targeted grep, then read for context, then report. Each tool serves a distinct purpose -- search finds semantically related content, grep finds exact patterns, read_file provides full context for verification.
+The prompt encodes a workflow: broad search → targeted grep → context read → report. Each tool serves a distinct purpose. Edit this markdown file to change agent behavior — no code changes needed.
 
 ## What the output looks like
 
 ```
-  ReAct Agent -- Single Agent with Tools
+ReAct Agent · Qwen3-4B-Instruct (KV: Q4_0) · qwen3-reranker-0.6b
+Corpus: my-docs/ · 12 files · 847 chunks
 
-  * Loading Qwen3-4B-Instruct-2507 (2.5 GB, KV: Q4_0)
-  * Loading qwen3-reranker-0.6b (396 MB, reranker)
-    Corpus: my-docs/ -- 12 files -> 847 chunks
+> What are the main architectural decisions?
 
-  Query
-  What are the main architectural decisions?
+Research · 1 agent
+  search("architectural decisions")        → 8 results
+  read_file("design.md", 1, 45)            → 1.2k chars
+  grep("decision|chose")                   → 3 matches
+  report(...)
 
-  * Research  1 agent
-    [A0] search("architectural decisions")     -> 8 results
-    [A0] read_file("design.md", 1, 45)         -> 1.2k chars
-    [A0] grep("pattern: 'decision|chose'")     -> 3 matches
-    [A0] report(...)
-
-  Answer (147 tokens, 4 tools, 3.2s, ctx: 34%)
-  The main architectural decisions are...
+Answer · 147 tokens · 4 tools · 3.2s · ctx 34%
+The main architectural decisions are...
 ```
 
 ## Customization
 
-**Change the system prompt**: Edit `examples/react-agent/tasks/research.md`. No code changes needed.
-
-**Add more agents**: Add more elements to the `tasks` array in `useAgentPool`. Each agent gets its own branch forking from the shared root.
-
-**Increase tool turn budget**: Change `MAX_TOOL_TURNS` in `main.ts` (default: 20).
-
-**Use a different corpus**: Pass `--corpus <path>` pointing to any directory of text/markdown files, or a single file.
-
-**Adjust context size**: Set the `LLAMA_CTX_SIZE` environment variable (default: 16384).
+- **Change the system prompt** — edit `examples/react-agent/tasks/research.md`. No code changes.
+- **Add agents** — swap `useAgent` for `agentPool({ orchestrate: parallel([...]) })` to run multiple agents on shared KV.
+- **Increase tool turn budget** — change `MAX_TOOL_TURNS` in `main.ts` (default: 20).
+- **Different corpus** — pass `--corpus <path>` pointing to any directory of text/markdown files, or a single file.
+- **Adjust context size** — `--n-ctx <size>` or `LLAMA_CTX_SIZE` env var (default: 16384).
 
 ## Related pages
 
-- [Quick Start](/learn/quick-start) -- minimal standalone version of this example
-- [Tools](/learn/tools) -- how tools work under the hood
-- [Concurrency Model](/reference/concurrency) -- the four-phase tick loop that drives agent execution
-- [Prefix Sharing](/reference/prefix-sharing) -- how `withSharedRoot` shares KV prefix across agents
-- [KV Pressure](/reference/kv-pressure) -- how `pressure` settings affect agent lifecycle
+- [Quick Start](/learn/quick-start) — minimal standalone version of this example
+- [Tools](/learn/tools) — how tools work under the hood
+- [Concurrency Model](/reference/concurrency) — the five-phase tick loop that drives agent execution
+- [KV Pressure](/reference/kv-pressure) — how budget settings affect agent lifecycle
+- [Reflection](/examples/reflection) — same single-agent research, then continues with manual branch lifecycle for self-critique
