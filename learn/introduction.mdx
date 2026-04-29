@@ -3,7 +3,7 @@ title: Harness Development Kit
 description: Drop-in agentic AI for consumer hardware.
 ---
 
-Most agent stacks are infrastructure: an inference server, an agent runtime, a vector store, glue code — wired together over HTTP and shipped as a Docker compose. lloyal HDK collapses that into a single Node process you can ship: embedded in a desktop app, bundled in a CLI, deployed to a serverless function, anywhere a Node runtime runs. The unit you build isn't an agent — it's a *harness*, an orchestrated system of agents that share live attention state. You treat it as code, not as infrastructure.
+Most agent stacks are infrastructure: an inference server, an agent runtime, a vector store, glue code — wired together over HTTP and shipped as a Docker compose. lloyal HDK collapses that into a single Node process you can ship: embedded in a desktop app, bundled in a CLI, deployed to a serverless function, anywhere a Node runtime runs. The unit you build isn't an agent — it's a _harness_, an orchestrated system of agents that share live attention state. You treat it as code, not as infrastructure.
 
 <CardGroup cols={3}>
   <Card
@@ -11,8 +11,8 @@ Most agent stacks are infrastructure: an inference server, an agent runtime, a v
     icon="bolt"
     href="#zero-dependency-drop-in"
   >
-    Single process. Native binding. Ships anywhere a Node runtime runs —
-    desktop apps, CLIs, edge runtimes.
+    Single process. Native binding. Ships anywhere a Node runtime runs — desktop
+    apps, CLIs, edge runtimes.
   </Card>
   <Card title="Continuous Context" icon="memory" href="#continuous-context">
     Agents share KV state, not strings. Breaks the "runs locally but is a toy"
@@ -34,16 +34,16 @@ Drop in intelligence. The whole stack — inference, agent loop, tool dispatch, 
 
 The honest comparison is full stack against full stack:
 
-| Capability | lloyal HDK | Typical agentic stack |
-|---|---|---|
-| Inference | embedded native binding | ollama / LM Studio + HTTP |
-| Agent loop | built-in | langchain / langgraph |
-| Tool dispatch | `Tool<TArgs>` interface | langchain Tools + glue |
-| Retrieval | `Source` + native cross-encoder | langchain RAG + vector DB + embedder |
-| Multi-agent shapes | `parallel` / `chain` / `fanout` / `dag` | langgraph / autogen / crewai |
-| Multi-turn state | `Session.trunk` (KV-backed) | conversation-memory class + persistence |
-| Process model | **one Node process** | **inference server + agent process + DB** |
-| Distribution unit | **npm package, ships with your app** | **Docker compose / k8s for the back-end pieces** |
+| Capability         | lloyal HDK                              | Typical agentic stack                            |
+| ------------------ | --------------------------------------- | ------------------------------------------------ |
+| Inference          | embedded native binding                 | ollama / LM Studio + HTTP                        |
+| Agent loop         | built-in                                | langchain / langgraph                            |
+| Tool dispatch      | `Tool<TArgs>` interface                 | langchain Tools + glue                           |
+| Retrieval          | `Source` + native cross-encoder         | langchain RAG + vector DB + embedder             |
+| Multi-agent shapes | `parallel` / `chain` / `fanout` / `dag` | langgraph / autogen / crewai                     |
+| Multi-turn state   | `Session.trunk` (KV-backed)             | conversation-memory class + persistence          |
+| Process model      | **one Node process**                    | **inference server + agent process + DB**        |
+| Distribution unit  | **npm package, ships with your app**    | **Docker compose / k8s for the back-end pieces** |
 
 The asymmetry is the point. Each row of the right column is a service to install, configure, version, secure, and orchestrate. Each row of the left column is an import.
 
@@ -94,42 +94,17 @@ Most agent frameworks pass strings between stages. A transcript of what one agen
 
 **lloyal agents share live attention state.** When stage 2 starts decoding, stage 1's findings are already in its KV at their original positions; its first generated token attends over them directly. No re-tokenization. No re-encoding. No "summarize, paste, re-prompt" information bottleneck.
 
-<Tabs>
-  <Tab title="Traditional agent loop">
-```
-Stage 1 generates response
-   ↓ extract findings as text
-   ↓ build new prompt: system + tools + findings_string + query
-   ↓ send to inference (re-tokenize, re-encode, re-attend over everything)
-   ↓ Stage 2 attends over re-tokenized findings
-```
-
-    Re-encode every stage. Information serialized through text at every boundary.
-
-  </Tab>
-  <Tab title="Continuous Context loop">
-```
-Stage 1 generates (decoded into KV positions 0..N)
-   ↓ extendRoot prefills [user, asst] turn onto queryRoot
-   ↓ Stage 2 forks queryRoot at the extended position (O(1) metadata)
-   ↓ Stage 2's first token attends over positions 0..N+turn directly
-```
-
-    Fork is metadata-only. Findings are the same physical K/V pairs, not a re-encoding.
-
-  </Tab>
-</Tabs>
-
 <Note>
-  When the model computes Q·Kᵀ for its next token, it attends over all K vectors
-  at positions 0..N — including those written during prior tool result prefills.
-  Child branches share the same physical key-value pairs at inherited positions;
+  When the model computes Q·Kᵀ for its next token, it attends over all K
+  vectors at positions 0..N — including those written during prior tool result
+  prefills. A fork is metadata-only: O(1) cost, zero tensor copy. Child
+  branches share the same physical key-value pairs at inherited positions —
   not a re-encoding, the same vectors.
 </Note>
 
-A fork is a metadata operation on shared KV cells — O(1) cost, zero tensor copy. Three agents forked from the same root attend to the same physical key-value pairs for the prefix while writing their own unique context above the fork point.
+**What this changes about agent behavior.** Watching real pipelines, agents form and test hypotheses through iterative retrieval — narrowing, discovering, hypothesizing, verifying — emergent from the attention mechanics, not from prompted instruction. Later searches reference concepts **absent from the original question**, discovered during earlier reads and still physically present in the KV cache.
 
-At its core, **an agent is simply a [liblloyal](https://lloyal-ai.github.io/liblloyal/) branch with intent** — a forked KV slot, a system prompt, a tool palette, a terminal condition. Pools are sets of agents on a shared root. Harnesses orchestrate pools. The whole stack is branches all the way down. Because branches are a C++ primitive in liblloyal, the agentic mechanism is C++-grounded; the HDK is one orchestration layer over it.
+At its core, **an agent is simply a [liblloyal](https://lloyal-ai.github.io/liblloyal/) branch with intent** — a forked KV slot, a system prompt, a tool palette, a terminal condition. Pools are sets of agents on a shared root; harnesses orchestrate pools. The whole stack is branches all the way down.
 
 ### Why this breaks the "runs locally but is a toy" barrier
 
@@ -139,31 +114,29 @@ With Continuous Context, that prefix is decoded once and inherited by every fork
 
 <CardGroup cols={3}>
   <Card title="Skill catalog" icon="book-open" href="/reference/skill-catalog">
-    Tool schemas and role descriptions live at the root once. Mixed-role agents
-    (researcher, comparer, synthesizer) inherit the catalog via prefix-share and
-    select skill by name — no per-agent schema injection.
+    **Mixed-role pools without per-agent schema bloat.** Tool schemas and role
+    descriptions live at the root once; every agent inherits the catalog via
+    prefix-share and selects its skill by name.
   </Card>
   <Card
-    title="Scratchpad extraction"
-    icon="compress"
-    href="/reference/scratchpad-extraction"
+    title="Recursive delegation"
+    icon="code-branch"
+    href="/learn/agents"
   >
-    Compress fetched pages on an ephemeral fork before they enter the spine. The
-    compressed summary persists in attention; raw text is freed.
+    **Depth adds context, not cost.** Sub-agents fork from the calling
+    agent's branch and inherit its system prompt, tool schemas, prior
+    searches, and prior reasoning at zero marginal cost.
   </Card>
   <Card
-    title="Prefix sharing"
-    icon="layer-group"
-    href="/reference/prefix-sharing"
+    title="Multi-turn sessions"
+    icon="clock-rotate-left"
+    href="/learn/sessions"
   >
-    System prompt and shared root decoded once. Every fork from that root
-    inherits at zero marginal cost.
+    **Tomorrow's pool reads yesterday's conversation through attention.**
+    `Session.trunk` is a long-lived KV branch; `commitTurn` extends it, and
+    the next pool forks from the trunk — no prompt-history injection.
   </Card>
 </CardGroup>
-
-### What emerges
-
-Attention continuity changes what agents do with tools. Watching real pipelines, agents form and test hypotheses through iterative retrieval — narrowing, discovering, hypothesizing, then verifying — emergent from the attention mechanics, not from prompted instruction. Later searches reference concepts **absent from the original question**, discovered during earlier reads and still physically present in the KV cache.
 
 <Tip>
   Full mechanics with traces from real runs in [Continuous Context
@@ -172,9 +145,9 @@ Attention continuity changes what agents do with tools. Watching real pipelines,
 
 ## Retrieval Interleaved Generation
 
-Classical RAG is a *pre-processing* step: embed the query, run a similarity search, concatenate top chunks into the prompt, generate. One shot, static context, no feedback loop between what the model reads and what it asks for next.
+Classical RAG is a _pre-processing_ step: embed the query, run a similarity search, concatenate top chunks into the prompt, generate. One shot, static context, no feedback loop between what the model reads and what it asks for next.
 
-**RIG inverts this.** Retrieval happens *inside* the generation loop. The agent emits a tool call → a `Source` returns chunks → a cross-encoder reranker scores them against the original query → results are prefilled into the agent's KV at the call position → the next decoded token attends over them and decides what to ask for next. Hypothesis-driven, not bag-of-keywords.
+**RIG inverts this.** Retrieval happens _inside_ the generation loop. The agent emits a tool call → a `Source` returns chunks → a cross-encoder reranker scores them against the original query → results are prefilled into the agent's KV at the call position → the next decoded token attends over them and decides what to ask for next. Hypothesis-driven, not bag-of-keywords.
 
 <Tabs>
   <Tab title="Classical RAG">
@@ -231,6 +204,7 @@ The kit ships:
     - **`shouldProceed`** — floor gate. Default `_entailmentFloor = 0.25`.
 
     One model. Four roles. The reranker is RIG infrastructure, not a fetch optimization.
+
   </Accordion>
   <Accordion title="Dynamic prompt composition" icon="code">
     Eta templates parameterize on harness state. `web-worker.eta` adapts on `it.agentCount > 1` (sibling-task awareness for parallel mode) and `it.taskIndex > 0` (build-on-prior-research for chain mode). Synthesis prompts adapt on convergence state and source presence. Prompts are functions of the harness's current situation, not fixed strings.
@@ -251,30 +225,35 @@ The kit ships:
 <CardGroup cols={3}>
   <Card title="Embed in a desktop app" icon="window-maximize">
     Drop a harness into an Electron / Tauri / Neutralino app. Agentic features
-    ship inside the app bundle — no daemon for end users to install, no API
-    keys to manage on their side.
+    ship inside the app bundle — no daemon for end users to install, no API keys
+    to manage on their side.
   </Card>
   <Card title="Inside a CLI" icon="terminal">
-    Ship intelligent commands as part of an `npm install -g` package. Users
-    get the agent layer with the rest of the binary; no external services
-    required to run.
+    Ship intelligent commands as part of an `npm install -g` package. Users get
+    the agent layer with the rest of the binary; no external services required
+    to run.
   </Card>
   <Card title="Background worker in a service" icon="server">
     Drop a research or code agent into an existing Node backend. No separate
     inference deployment, no extra HTTP hop, no Dockerfile to maintain.
   </Card>
-  <Card title="Research pipelines" icon="magnifying-glass" href="/reference/rig/pipeline">
+  <Card
+    title="Research pipelines"
+    icon="magnifying-glass"
+    href="/reference/rig/pipeline"
+  >
     Plan → research (web, corpus, custom sources) → bridge → synthesize →
     verify. The [RIG Pipeline reference](/reference/rig/pipeline) covers the
     architectural patterns.
   </Card>
-  <Card title="Multi-turn assistants" icon="robot" href="/learn/sessions">
-    Persistent KV state across turns via `Session`. Tomorrow's pool forks
-    from the trunk and reads prior conversation through attention.
+  <Card title="Continuous assistants" icon="robot" href="/learn/sessions">
+    Personal helpers, coding pairs, tutors — pick up where they left off
+    across sessions, with prior conversation live in attention rather than
+    re-injected as prompt history.
   </Card>
   <Card title="Cron actors" icon="clock" href="/learn/quick-start">
-    Daily digests, scheduled monitors, periodic syntheses. Stateless per-run
-    or trunk-persistent across runs.
+    Daily digests, scheduled monitors, periodic syntheses. Stateless per-run or
+    trunk-persistent across runs.
   </Card>
 </CardGroup>
 
@@ -306,12 +285,12 @@ Four npm packages over a portable C++ core. One install. The whole stack ships w
 
 liblloyal isn't infinitely portable — it needs four things from the host:
 
-| Requirement | Floor for a working harness |
-|---|---|
-| RAM | ~3 GB resident for a 4B-class model at Q4_K_M, plus ~600 MB for a small reranker, plus KV cache. 8 GB total system RAM is comfortable. |
-| Compute backend | GPU recommended (Metal / CUDA / Vulkan / ROCm). CPU works for tiny models or as fallback. Pure MCU-class embedded (no accelerator, no spare RAM) is out. |
-| Storage | ~3 GB for weights of a 4B-class model at Q4; varies with model size. |
-| Binary footprint | ~150–300 MB of compiled liblloyal + binding code, depending on which compute backends are statically linked. |
+| Requirement      | Floor for a working harness                                                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RAM              | ~3 GB resident for a 4B-class model at Q4_K_M, plus ~600 MB for a small reranker, plus KV cache. 8 GB total system RAM is comfortable.                   |
+| Compute backend  | GPU recommended (Metal / CUDA / Vulkan / ROCm). CPU works for tiny models or as fallback. Pure MCU-class embedded (no accelerator, no spare RAM) is out. |
+| Storage          | ~3 GB for weights of a 4B-class model at Q4; varies with model size.                                                                                     |
+| Binary footprint | ~150–300 MB of compiled liblloyal + binding code, depending on which compute backends are statically linked.                                             |
 
 A Raspberry Pi 5–class single-board computer, a phone, a laptop, or a server is in scope. Microcontrollers (Cortex-M, ESP32) are not — too little memory and no inference accelerator.
 
@@ -330,8 +309,8 @@ Architecture isn't transformer-bound either: SSM and recurrent models (Mamba, Ja
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="/learn/quick-start">
-    Build a daily digest harness in five minutes — research, draft, deliver,
-    all on a local model.
+    Build a daily digest harness in five minutes — research, draft, deliver, all
+    on a local model.
   </Card>
   <Card
     title="Thinking in lloyal"
