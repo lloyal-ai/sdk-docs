@@ -28,7 +28,7 @@
   "navbar": {
     "primary": {
       "type": "github",
-      "href": "https://github.com/lloyal-ai/sdk"
+      "href": "https://github.com/lloyal-ai/hdk"
     },
     "links": [
       {
@@ -119,13 +119,13 @@
       },
       {
         "tab": "API",
-        "href": "https://lloyal-ai.github.io/sdk/"
+        "href": "https://lloyal-ai.github.io/hdk/"
       }
     ]
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/lloyal-ai/sdk"
+      "github": "https://github.com/lloyal-ai/hdk"
     }
   }
 }
