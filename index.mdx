@@ -1,0 +1,59 @@
+---
+title: "Build with Lloyal"
+description: "Build a harness, understand the execution model, govern adaptive behaviour, and program inference directly."
+mode: "custom"
+---
+
+export const guideHtml = `<div class="page">
+<header class="masthead wrap">
+  <div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI's contact with reality.</div></div>
+  <div class="issue"><span>Developer /<br>Docs</span><span>August<br>2026</span></div>
+</header>
+<section class="hero wrap">
+  <div class="eyebrow">Developer documentation</div>
+  <h1>Build with Lloyal</h1>
+  <div class="hero-sub">Build a harness, understand the execution model, govern adaptive behaviour, and program inference directly.</div>
+</section>
+<section class="thesis wrap">
+  <p><strong>Lloyal moves application control from the edges of a model call into the inference trajectory itself.</strong> These guides progress from a working application, through the execution model beneath it, to adaptive policy and direct inference patterns.</p>
+</section>
+<section class="visual-thesis wrap">
+  <div class="diagram-scroll"><img src="/assets/guides/index-01.png" alt="Same model, different degree of control: without Lloyal application policy acts around model calls; with Lloyal it governs reasoning while it is underway."></div>
+</section>
+<section class="paths wrap">
+  <div class="section-kicker">Choose your path</div>
+  <h2>One curriculum, four depths</h2>
+  <div class="path-grid">
+    <a class="path-card" href="/build-your-first-harness"><div class="path-number">01</div><h3>Build your first harness <span class="path-arrow">→</span></h3><p>Use <code>harness.dev</code> to create an application, begin a Session, inspect its procedure, change its topology, and continue from accepted state.</p><div class="path-label">Start here · practical tutorial</div></a>
+    <a class="path-card" href="/thinking-in-lloyal"><div class="path-number">02</div><h3>Thinking in Lloyal <span class="path-arrow">→</span></h3><p>Learn how owned lifetimes, live inference state, Agents, Tools, orchestration, finality, and continuity fit together.</p><div class="path-label">Mental model · programming guide</div></a>
+    <a class="path-card" href="/agent-policy-and-context-pressure"><div class="path-number">03</div><h3>How Agents Know When to Stop <span class="path-arrow">→</span></h3><p>Learn how policy, context pressure, retries, recovery, wind-down, and completion govern a running AgentPool.</p><div class="path-label">Adaptive execution · engineering note</div></a>
+    <a class="path-card" href="/thinking-in-lloyal#advanced-patterns"><div class="path-number">04</div><h3>Advanced patterns <span class="path-arrow">→</span></h3><p>Program the inference trajectory directly with verifier-before-commit generation, diverse tree search, expert-state synthesis, verified continuation, and replay.</p><div class="path-label">Direct inference · advanced compositions</div></a>
+  </div>
+</section>
+<section class="learning-path wrap">
+  <div class="learning-grid"><h2>Recommended learning path</h2><div class="learning-flow"><div class="learning-step">Build your first harness</div><div class="learning-arrow">→</div><div class="learning-step">Thinking in Lloyal</div><div class="learning-arrow">→</div><div class="learning-step">Adaptive execution</div><div class="learning-arrow">→</div><div class="learning-step">Advanced patterns</div></div></div>
+</section>
+
+<section class="architecture wrap">
+  <div class="section-kicker">Architecture and operations</div>
+  <h2>One harness, different placements</h2>
+  <a class="arch-card" href="/where-a-harness-runs">
+    <div><h3>Where a harness runs</h3><p>Understand how one harness contract spans application surfaces, local and shared-residency execution, process boundaries, transports, hardware, and operators—using the familiar Rails architecture as the bridge.</p></div>
+    <div class="arch-meta">Surfaces · bindings · local edge · shared residency · placement choices<span class="arch-arrow">→</span></div>
+  </a>
+</section>
+<section class="references wrap">
+  <div class="section-kicker">Reference</div><h2>Continue into the platform</h2>
+  <div class="reference-grid">
+    <a href="https://www.npmjs.com/package/harness.dev">harness.dev CLI <span class="out">↗</span></a>
+    <a href="https://docs.lloyal.ai/cli">CLI documentation <span class="out">↗</span></a>
+    <a href="https://docs.lloyal.ai/build-an-app/what-is-an-app">Build an App <span class="out">↗</span></a>
+    <a href="https://apps.lloyal.ai/">AgentApps catalogue <span class="out">↗</span></a>
+    <a href="https://github.com/lloyal-ai/hdk">HDK source <span class="out">↗</span></a>
+    <a href="https://www.npmjs.com/package/@lloyal-labs/lloyal-agents">Agent runtime <span class="out">↗</span></a>
+  </div>
+</section>
+<footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs · Melbourne</span></footer>
+</div>`
+
+<div id="lloyal-guides" dangerouslySetInnerHTML={{__html: guideHtml}} />

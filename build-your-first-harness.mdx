@@ -1,0 +1,382 @@
+---
+title: "Build your first harness"
+description: "Use harness.dev to create an application, begin a Session, inspect its procedure, change its topology, and continue from accepted state."
+mode: "custom"
+---
+
+export const guideHtml = `<div class="page">
+  <header class="masthead wrap">
+    <div>
+      <div class="wordmark">Lloyal Labs</div>
+      <div class="tagline">Engineering AI's contact with reality.</div>
+    </div>
+    <div class="issue"><span>Get started /<br>Harness</span><span>August<br>2026</span></div>
+  </header>
+
+  <section class="hero wrap">
+    <div class="eyebrow"><a href="/">Programming guides</a> / Developer guide</div>
+    <h1>Build your first harness</h1>
+    <div class="hero-sub">Put the Lloyal programming model into practice with <code>harness.dev</code></div>
+  </section>
+
+  <section class="thesis wrap">
+    <div class="thesis-grid">
+      <div class="thesis-copy">
+        <p>Start at the front door: create a harness, begin a Session over a resident model, then change the TypeScript that governs how work unfolds and what state survives.</p>
+        <p>The guide follows the CLI and the running application in one progression. Programming-model callouts appear only when the corresponding idea becomes concrete.</p>
+      </div>
+      <div>
+        <div class="pullquote"><strong>Choose → start → change → continue.</strong></div>
+        <div class="syntax-note">The five key concepts from <em>Thinking in Lloyal</em> form the instructional spine, not the visible table of contents.</div>
+        <div class="quickest">By the end, you will have changed Agent intent, orchestration topology, and the state later work inherits.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="progression wrap" aria-label="Guide progression">
+    <div class="progression-grid">
+      <div class="progression-step"><span class="progression-number">01</span><span class="progression-label">Choose the application</span></div>
+      <div class="progression-step"><span class="progression-number">02</span><span class="progression-label">Begin a Session</span></div>
+      <div class="progression-step"><span class="progression-number">03</span><span class="progression-label">Find the procedure</span></div>
+      <div class="progression-step"><span class="progression-number">04</span><span class="progression-label">Change intent</span></div>
+      <div class="progression-step"><span class="progression-number">05</span><span class="progression-label">Change topology</span></div>
+      <div class="progression-step"><span class="progression-number">06</span><span class="progression-label">Continue from state</span></div>
+    </div>
+  </section>
+
+  <main class="article-shell wrap">
+    <nav class="toc" aria-label="Table of contents">
+      <div class="toc-label">In this guide</div>
+      <a class="toc-l1" href="#step-1-create-the-harness">1. Create the harness</a><a class="toc-l2" href="#name-the-application">Name the application</a><a class="toc-l2" href="#choose-its-surfaces">Choose its surfaces</a><a class="toc-l2" href="#choose-a-trunk-model">Choose a trunk model</a><a class="toc-l2" href="#choose-a-starting-point">Choose a starting point</a><a class="toc-l2" href="#materialise-the-project">Materialise the project</a><a class="toc-l2" href="#begin-a-session">Begin a Session</a><a class="toc-l1" href="#step-2-find-the-application">2. Find the application</a><a class="toc-l1" href="#step-3-work-always-belongs-somewhere">3. Work always belongs somewhere</a><a class="toc-l1" href="#step-4-live-attention-is-a-resource">4. Live attention is a resource</a><a class="toc-l1" href="#step-5-agents-are-managed-not-launched">5. Agents are managed, not launched</a><a class="toc-l1" href="#step-6-application-code-controls-execution">6. Application code controls execution</a><a class="toc-l2" href="#change-the-intent">Change the intent</a><a class="toc-l2" href="#change-the-topology">Change the topology</a><a class="toc-l1" href="#step-7-finality-and-continuity-are-explicit">7. Finality and continuity are explicit</a><a class="toc-l1" href="#what-you-just-programmed">What you just programmed</a><a class="toc-l1" href="#continue">Continue</a>
+    </nav>
+    <article class="article"><h1 id="step-1-create-the-harness">1. Create the harness</h1>
+<p>Start the interactive scaffold:</p>
+<p>Requires Node 24 or newer.</p>
+<div class="code-frame"><div class="code-label">TERMINAL</div><pre><code>npx<span class="w"> </span>harness.dev@latest<span class="w"> </span>new
+</code></pre></div><p>The wizard defines the application boundary before it writes any code. Each choice below becomes an explicit part of the generated harness.</p>
+<h2 id="name-the-application">Name the application</h2>
+<p>Type <code>hello-harness</code> and press Enter. The name becomes the project folder and npm package name.</p>
+<figure class="flow-shot">
+<img alt="harness.dev at the Harness name step with hello-harness entered" src="/assets/guides/build-your-first-harness-01.png"/>
+<figcaption>The harness is named as an application artifact, not as an endpoint or request handler.</figcaption>
+</figure>
+<p>A harness is the program you are building. The CLI materialises the project around that application boundary.</p>
+<div class="model-callout model-callout-wide">
+<strong>Programming model — owned application lifetime</strong>
+<p>The generated <code>harness(...)</code> is a long-lived program whose work and resources belong to its scope.</p>
+</div>
+<h2 id="choose-its-surfaces">Choose its surfaces</h2>
+<p>Select CLI, desktop, and web.</p>
+<figure class="flow-shot">
+<img alt="harness.dev with CLI, desktop, and web selected" src="/assets/guides/build-your-first-harness-02.png"/>
+<figcaption>CLI is always included; desktop and web mount the same harness through their own bindings.</figcaption>
+</figure>
+<p>These are three presentations of one application contract—not three agent implementations. The intelligent procedure remains under <code>harness/</code>; target-specific wiring is generated under <code>targets/</code>.</p>
+<div class="model-callout model-callout-wide">
+<strong>Programming model — procedure is separate from presentation</strong>
+<p>Commands enter the harness and events leave it through one protocol. Each selected surface renders the same running application.</p>
+</div>
+<h2 id="choose-a-trunk-model">Choose a trunk model</h2>
+<p>Use the recommended Qwen3.5 4B weight.</p>
+<figure class="flow-shot">
+<img alt="harness.dev at the trunk model step" src="/assets/guides/build-your-first-harness-03.png"/>
+<figcaption>The recommended model is fetched and digest-verified on first run. You can also bring a local GGUF.</figcaption>
+</figure>
+<p>The model is part of the application's execution environment. You are not configuring a client to an inference-provider endpoint.</p>
+<div class="model-callout model-callout-wide">
+<strong>Programming model — resident inference</strong>
+<p>The Session and its temporary work run over live resident state rather than reconstructing context around detached calls.</p>
+</div>
+<h2 id="choose-a-starting-point">Choose a starting point</h2>
+<p>Select <strong>basic</strong>.</p>
+<figure class="flow-shot">
+<img alt="harness.dev with the basic Wikipedia research harness selected" src="/assets/guides/build-your-first-harness-04.png"/>
+<figcaption><code>basic</code> is a compact Wikipedia research harness; <code>research</code> is the larger tuned recon → plan → Agents → synthesis pipeline.</figcaption>
+</figure>
+<p>A template is editable TypeScript, not a hosted mode. It gives the harness an initial procedure and topology that you will change directly later in this guide.</p>
+<div class="model-callout model-callout-wide">
+<strong>Programming model — procedure is code</strong>
+<p>The model supplies learned capability. The harness supplies procedure, topology, Tools, policy, completion, and continuity.</p>
+</div>
+<h2 id="materialise-the-project">Materialise the project</h2>
+<p>The CLI scaffolds the targets, vendors the signed Wikipedia App, and installs the project dependencies.</p>
+<figure class="flow-shot">
+<img alt="harness.dev scaffolding hello-harness and installing dependencies" src="/assets/guides/build-your-first-harness-05.png"/>
+<figcaption>The project is materialised from the choices above; the generated code remains yours.</figcaption>
+</figure>
+<p>When installation completes, the wizard prints the exact command for every selected surface.</p>
+<figure class="flow-shot">
+<img alt="hello-harness ready with commands for CLI, desktop, and web" src="/assets/guides/build-your-first-harness-06.png"/>
+<figcaption><code>hello-harness</code> is ready to run as CLI, desktop, or web.</figcaption>
+</figure>
+<h2 id="begin-a-session">Begin a Session</h2>
+<p>Enter the project and start the web target:</p>
+<div class="code-frame"><div class="code-label">TERMINAL</div><pre><code><span class="nb">cd</span><span class="w"> </span>hello-harness
+npm<span class="w"> </span>run<span class="w"> </span>dev:web
+</code></pre></div><figure class="flow-shot">
+<img alt="npm run dev:web starting the resident-model host and browser client" src="/assets/guides/build-your-first-harness-07.png"/>
+<figcaption>The web target boots the resident-model host and Vite browser client together. On first run, the host fetches and digest-verifies the model.</figcaption>
+</figure>
+<p>Open the local address printed by Vite: <code>http://localhost:5173/</code>. The browser is a surface over the host; the host owns the resident model and runs the same <code>harness.ts</code> application contract.</p>
+<p>When the model finishes loading and the browser connects, the application begins a Session. Submit an initial task and watch the starter procedure unfold:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>browser command
+  ↓
+running Session
+  ↓
+two research Agents over one shared spine
+  ↓
+Tools acquire source material
+  ↓
+one synthesis Agent combines the findings
+  ↓
+the accepted result is committed to the Session
+</code></pre></div><p>A useful first task is:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>What caused the decline of the Western Roman Empire?
+</code></pre></div><div class="model-callout model-callout-wide">
+<strong>Programming model — the surface is not the intelligence</strong>
+<p>The browser renders commands and events. The harness, Session, orchestration, and continuity rules remain in the host process as the surface changes.</p>
+</div>
+<hr/>
+<h1 id="step-2-find-the-application">2. Find the application</h1>
+<p>The scaffold contains runtime and surface wiring, but the application is concentrated in three files:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>harness/
+├── harness.ts     the intelligent procedure
+├── protocol.ts    commands in and events out
+└── state.ts       events folded into renderable state
+</code></pre></div><p>Open <code>harness/harness.ts</code> first.</p>
+<p>The harness is a headless TypeScript program. The CLI and web UI are surfaces over it; the application procedure does not live in the terminal or browser.</p>
+<p>For this guide, you only need to follow:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>harness(...)
+  ↓
+runQuery(...)
+  ↓
+withSpine(...)
+  ↓
+agentPool(...)
+  ↓
+useAgent(...)
+  ↓
+session.commitTurn(...)
+</code></pre></div><p>That path puts the programming model into practice.</p>
+<hr/>
+<h1 id="step-3-work-always-belongs-somewhere">3. Work always belongs somewhere</h1>
+<p>The harness itself is a long-lived Effection <code>Operation</code>:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="k">export</span><span class="w"> </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="nx">harness</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">ctx</span><span class="o">:</span><span class="w"> </span><span class="kt">SessionContext</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">events</span><span class="o">:</span><span class="w"> </span><span class="kt">EventBus</span><span class="o">&lt;</span><span class="nx">WorkflowEvent</span><span class="o">&gt;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">commands</span><span class="o">:</span><span class="w"> </span><span class="kt">Signal</span><span class="o">&lt;</span><span class="nx">Command</span><span class="p">,</span><span class="w"> </span><span class="ow">void</span><span class="o">&gt;</span><span class="p">,</span>
+<span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// ...</span>
+<span class="p">}</span>
+</code></pre></div><p>Inside it, the scaffold starts an event-forwarding task:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">spawn</span><span class="p">(</span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">ev</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">(</span><span class="nx">agentEvents</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">events</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">ev</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="nx">WorkflowEvent</span><span class="p">);</span>
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">.</span><span class="nx">next</span><span class="p">();</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">});</span>
+</code></pre></div><p>The harness then remains inside its command loop:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">cmd</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">(</span><span class="nx">commands</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="kr">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"quit"</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="kr">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">"submit_query"</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">answer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">runQuery</span><span class="p">(</span><span class="nx">cmd</span><span class="p">.</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">session</span><span class="p">,</span><span class="w"> </span><span class="nx">events</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">events</span><span class="p">.</span><span class="nx">send</span><span class="p">({</span><span class="w"> </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s2">"answer"</span><span class="p">,</span><span class="w"> </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">answer</span><span class="w"> </span><span class="p">});</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">.</span><span class="nx">next</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div><p>The command loop and event forwarder run concurrently, but neither is detached. Both belong to the harness scope.</p>
+<blockquote>
+<p><strong>When the harness ends, its child work ends with it.</strong></p>
+</blockquote>
+<p>This is the first key concept: asynchronous work has an explicit owner.</p>
+<hr/>
+<h1 id="step-4-live-attention-is-a-resource">4. Live attention is a resource</h1>
+<p>The starter's task handler borrows a temporary spine inside the continuing Session:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">notes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">withSpine</span><span class="o">&lt;</span><span class="kt">string</span><span class="p">[]</span><span class="o">&gt;</span><span class="p">(</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">session.trunk</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="kc">undefined</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">systemPrompt</span><span class="o">:</span><span class="w"> </span><span class="kt">spinePrompt</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">tools</span><span class="p">,</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="nx">spine</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// research work over shared live state</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="p">);</span>
+</code></pre></div><p>Read this as:</p>
+<blockquote>
+<p>Borrow a shared line of live attention, perform owned work inside it, return ordinary data, then reclaim the temporary inference subtree.</p>
+</blockquote>
+<p>The spine may inherit the Session trunk. Research Agents fork from the spine and share its decoded prefix. Their findings leave the scope as strings in <code>notes</code>; their branches do not need to survive.</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>Session trunk
+└── task spine
+    ├── research Agent A
+    └── research Agent B
+
+branches are reclaimed
+notes leave as data
+</code></pre></div><p>This is the second key concept: live inference state has a lifetime and belongs in the program's structure.</p>
+<hr/>
+<h1 id="step-5-agents-are-managed-not-launched">5. Agents are managed, not launched</h1>
+<p>Inside the spine, the starter declares an Agent pool:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">pool</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">agentPool</span><span class="p">({</span>
+<span class="w">  </span><span class="nx">tools</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">spine</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">terminal</span><span class="o">:</span><span class="w"> </span><span class="kt">reportTool</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">maxTurns</span><span class="o">:</span><span class="w"> </span><span class="kt">MAX_TURNS</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">pruneOnReturn</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">policy</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nx">DefaultAgentPolicy</span><span class="p">({</span><span class="w"> </span><span class="nx">terminalToolName</span><span class="o">:</span><span class="w"> </span><span class="s2">"report"</span><span class="w"> </span><span class="p">}),</span>
+<span class="w">  </span><span class="nx">enableThinking</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">orchestrate</span><span class="o">:</span><span class="w"> </span><span class="kt">parallel</span><span class="p">(</span>
+<span class="w">    </span><span class="nx">ANGLES</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">angle</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+<span class="w">      </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="sb">\`</span><span class="si">\${</span><span class="nx">query</span><span class="si">}</span><span class="sb">\\n\\nFocus: </span><span class="si">\${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">\`</span><span class="p">,</span>
+<span class="w">      </span><span class="nx">systemPrompt</span><span class="o">:</span><span class="w"> </span><span class="kt">agentPreamble</span><span class="p">(</span><span class="nx">apps</span><span class="p">[</span><span class="mf">0</span><span class="p">],</span><span class="w"> </span><span class="nx">i</span><span class="p">),</span>
+<span class="w">      </span><span class="nx">seed</span><span class="o">:</span><span class="w"> </span><span class="kt">1000</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span>
+<span class="w">    </span><span class="p">})),</span>
+<span class="w">  </span><span class="p">),</span>
+<span class="p">});</span>
+</code></pre></div><p><code>parallel(...)</code> declares the relationship between the tasks. The AgentPool creates the corresponding branches and advances the runnable cohort through its inference loop.</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>shared spine
+├── Agent A: core facts
+└── Agent B: context and significance
+</code></pre></div><p>An Agent is not one detached task and not one remote model request. It is a live branch given intent and managed by the pool.</p>
+<p>This is the third key concept: harness code declares Agent relationships; the pool owns their execution.</p>
+<hr/>
+<h1 id="step-6-application-code-controls-execution">6. Application code controls execution</h1>
+<p>The starter is a complete procedure, but none of its cognitive structure is fixed by the framework. Change the application code and the running intelligence changes with it.</p>
+<h2 id="change-the-intent">Change the intent</h2>
+<p>Replace the starter's research angles:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">ANGLES</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="s2">"Establish the core facts and timeline."</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">"Identify important disagreements or uncertainty."</span><span class="p">,</span>
+<span class="w">  </span><span class="s2">"Explain the practical significance."</span><span class="p">,</span>
+<span class="p">];</span>
+</code></pre></div><p>Run the same task again.</p>
+<p>You changed what interpretations the harness creates without changing the model, Tool, surface, or runtime.</p>
+<p>This is the fourth key concept in its first form: application code controls execution by deciding what work exists.</p>
+<h2 id="change-the-topology">Change the topology</h2>
+<p>The starter uses <code>parallel(...)</code> because each angle can proceed independently from the same starting state:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>parallel
+A ─┐
+B ─┼─ inherit the same starting spine
+C ─┘
+</code></pre></div><p>Now import <code>chain</code>:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="k">import</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// ...</span>
+<span class="w">  </span><span class="nx">parallel</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">chain</span><span class="p">,</span>
+<span class="w">  </span><span class="c1">// ...</span>
+<span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s2">"@lloyal-labs/lloyal-agents"</span><span class="p">;</span>
+</code></pre></div><p>Replace the <code>orchestrate</code> value:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="nx">orchestrate</span><span class="o">:</span><span class="w"> </span><span class="kt">chain</span><span class="p">(</span><span class="nx">ANGLES</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">angle</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
+<span class="w">  </span><span class="nx">task</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="sb">\`</span><span class="si">\${</span><span class="nx">query</span><span class="si">}</span><span class="sb">\\n\\nFocus: </span><span class="si">\${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">\`</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">systemPrompt</span><span class="o">:</span><span class="w"> </span><span class="kt">agentPreamble</span><span class="p">(</span><span class="nx">apps</span><span class="p">[</span><span class="mf">0</span><span class="p">],</span><span class="w"> </span><span class="nx">i</span><span class="p">),</span>
+<span class="w">    </span><span class="nx">seed</span><span class="o">:</span><span class="w"> </span><span class="kt">1000</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nx">userContent</span><span class="o">:</span><span class="w"> </span><span class="sb">\`Research focus: </span><span class="si">\${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">\`</span><span class="p">,</span>
+<span class="p">})),</span>
+</code></pre></div><p>The execution now has a different shape:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>chain
+A reports
+  ↓ accepted finding extends the spine
+B inherits A
+  ↓ accepted finding extends the spine
+C inherits A + B
+</code></pre></div><p>Nothing selected a predefined "deep research mode." Ordinary TypeScript changed which live state later work inherits.</p>
+<p>Use <code>parallel</code> when tasks need independent breadth. Use <code>chain</code> when later work should build on accepted earlier findings.</p>
+<hr/>
+<h1 id="step-7-finality-and-continuity-are-explicit">7. Finality and continuity are explicit</h1>
+<p>After research, the starter creates one synthesis Agent:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">synth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">useAgent</span><span class="p">({</span>
+<span class="w">  </span><span class="nx">systemPrompt</span><span class="o">:</span><span class="w"> </span><span class="kt">SYNTH_SYSTEM</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">task</span><span class="o">:</span><span class="w"> </span><span class="kt">renderTemplate</span><span class="p">(</span><span class="nx">SYNTH_USER</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">query</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">notes</span><span class="o">:</span><span class="w"> </span><span class="kt">notes.map</span><span class="p">((</span><span class="nx">n</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="sb">\`[</span><span class="si">\${</span><span class="nx">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="si">}</span><span class="sb">] </span><span class="si">\${</span><span class="nx">n</span><span class="si">}</span><span class="sb">\`</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s2">"\\n\\n"</span><span class="p">),</span>
+<span class="w">  </span><span class="p">}),</span>
+<span class="w">  </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">session.trunk</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="kc">undefined</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">policy</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nx">SynthPolicy</span><span class="p">(),</span>
+<span class="w">  </span><span class="nx">maxTurns</span><span class="o">:</span><span class="w"> </span><span class="kt">MAX_TURNS</span><span class="p">,</span>
+<span class="p">});</span>
+</code></pre></div><p>The research notes are working state. The synthesis policy accepts the final free-text result, and the harness cleans it into <code>answer</code>.</p>
+<p>The answer becomes continuing Session state only here:</p>
+<div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">commitTurn</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">answer</span><span class="p">));</span>
+</code></pre></div><div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>research branches
+      ↓ temporary findings
+synthesis result
+      ↓ accepted by the harness
+Session commit
+      ↓
+subsequent work may inherit it
+</code></pre></div><p>Submit a follow-up task that depends on the first result. New work can inherit the committed turn even though the temporary research subtree has been reclaimed.</p>
+<p>This is the fifth key concept:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>model output
+≠ accepted result
+≠ continuing Session state
+</code></pre></div><p>The starter already exercises result acceptance and continuity. Protected external actions add a separate authority boundary, covered in <a href="/agent-policy-and-context-pressure">How Agents Know When to Stop</a>.</p>
+<hr/>
+<h1 id="what-you-just-programmed">What you just programmed</h1>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Programming-model concept</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>harness(...)</code></td>
+<td>Owned application lifetime</td>
+</tr>
+<tr>
+<td><code>spawn(...)</code></td>
+<td>Owned concurrent work</td>
+</tr>
+<tr>
+<td><code>withSpine(...)</code></td>
+<td>Scoped live inference state</td>
+</tr>
+<tr>
+<td><code>agentPool(...)</code></td>
+<td>Managed Agents</td>
+</tr>
+<tr>
+<td><code>parallel(...)</code></td>
+<td>Independent breadth over shared state</td>
+</tr>
+<tr>
+<td><code>chain(...)</code></td>
+<td>Sequential inheritance through the spine</td>
+</tr>
+<tr>
+<td>terminal <code>report</code> / <code>SynthPolicy</code></td>
+<td>Application-defined completion</td>
+</tr>
+<tr>
+<td><code>session.commitTurn(...)</code></td>
+<td>Explicit continuity</td>
+</tr>
+</tbody>
+</table></div>
+<p>The progression was deliberately small:</p>
+<div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>create the harness
+  → begin a Session
+    → find the application
+      → change intent
+        → change topology
+          → continue from accepted state
+</code></pre></div><p>You have now used the five key concepts in a real harness.</p>
+<hr/>
+<h1 id="continue">Continue</h1>
+<p>Read <a href="/thinking-in-lloyal">Thinking in Lloyal</a> for the complete execution model behind the code you just changed.</p>
+<p>Then read <a href="/agent-policy-and-context-pressure">How Agents Know When to Stop</a> for policy, context pressure, recovery, and lifecycle boundaries.</p>
+<p>For the full CLI surface—models, targets, Apps, publishing, and served placements—see <a href="https://www.npmjs.com/package/harness.dev" rel="noopener noreferrer" target="_blank"><code>harness.dev</code> on npm</a>.</p>
+</article>
+  </main>
+
+  <footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on their terms.</span><span>Lloyal.ai</span></footer>
+</div>
+<a aria-label="Back to top" class="back-to-top" href="#top">↑</a>`
+
+<div id="lloyal-guides" dangerouslySetInnerHTML={{__html: guideHtml}} />

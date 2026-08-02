@@ -1,0 +1,1338 @@
+---
+title: "Thinking in Lloyal"
+description: "How owned lifetimes, live inference state, Agents, Tools, orchestration, finality, and continuity fit together."
+mode: "custom"
+---
+
+export const guideHtml = `<div class="page" id="top">
+<header class="masthead wrap">
+<div>
+<div class="wordmark">Lloyal Labs</div>
+<div class="tagline">Engineering AI's contact with reality.</div>
+</div>
+<div class="issue"><span>Programming /<br/>Model</span><span>August<br/>2026</span></div>
+</header>
+<section class="hero wrap">
+<div class="eyebrow"><a href="/">Programming guides</a> / Engineering note</div>
+<h1>Thinking in Lloyal</h1>
+<div class="hero-sub">Structured concurrency, scoped capabilities, and live inference state</div>
+</section>
+<section class="thesis wrap">
+<div class="thesis-grid">
+<div class="thesis-copy"><p>Lloyal gives applications control through inference rather than only around model calls. <a href="/">Build with Lloyal</a> introduces that architectural shift; this guide explains the execution model that makes it possible. Lloyal gives application code structured ownership of both the work being performed and the model's live inference-state tree.</p><p>A query can create a temporary inference subtree, fork concurrent Agents from shared state, route evidence into selected lineages, change what receives further work, commit the accepted result, and reclaim the entire working tree when its owning scope ends.</p><p>Lloyal makes those relationships explicit directly in TypeScript.</p></div>
+<div>
+<div class="pullquote"><strong>A harness is a tree of owned lifetimes governing a tree of live inference state.</strong></div>
+<div class="control-line">Structured ownership determines what lives and dies together. Application control determines what the owned execution does next.</div>
+
+<div class="quickest">The quickest way into the model is to follow one query from command to committed result.</div>
+</div>
+</div>
+</section>
+<main class="article-shell wrap">
+<nav aria-label="Table of contents" class="toc"><div class="toc-label">In this guide</div><a class="toc-l1" href="#the-execution-stack">The execution stack</a><a class="toc-l1" href="#what-happens-when-a-query-runs">What happens when a query runs</a><a class="toc-l2" href="#three-structures-one-control-loop">Three structures, one control loop</a><a class="toc-l2" href="#five-key-concepts">Five key concepts</a><a class="toc-l2" href="#withspine-borrow-live-attention-return-durable-findings">withSpine: borrow live attention, return durable findings</a><a class="toc-l2" href="#four-lines-that-carry-the-model">Four lines that carry the model</a><a class="toc-l2" href="#how-the-guide-unfolds">How the guide unfolds</a><a class="toc-l1" href="#own-the-work">Own the work</a><a class="toc-l2" href="#a-harness-is-a-scope">A harness is a scope</a><a class="toc-l2" href="#operation-t-work-waiting-for-an-owner">Operation&lt;T&gt;: work waiting for an owner</a><a class="toc-l2" href="#what-yield-means-in-lloyal">What yield* means in Lloyal</a><a class="toc-l2" href="#spawn-concurrency-without-orphaned-work">spawn: concurrency without orphaned work</a><a class="toc-l2" href="#all-a-concurrent-cohort">all: a concurrent cohort</a><a class="toc-l1" href="#own-the-state">Own the state</a><a class="toc-l2" href="#an-agent-is-not-an-effection-task">An Agent is not an Effection task</a><a class="toc-l2" href="#agents-sit-across-three-structures">Agents sit across three structures</a><a class="toc-l2" href="#a-spine-is-not-the-session-trunk">A spine is not the Session trunk</a><a class="toc-l2" href="#context-inherited-capability-not-global-state">Context: inherited capability, not global state</a><a class="toc-l2" href="#resources-acquire-a-live-capability">Resources: acquire a live capability</a><a class="toc-l1" href="#compose-behaviour">Compose behaviour</a><a class="toc-l2" href="#tools-are-scoped-evidence-programs">Tools are scoped evidence programs</a><a class="toc-l2" href="#structured-ownership-does-not-imply-every-operation-is-concurrency-safe">Structured ownership does not imply every operation is concurrency-safe</a><a class="toc-l2" href="#control-is-split-across-explicit-boundaries">Control is split across explicit boundaries</a><a class="toc-l2" href="#in-lloyal-control-flow-is-orchestration">In Lloyal, control flow is orchestration</a><a class="toc-l2" href="#finality-authority-and-continuity-are-different-decisions">Finality, authority, and continuity are different decisions</a><a class="toc-l1" href="#exit-cleanly">Exit cleanly</a><a class="toc-l2" href="#normal-completion-failure-and-halt">Normal completion, failure, and halt</a><a class="toc-l2" href="#ensure-cleanup-belongs-to-the-owner">ensure: cleanup belongs to the owner</a><a class="toc-l2" href="#call-crossing-the-promise-boundary">call: crossing the Promise boundary</a><a class="toc-l1" href="#read-it-in-code">Read it in code</a><a class="toc-l2" href="#the-basic-harness-annotated">The basic harness, annotated</a><a class="toc-l1" href="#advanced-patterns">Advanced patterns</a><a class="toc-l2" href="#begin-with-the-invariant">Begin with the invariant</a><a class="toc-l2" href="#adaptive-harness-patterns">Adaptive harness patterns</a><a class="toc-l3" href="#contradiction-triggered-expansion">Contradiction-triggered expansion</a><a class="toc-l3" href="#minority-lineage-preservation">Minority-lineage preservation</a><a class="toc-l3" href="#dynamic-retrieval-phase-switching">Dynamic retrieval phase switching</a><a class="toc-l3" href="#materiality-aware-compute-allocation">Materiality-aware compute allocation</a><a class="toc-l2" href="#programming-the-inference-trajectory">Programming the inference trajectory</a><a class="toc-l3" href="#verifier-before-commit-generation">Verifier-before-commit generation</a><a class="toc-l3" href="#diverse-tree-search">Diverse tree search</a><a class="toc-l3" href="#expert-state-synthesis">Expert-state synthesis</a><a class="toc-l2" href="#acceptance-and-continuity-patterns">Acceptance and continuity patterns</a><a class="toc-l3" href="#burden-of-proof-scaling">Burden-of-proof scaling</a><a class="toc-l3" href="#verified-state-continuation">Verified-state continuation</a><a class="toc-l3" href="#counterfactual-policy-replay">Counterfactual policy replay</a><a class="toc-l2" href="#additional-compositions">Additional compositions</a><a class="toc-l2" href="#design-your-own-advanced-pattern">Design your own advanced pattern</a><a class="toc-l3" href="#state">State</a><a class="toc-l3" href="#ownership">Ownership</a><a class="toc-l3" href="#inheritance">Inheritance</a><a class="toc-l3" href="#observation">Observation</a><a class="toc-l3" href="#intervention">Intervention</a><a class="toc-l3" href="#acceptance-and-authority">Acceptance and authority</a><a class="toc-l3" href="#continuity">Continuity</a><a class="toc-l3" href="#test">Test</a><a class="toc-l2" href="#advanced-pattern-failure-modes">Advanced-pattern failure modes</a><a class="toc-l3" href="#creating-fan-out-without-a-survival-policy">Creating fan-out without a survival policy</a><a class="toc-l3" href="#confusing-permission-with-authority">Confusing permission with authority</a><a class="toc-l3" href="#treating-summaries-as-the-only-persistent-state">Treating summaries as the only persistent state</a><a class="toc-l3" href="#assuming-replay-means-bit-identical-output">Assuming replay means bit-identical output</a><a class="toc-l1" href="#reference">Reference</a><a class="toc-l2" href="#operator-ownership-reference">Operator ownership reference</a><a class="toc-l2" href="#follow-the-return-type">Follow the return type</a><a class="toc-l2" href="#async-to-lloyal-rosetta-stone">Async-to-Lloyal Rosetta Stone</a><a class="toc-l2" href="#common-mistakes">Common mistakes</a><a class="toc-l2" href="#repository-invariants">Repository invariants</a><a class="toc-l1" href="#continue-into-adaptive-execution">Continue into adaptive execution</a></nav>
+<article class="article">
+<h1 id="the-execution-stack">The execution stack</h1>
+<p>A Lloyal harness programs intelligence over a branch-aware inference stack.</p>
+<div aria-label="The Lloyal execution stack" class="execution-stack" role="group">
+<div class="stack-layer stack-layer--harness">
+<div class="stack-layer-name">Harness</div>
+<div class="stack-layer-copy">Application procedure · product behaviour · domain rules</div>
+</div>
+<div class="stack-connector"><span>programs</span></div>
+<div class="stack-layer">
+<div class="stack-layer-name">Harness Development Kit</div>
+<div class="stack-layer-copy stack-components">
+<div class="stack-component"><a href="https://www.npmjs.com/package/@lloyal-labs/sdk" rel="noopener noreferrer" target="_blank"><code>@lloyal-labs/sdk</code></a><span class="stack-component-desc">Live inference-state primitives used by the HDK</span></div>
+<div class="stack-component"><a href="https://www.npmjs.com/package/@lloyal-labs/lloyal-agents" rel="noopener noreferrer" target="_blank"><code>@lloyal-labs/lloyal-agents</code></a><span class="stack-component-desc">Agents · Tools · orchestration · policy · grants · replay</span></div>
+<div class="stack-component"><a href="https://frontside.com/effection/guides/v4/collections/" rel="noopener noreferrer" target="_blank">Effection</a><span class="stack-component-desc">Operations · scopes · resources · collections · structured concurrency</span></div>
+</div>
+</div>
+<div class="stack-connector"><span>executes through</span></div>
+<div class="stack-layer stack-layer--bindings">
+<div class="stack-layer-name">Platform bindings</div>
+<div class="stack-layer-copy stack-components">
+<div class="stack-component"><a href="https://github.com/lloyal-ai/lloyal.node" rel="noopener noreferrer" target="_blank"><code>@lloyal-labs/lloyal.node</code></a><span class="stack-component-desc">Node.js · desktop · server</span></div>
+<div class="stack-component"><code>@lloyal-labs/lloyal-react-native</code><span class="stack-component-desc">React Native · JSI · mobile (planned)</span></div>
+</div>
+</div>
+<div class="stack-connector"><span>binds</span></div>
+<div class="stack-layer stack-layer--kernel">
+<div class="stack-layer-name"><a href="https://github.com/lloyal-ai/liblloyal" rel="noopener noreferrer" target="_blank">liblloyal</a></div>
+<div class="stack-layer-copy">KV tenancy · Branched Inference · fork and prune · Continuous Tree Batching</div>
+</div>
+<div class="stack-connector"><span>extends</span></div>
+<div class="stack-layer stack-layer--runtime">
+<div class="stack-layer-name"><a href="https://github.com/ggml-org/llama.cpp" rel="noopener noreferrer" target="_blank">llama.cpp</a></div>
+<div class="stack-layer-copy">Model loading · tokenisation · sampling · CPU and accelerator backends</div>
+</div>
+</div>
+<p>Each layer establishes a different part of the execution model.</p>
+<ul>
+<li><strong><a href="https://github.com/ggml-org/llama.cpp" rel="noopener noreferrer" target="_blank">llama.cpp</a></strong> executes the model across CPU and accelerator backends.</li>
+<li><strong><a href="https://github.com/lloyal-ai/liblloyal" rel="noopener noreferrer" target="_blank">liblloyal</a></strong> gives resident inference state identity, lineage, KV tenancy, fork-and-prune semantics, and batched execution across a live branch tree.</li>
+<li><strong>Platform bindings</strong> preserve those semantics in each host runtime through <a href="https://github.com/lloyal-ai/lloyal.node" rel="noopener noreferrer" target="_blank"><code>@lloyal-labs/lloyal.node</code></a> today, with <code>@lloyal-labs/lloyal-react-native</code> planned for mobile.</li>
+<li><strong>The HDK</strong> combines <a href="https://www.npmjs.com/package/@lloyal-labs/sdk" rel="noopener noreferrer" target="_blank"><code>@lloyal-labs/sdk</code></a>, <a href="https://www.npmjs.com/package/@lloyal-labs/lloyal-agents" rel="noopener noreferrer" target="_blank"><code>@lloyal-labs/lloyal-agents</code></a>, and <a href="https://frontside.com/effection/guides/v4/collections/" rel="noopener noreferrer" target="_blank">Effection</a> into the public harness programming model.</li>
+<li><strong>The harness</strong> defines the application procedure: what work exists, what state it inherits, what may happen next, and what becomes durable.</li>
+</ul>
+<p class="stack-note">The package names identify the layers that make the HDK work; harness authors normally program its high-level surfaces rather than composing <code>@lloyal-labs/sdk</code> directly.</p>
+<p><a href="https://frontside.com/effection/guides/v4/collections/" rel="noopener noreferrer" target="_blank"><strong>Effection</strong></a> is the structured-concurrency library used by the HDK. It gives asynchronous work an ownership tree: Operations run inside scopes, child work cannot silently outlive its owner, cancellation propagates through descendants, and cleanup belongs to the scope that acquired the resource.</p>
+<div class="stack-principle"><strong>liblloyal gives inference a tree of live states. Effection gives application work a tree of owned lifetimes. The HDK aligns the two.</strong></div>
+<p>Generator functions and <code>yield*</code> are how Effection represents scoped Operations in TypeScript. They are the syntax of the lifetime model, not Lloyal's architectural idea.</p>
+<p>Harness developers program the application procedure through the HDK; the layers beneath it preserve those semantics down to resident model execution.</p>
+<hr/>
+<h1 id="what-happens-when-a-query-runs">What happens when a query runs</h1>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>Session
+└── harness                                      stays alive and owns the work
+    └── query Operation
+        ├── withSpine                            borrows shared inference state
+        │   └── AgentPool                        owns Agent execution
+        │       ├── orchestrator                 declares task relationships
+        │       ├── Agents                       branches with intent
+        │       └── AgentPolicy                  decides what happens next
+        └── answer
+            └── session.commitTurn(...)          makes the result durable
+</code></pre></div><p>A command arrives while the harness is alive.</p>
+<p>The query runs beneath that harness, so its lifetime is already accounted for. It may fork a spine from the Session trunk, giving a cohort of Agents a shared line of attention. The orchestrator declares which tasks can proceed together and which depend on earlier findings. The AgentPool advances the resulting branches as a cohort. Policy is consulted at explicit lifecycle boundaries, while Tools and application state supply evidence and domain meaning.</p>
+<p>While the query is underway, ordinary application code can observe branch and Agent state, resource pressure, Tool history, validators, and product state. It can then expand or prune topology, change retrieval mode, admit different evidence, continue or recover selected lineages, permit or reject consequential actions, and decide which result becomes continuing state.</p>
+<p>When the run finishes, findings leave the temporary inference tree as ordinary data. The accepted answer is committed to the Session. The spine and worker branches are reclaimed.</p>
+<p>If the Session disappears before that happens, the ownership tree unwinds the work instead.</p>
+<p>That is the core model. The rest of the guide gives each relationship a precise shape.</p>
+<hr/>
+<h2 id="three-structures-one-control-loop">Three structures, one control loop</h2>
+<p>The same query looks different depending on the question being asked.</p>
+<h3 id="ownership-what-ends-together">Ownership: what ends together?</h3>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>Session
+└── harness
+    ├── event forwarder
+    └── query
+        ├── pool
+        └── synthesiser
+</code></pre></div><p>This is the <strong>lifetime tree</strong>, managed by Effection. It determines cancellation and cleanup.</p>
+<h3 id="inference-what-attention-state-is-inherited">Inference: what attention state is inherited?</h3>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>session trunk
+└── query spine
+    ├── researcher branch A
+    └── researcher branch B
+</code></pre></div><p>This is the <strong>inference-state tree</strong>. It determines sharing, lineage, and pruning.</p>
+<h3 id="workflow-what-depends-on-what">Workflow: what depends on what?</h3>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>landscape
+├── domain A
+├── domain B
+└── domain C
+        ↓
+    synthesis
+</code></pre></div><p>This is the <strong>orchestration graph</strong>, programmed by the harness. It determines collaboration and dependency.</p>
+<h3 id="control-what-can-change-next">Control: what can change next?</h3>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>observe live execution
+        ↓
+combine with application state
+        ↓
+make a decision
+        ↓
+change topology · evidence · inference
+lifecycle · authority · continuity
+        ↓
+observe the resulting execution
+</code></pre></div><p>This is not a fourth graph. It is the harness's control loop over the other three structures.</p>
+<p>The structures often line up, but they are not interchangeable. An Agent can inherit from one branch, depend logically on another task, and still be owned by a broader query scope. The control loop may observe all three, but it acts through explicit surfaces and lifecycle boundaries rather than through one omnipresent supervisor.</p>
+<h3 id="six-questions-for-reading-any-lloyal-program">Six questions for reading any Lloyal program</h3>
+<ol>
+<li><strong>Who owns this work?</strong></li>
+<li><strong>Which live state does it inherit?</strong></li>
+<li><strong>What may enter or transform that state?</strong></li>
+<li><strong>Who decides what happens next, and at which boundary?</strong></li>
+<li><strong>What may become an accepted result or external consequence?</strong></li>
+<li><strong>What survives when the scope ends?</strong></li>
+</ol>
+<p>Those questions scale from a single Tool call to an adaptive multi-stage harness.</p>
+<hr/>
+<h2 id="five-key-concepts">Five key concepts</h2>
+<h3 id="work-always-belongs-somewhere">Work always belongs somewhere</h3>
+<p>An <code>Operation&lt;T&gt;</code> does not float like an eager Promise. It runs beneath a scope that owns its completion, failure, children, and cleanup.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">operation</span><span class="p">;</span>
+</code></pre></div><p>Read <code>yield*</code> as:</p>
+<blockquote>
+<p><strong>Perform this work here, under the current owner.</strong></p>
+</blockquote>
+<h3 id="live-attention-is-a-resource">Live attention is a resource</h3>
+<p>A Branch represents a live line of model state, not a transcript reference. A spine can be borrowed, extended, inherited, transformed, and pruned. Its lifetime therefore belongs in the program's structure.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">findings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">withSpine</span><span class="p">(</span><span class="nx">options</span><span class="p">,</span><span class="w"> </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="nx">spine</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">runResearch</span><span class="p">(</span><span class="nx">spine</span><span class="p">);</span>
+<span class="p">});</span>
+</code></pre></div><h3 id="agents-are-managed-not-launched">Agents are managed, not launched</h3>
+<p>An Agent is a branch with intent, policy-relevant state, history, and a result. It is not one Effection Task and not one remote model request.</p>
+<p>The AgentPool owns Agents and advances all runnable branches through a shared inference loop.</p>
+<h3 id="control-happens-at-explicit-boundaries">Control happens at explicit boundaries</h3>
+<p>Different parts of the harness control different dimensions of the execution:</p>
+<ul>
+<li>orchestration decides which lineages exist, where they inherit from, and what depends on what;</li>
+<li><code>AgentPolicy</code> decides at production, dispatch, exit, settlement, retry, and recovery boundaries;</li>
+<li>Tools acquire and transform external information for a selected lineage;</li>
+<li>direct Branch operations can inspect or shape next-token inference when a specialised operator needs them;</li>
+<li>Session and spine operations decide what becomes inherited or continuing state.</li>
+</ul>
+<p>There is no single “reasoning policy” object that secretly owns the whole program. The behaviour emerges from ordinary code composed across these boundaries.</p>
+<h3 id="finality-authority-and-durability-are-explicit">Finality, authority, and durability are explicit</h3>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>model proposal
+≠ accepted application result
+≠ permitted external action
+≠ continuing Session state
+</code></pre></div><p>A terminal Tool or policy decision may accept a result. A guard or grant may determine whether a proposed action is allowed. The application may require additional evidence, validation, or approval. The resulting state becomes durable only through an explicit continuity decision.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">commitTurn</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">answer</span><span class="p">));</span>
+</code></pre></div><p>Data can leave a scope. Owned runtime state normally cannot.</p>
+<hr/>
+<h2 id="withspine-borrow-live-attention-return-durable-findings"><code>withSpine</code>: borrow live attention, return durable findings</h2>
+<p><code>withSpine</code> is the clearest expression of the Lloyal model:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">notes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">withSpine</span><span class="p">(</span>
+<span class="w">  </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">session.trunk</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="kc">undefined</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">systemPrompt</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">tools</span><span class="p">,</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="nx">spine</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">pool</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">agentPool</span><span class="p">({</span>
+<span class="w">      </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">spine</span><span class="p">,</span>
+<span class="w">      </span><span class="nx">tools</span><span class="p">,</span>
+<span class="w">      </span><span class="nx">terminal</span><span class="o">:</span><span class="w"> </span><span class="kt">reportTool</span><span class="p">,</span>
+<span class="w">      </span><span class="nx">orchestrate</span><span class="o">:</span><span class="w"> </span><span class="kt">parallel</span><span class="p">(</span><span class="nx">tasks</span><span class="p">),</span>
+<span class="w">    </span><span class="p">});</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">pool</span><span class="p">.</span><span class="nx">agents</span>
+<span class="w">      </span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">agent</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">agent</span><span class="p">.</span><span class="nx">result</span><span class="p">)</span>
+<span class="w">      </span><span class="p">.</span><span class="nx">filter</span><span class="p">((</span><span class="nx">result</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="nx">is</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nb">Boolean</span><span class="p">(</span><span class="nx">result</span><span class="p">));</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="p">);</span>
+</code></pre></div><p>Read it as:</p>
+<blockquote>
+<p>Borrow a shared line of live attention, perform owned work inside it, return durable findings, then reclaim the temporary inference subtree.</p>
+</blockquote>
+<p><code>withSpine</code> creates or forks a spine, performs its body, and prunes the spine subtree when the body returns, throws, or is halted.</p>
+<blockquote>
+<p><strong>Data may leave a scope. Owned runtime state normally may not.</strong></p>
+</blockquote>
+<p>This is valid:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">return</span><span class="w"> </span><span class="nx">agents</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">agent</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">agent</span><span class="p">.</span><span class="nx">result</span><span class="p">);</span>
+</code></pre></div><p>The strings survive.</p>
+<p>This is normally wrong in intent:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">return</span><span class="w"> </span><span class="nx">spine</span><span class="p">;</span>
+</code></pre></div><p>The JavaScript handle may escape, but the branch is disposed when <code>withSpine</code> closes.</p>
+<p>An API that genuinely transfers branch ownership should say so explicitly.</p>
+<hr/>
+<h3 id="what-this-changes">What this changes</h3>
+<ul>
+<li>Concurrent Agents inherit shared attention instead of reconstructing context.</li>
+<li>Cancellation reclaims both application work and its inference subtree.</li>
+<li>Findings can survive without keeping worker branches alive.</li>
+<li>Durable conversation state changes only through explicit commit.</li>
+<li>Application code can change topology, evidence flow, lifecycle, and continuity while the execution is underway.</li>
+</ul>
+<hr/>
+<h2 id="four-lines-that-carry-the-model">Four lines that carry the model</h2>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">operation</span><span class="p">;</span>
+</code></pre></div><p>Perform owned work and resume with its result.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">task</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">spawn</span><span class="p">(</span><span class="nx">operation</span><span class="p">);</span>
+</code></pre></div><p>Start concurrent work without detaching it from the current scope.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">findings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">withSpine</span><span class="p">(</span><span class="nx">options</span><span class="p">,</span><span class="w"> </span><span class="nx">body</span><span class="p">);</span>
+</code></pre></div><p>Borrow live inference state, return durable data, and reclaim the temporary subtree.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">commitTurn</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">answer</span><span class="p">));</span>
+</code></pre></div><p>Cross into a Promise boundary and persist the result explicitly.</p>
+<hr/>
+<h2 id="how-the-guide-unfolds">How the guide unfolds</h2>
+<p>The execution stack establishes the architectural boundary. From there, the guide deepens the model in the same order a harness executes it:</p>
+<ol>
+<li><strong><a href="#own-the-work">Own the work</a></strong> — harness scopes, Operations, <code>yield*</code>, <code>spawn</code>, and cohorts.</li>
+<li><strong><a href="#own-the-state">Own the state</a></strong> — Agents, branches, spines, trunks, Context, and resources.</li>
+<li><strong><a href="#compose-behaviour">Compose behaviour</a></strong> — Tools, orchestration, policy boundaries, and consequence.</li>
+<li><strong><a href="#exit-cleanly">Exit cleanly</a></strong> — completion, failure, halt, cleanup, and Promise integration.</li>
+<li><strong><a href="#read-it-in-code">Read it in code</a></strong> — the basic harness with the ownership model annotated.</li>
+<li><strong><a href="#advanced-patterns">Advanced patterns</a></strong> — adaptive control, direct inference programming, acceptance, continuation, and replay.</li>
+</ol>
+<p>The first sections establish the mental model. Advanced patterns shows what qualitatively different programs those relationships can express together.</p>
+<hr/>
+<h1 id="own-the-work">Own the work</h1>
+<h2 id="a-harness-is-a-scope">A harness is a scope</h2>
+<p>The application contract is deliberately small:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">export</span><span class="w"> </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="nx">harness</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">ctx</span><span class="o">:</span><span class="w"> </span><span class="kt">SessionContext</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">events</span><span class="o">:</span><span class="w"> </span><span class="kt">EventBus</span><span class="o">&lt;</span><span class="nx">WorkflowEvent</span><span class="o">&gt;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">commands</span><span class="o">:</span><span class="w"> </span><span class="kt">Signal</span><span class="o">&lt;</span><span class="nx">Command</span><span class="p">,</span><span class="w"> </span><span class="ow">void</span><span class="o">&gt;</span><span class="p">,</span>
+<span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// Your intelligent application lives here.</span>
+<span class="p">}</span>
+</code></pre></div><p>The function remains alive for the Session.</p>
+<p>Its arguments establish the application boundary:</p>
+<ul>
+<li><code>ctx</code> is the resident model and native Session context;</li>
+<li><code>events</code> carries application events down to whichever surface is mounted;</li>
+<li><code>commands</code> carries typed commands from that surface back into the harness;</li>
+<li><code>Operation&lt;void&gt;</code> says the harness is a scoped asynchronous program.</li>
+</ul>
+<p>A typical lifetime looks like this:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>served Session
+└── harness
+    ├── enabled AgentApps
+    ├── event-forwarding task
+    └── command loop
+        └── query
+            ├── temporary spine
+            │   └── agent pool
+            │       ├── researcher
+            │       └── researcher
+            └── synthesiser
+</code></pre></div><p>When the Session is released, the harness scope ends. Its child tasks, subscriptions, Tool executions, pools, and temporary inference branches unwind with it.</p>
+<p>You do not need to manually enumerate every outstanding child and cancel it.</p>
+<p>The ownership tree already knows.</p>
+<hr/>
+<h2 id="operation-t-work-waiting-for-an-owner"><code>Operation&lt;T&gt;</code>: work waiting for an owner</h2>
+<p>An Effection <code>Operation&lt;T&gt;</code> is not an eager <code>Promise&lt;T&gt;</code>.</p>
+<p>It is a description of asynchronous work that can be performed inside a scope:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="nx">lookupCustomer</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="nx">Customer</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// ...</span>
+<span class="p">}</span>
+</code></pre></div><p>Calling an operation-producing function does not yet say what should own it:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">operation</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">lookupCustomer</span><span class="p">(</span><span class="nx">id</span><span class="p">);</span>
+</code></pre></div><p>An Operation must be:</p>
+<ul>
+<li>performed with <code>yield*</code>;</li>
+<li>started as a child with <code>spawn</code>;</li>
+<li>joined with <code>all</code> or <code>race</code>;</li>
+<li>returned to the caller;</li>
+<li>or handed to another API that explicitly owns Operations.</li>
+</ul>
+<blockquote>
+<p><strong>Every <code>Operation</code> must be yielded, spawned, joined, raced, returned, or deliberately transferred to another owner. Never leave one floating.</strong></p>
+</blockquote>
+<hr/>
+<h2 id="what-yield-means-in-lloyal">What <code>yield*</code> means in Lloyal</h2>
+<p>The operative definition is:</p>
+<blockquote>
+<p><strong><code>yield*</code> performs an Operation here, as part of the current scope, and resumes with its result.</strong></p>
+</blockquote>
+<p>Read:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">operation</span><span class="p">;</span>
+</code></pre></div><p>as:</p>
+<blockquote>
+<p>Do this work here, under the current owner.</p>
+</blockquote>
+<p>Three outcomes are possible:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>current scope
+└── operation
+    ├── returns a value  → resume with the value
+    ├── throws an error  → propagate the error here
+    └── owner is halted  → unwind the operation with its owner
+</code></pre></div><p><code>yield*</code> resembles <code>await</code> because it suspends and later resumes with a value.</p>
+<p>But “<code>yield*</code> is Effection’s spelling of <code>await</code>” is incomplete. It omits the ownership guarantee.</p>
+<h3 id="do-not-teach-bare-yield">Do not teach bare <code>yield</code></h3>
+<p>Harness authors use <code>yield*</code>, not bare <code>yield</code>.</p>
+<p>Bare <code>yield</code> belongs to JavaScript’s generator protocol. The Lloyal programming model composes Operations with <code>yield*</code>.</p>
+<hr/>
+<h2 id="spawn-concurrency-without-orphaned-work"><code>spawn</code>: concurrency without orphaned work</h2>
+<p>The basic harness forwards agent events while it separately listens for commands:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">session</span><span class="p">,</span><span class="w"> </span><span class="nx">events</span><span class="o">:</span><span class="w"> </span><span class="kt">agentEvents</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">initAgents</span><span class="p">(</span><span class="nx">ctx</span><span class="p">);</span>
+
+<span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">spawn</span><span class="p">(</span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">event</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">(</span><span class="nx">agentEvents</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">events</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">event</span><span class="p">);</span>
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">.</span><span class="nx">next</span><span class="p">();</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">});</span>
+
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">command</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">(</span><span class="nx">commands</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// ...</span>
+<span class="w">  </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">.</span><span class="nx">next</span><span class="p">();</span>
+<span class="p">}</span>
+</code></pre></div><p><code>yield* spawn(...)</code> does not wait for the child body to finish.</p>
+<p><code>spawn()</code> completes after creating and attaching a live child Task. The parent continues while the child runs concurrently.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>harness
+├── event forwarder
+└── command loop
+</code></pre></div><p>The child remains owned. If the harness exits, the forwarder is halted automatically.</p>
+<h3 id="avoid-fire-and-forget">Avoid fire-and-forget</h3>
+<p>This work has no visible structured owner:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="ow">void</span><span class="w"> </span><span class="nx">someAsyncLoop</span><span class="p">();</span>
+</code></pre></div><p>or:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="nx">somePromiseReturningFunction</span><span class="p">();</span>
+</code></pre></div><p>Use <code>spawn()</code> when work should continue concurrently under the current scope.</p>
+<hr/>
+<h2 id="all-a-concurrent-cohort"><code>all</code>: a concurrent cohort</h2>
+<p>Orchestrators use <code>all()</code> when several Operations should run concurrently and complete as a cohort:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">agents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">all</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">tasks</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">task</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">spawn</span><span class="p">(</span><span class="nx">task</span><span class="p">)),</span>
+<span class="p">);</span>
+
+<span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">all</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">agents</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">agent</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">waitFor</span><span class="p">(</span><span class="nx">agent</span><span class="p">)),</span>
+<span class="p">);</span>
+</code></pre></div><p>This means:</p>
+<ol>
+<li>create the Agents as a cohort;</li>
+<li>wait for every Agent to finish;</li>
+<li>propagate failure through the same structured scope.</li>
+</ol>
+<p>It does not imply one model request or one JavaScript fiber per Agent.</p>
+<hr/>
+<h1 id="own-the-state">Own the state</h1>
+<h2 id="an-agent-is-not-an-effection-task">An Agent is not an Effection task</h2>
+<p>An Agent is a branch with intent:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>Branch
++ task
++ policy
++ grammar and sampler state
++ tool history
++ result provenance
+= Agent
+</code></pre></div><p>Agents are plain objects managed by the AgentPool.</p>
+<p>They are not:</p>
+<ul>
+<li>independent Effection resources;</li>
+<li>one fiber each;</li>
+<li>one HTTP request each;</li>
+<li>one model endpoint call each.</li>
+</ul>
+<p>The pool advances all runnable branches through a phased loop:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>SPAWN + EXTEND
+      ↓
+PRODUCE
+      ↓
+COMMIT
+      ↓
+DRAIN
+      ↓
+SETTLE
+      ↓
+DISPATCH
+</code></pre></div><p>The AgentPool owns execution. BranchStore batches inference. An orchestrator determines which Agents should exist and which dependencies must be satisfied.</p>
+<hr/>
+<h2 id="agents-sit-across-three-structures">Agents sit across three structures</h2>
+<p>An Agent's owner, inherited attention, and logical dependencies are separate facts. Use the <a href="#three-structures-one-control-loop">three-structures model</a> before inferring one tree from another.</p>
+<hr/>
+<h2 id="a-spine-is-not-the-session-trunk">A spine is not the Session trunk</h2>
+<p>These branches have different jobs.</p>
+<h3 id="session-trunk">Session trunk</h3>
+<p>The trunk represents durable conversational state:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">commitTurn</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">answer</span><span class="p">));</span>
+</code></pre></div><p>A later query can inherit the committed turn.</p>
+<h3 id="temporary-spine">Temporary spine</h3>
+<p>A spine is a scoped workspace:</p>
+<ul>
+<li>it may fork from the trunk;</li>
+<li>it may hold a shared system-and-tools header;</li>
+<li><code>chain</code> may extend it between tasks;</li>
+<li>nested Agents may inherit from it;</li>
+<li>it is reclaimed when its scope ends.</li>
+</ul>
+<p>The common pattern is:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>durable trunk
+└── temporary query spine
+    ├── temporary worker A
+    └── temporary worker B
+
+worker findings escape as data
+        ↓
+answer is committed to trunk
+</code></pre></div><p>Do not use branch survival as persistence.</p>
+<hr/>
+<h2 id="context-inherited-capability-not-global-state">Context: inherited capability, not global state</h2>
+<p>Lloyal uses Effection Context so descendant Operations can access runtime capabilities without manually threading every value through every call.</p>
+<p><code>initAgents()</code> installs capabilities such as:</p>
+<ul>
+<li>the active <code>SessionContext</code>;</li>
+<li>the active <code>BranchStore</code>;</li>
+<li>the Agent event channel;</li>
+<li>the trace writer.</li>
+</ul>
+<p>Descendants can read them:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">Ctx</span><span class="p">.</span><span class="nx">expect</span><span class="p">();</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">store</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">Store</span><span class="p">.</span><span class="nx">expect</span><span class="p">();</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">events</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">Events</span><span class="p">.</span><span class="nx">expect</span><span class="p">();</span>
+</code></pre></div><p>During Tool dispatch, the runtime can install narrower facts:</p>
+<ul>
+<li><code>CallingAgent</code>;</li>
+<li><code>TraceParent</code>;</li>
+<li>current grants;</li>
+<li>the current shared spine format.</li>
+</ul>
+<p>The rule is:</p>
+<blockquote>
+<p><strong>Ambient, but not global. Inherited, but only inside the owning scope.</strong></p>
+</blockquote>
+<p>A nested scope may shadow a Context value for its own descendants without mutating unrelated siblings.</p>
+<p>Context answers:</p>
+<blockquote>
+<p>What is available here?</p>
+</blockquote>
+<p>Scope answers:</p>
+<blockquote>
+<p>How long is it available?</p>
+</blockquote>
+<hr/>
+<h2 id="resources-acquire-a-live-capability">Resources: acquire a live capability</h2>
+<p>Some Operations do not merely compute a value and finish. They expose a live capability while keeping backing work alive beneath the caller.</p>
+<p><code>useAgentPool()</code> is a resource. It can expose a Subscription while the pool and its branches remain live.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>yield* resource
+        ↓
+receive live capability
+        ↓
+use it inside this scope
+        ↓
+scope exits
+        ↓
+provider halts and resources clean up
+</code></pre></div><p>So <code>yield*</code> can mean:</p>
+<blockquote>
+<p>Acquire this capability and keep its provider alive beneath me.</p>
+</blockquote>
+<p>Higher-level <code>agentPool()</code> composes the resource and returns a completed result with branches cleaned up. Most harness authors should prefer it unless they deliberately need the lower-level live pool.</p>
+<hr/>
+<h1 id="compose-behaviour">Compose behaviour</h1>
+<blockquote>
+<p><strong>Post-training produces a tendency. A harness produces a procedure.</strong></p>
+</blockquote>
+<p>The model supplies language, representation, judgement, and learned competence. The harness supplies the application-specific procedure: which state exists, what evidence enters it, when work changes course, what counts as completion, and what may become consequence.</p>
+<h2 id="tools-are-scoped-evidence-programs">Tools are scoped evidence programs</h2>
+<p>A Tool returns an Operation:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">class</span><span class="w"> </span><span class="nx">SearchTool</span><span class="w"> </span><span class="k">extends</span><span class="w"> </span><span class="nx">Tool</span><span class="o">&lt;</span><span class="p">{</span><span class="w"> </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">}</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">readonly</span><span class="w"> </span><span class="nx">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"search"</span><span class="p">;</span>
+<span class="w">  </span><span class="k">readonly</span><span class="w"> </span><span class="nx">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"Search the corpus"</span><span class="p">;</span>
+<span class="w">  </span><span class="k">readonly</span><span class="w"> </span><span class="nx">parameters</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s2">"object"</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">properties</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s2">"string"</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">required</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"query"</span><span class="p">],</span>
+<span class="w">  </span><span class="p">};</span>
+
+<span class="w">  </span><span class="o">*</span><span class="nx">execute</span><span class="p">(</span><span class="nx">args</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="nx">unknown</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">search</span><span class="p">(</span><span class="nx">args</span><span class="p">.</span><span class="nx">query</span><span class="p">));</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div><p>A Tool runs for a particular Agent. Its result returns to that Agent's continuing lineage, where inference resumes with the new information.</p>
+<p>A Tool can:</p>
+<ul>
+<li>acquire information from an external service or local source;</li>
+<li>score, filter, redact, validate, or transform material before returning it;</li>
+<li>emit progress and read scoped Context;</li>
+<li>inspect pressure, exploration mode, and peer Tool history through its <code>ToolContext</code>;</li>
+<li>call <code>withSpine</code> or start a nested AgentPool;</li>
+<li>fork nested work from the calling Agent's branch so it inherits the caller's live state.</li>
+</ul>
+<p>Acquisition and admission are separate concerns:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>retrieve or calculate evidence
+        ↓
+rank · filter · redact · validate
+        ↓
+return to the calling Agent
+        ↓
+prefill into that lineage
+        ↓
+continue inference from transformed state
+</code></pre></div><p>The Tool runs inside the pool's scope. It is not ownerless background work, and its result is not broadcast to every lineage unless the harness explicitly makes it shared state.</p>
+<hr/>
+<h2 id="structured-ownership-does-not-imply-every-operation-is-concurrency-safe">Structured ownership does not imply every operation is concurrency-safe</h2>
+<p>The pool protects the main <code>llama_context</code> with a single-loop discipline.</p>
+<p>By default, a Tool executes inline on the pool loop. This is safe even when it:</p>
+<ul>
+<li>invokes <code>useAgent</code>;</li>
+<li>starts a nested pool;</li>
+<li>touches the calling branch;</li>
+<li>performs native work on the main context.</li>
+</ul>
+<p>A Tool may opt into off-loop execution only when it guarantees that it performs no native operation on the main context:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">readonly</span><span class="w"> </span><span class="nx">fanout</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+</code></pre></div><p>Appropriate cases include:</p>
+<ul>
+<li>network I/O;</li>
+<li>pure CPU work;</li>
+<li>a separate reranker context that serialises itself.</li>
+</ul>
+<p>A wrong <code>false</code> may reduce throughput.</p>
+<p>A wrong <code>true</code> may violate native safety.</p>
+<p>Keep these concepts separate:</p>
+<ul>
+<li><strong>agent fan-out</strong>: an orchestration shape;</li>
+<li><strong>off-loop Tool execution</strong>: an execution-safety declaration.</li>
+</ul>
+<hr/>
+<h2 id="control-is-split-across-explicit-boundaries">Control is split across explicit boundaries</h2>
+<p>The harness can govern a continuing execution without pretending every decision belongs in one abstraction.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>The decision it owns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Orchestrator</td>
+<td>Which lineages exist, where they fork from, what depends on what, and what findings extend the spine</td>
+</tr>
+<tr>
+<td><code>AgentPolicy</code></td>
+<td>Whether output is accepted, a Tool is dispatched, retrieval explores or exploits, a lineage exits, failed work retries, or incomplete work recovers</td>
+</tr>
+<tr>
+<td>Tool or scorer</td>
+<td>What information is acquired, transformed, admitted, withheld, or returned</td>
+</tr>
+<tr>
+<td>Branch operations</td>
+<td>How a specialised program samples, validates, steers, constrains, forks, or merges inference state</td>
+</tr>
+<tr>
+<td>Session and spine</td>
+<td>Which accepted state becomes inherited, durable, or canonical</td>
+</tr>
+<tr>
+<td>Guards and grants</td>
+<td>Whether a proposed Tool call is permitted to create external consequence</td>
+</tr>
+</tbody>
+</table></div>
+<p>Use the highest-level surface that expresses the invariant. Drop to direct Branch operations when the requirement is inherently about token selection, logits, search, or state promotion—not merely because a lower-level operation exists.</p>
+<hr/>
+<h2 id="in-lloyal-control-flow-is-orchestration">In Lloyal, control flow is orchestration</h2>
+<p>An orchestrator is an ordinary Operation over <code>PoolContext</code>:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kr">type</span><span class="w"> </span><span class="nx">Orchestrator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="o">:</span><span class="w"> </span><span class="kt">PoolContext</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="p">;</span>
+</code></pre></div><p>JavaScript control flow remains the language of orchestration.</p>
+<h3 id="parallel-breadth">Parallel breadth</h3>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">agents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">all</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">tasks</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">task</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">spawn</span><span class="p">(</span><span class="nx">task</span><span class="p">)),</span>
+<span class="p">);</span>
+
+<span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">all</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">agents</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">agent</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">waitFor</span><span class="p">(</span><span class="nx">agent</span><span class="p">)),</span>
+<span class="p">);</span>
+</code></pre></div><h3 id="sequential-depth">Sequential depth</h3>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">step</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nx">steps</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">agent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">waitFor</span><span class="p">(</span>
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">spawn</span><span class="p">(</span><span class="nx">step</span><span class="p">.</span><span class="nx">task</span><span class="p">),</span>
+<span class="w">  </span><span class="p">);</span>
+
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">agent</span><span class="p">.</span><span class="nx">result</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">step</span><span class="p">.</span><span class="nx">userContent</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">extendSpine</span><span class="p">(</span><span class="nx">step</span><span class="p">.</span><span class="nx">userContent</span><span class="p">,</span><span class="w"> </span><span class="nx">agent</span><span class="p">.</span><span class="nx">result</span><span class="p">);</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div><h3 id="conditional-work">Conditional work</h3>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">canFit</span><span class="p">(</span><span class="nx">estimatedTokens</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">waitFor</span><span class="p">(</span>
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">spawn</span><span class="p">(</span><span class="nx">task</span><span class="p">),</span>
+<span class="w">  </span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div><h3 id="dependencies">Dependencies</h3>
+<p>A dependent node can simply perform the Task representing its dependency before it spawns.</p>
+<p>You do not need to encode every workflow into a generic graph DSL.</p>
+<blockquote>
+<p><strong>Loops, conditions, errors, and lexical scopes are orchestration primitives.</strong></p>
+</blockquote>
+<h3 id="encode-invariants-as-structure-not-mode-flags">Encode invariants as structure, not mode flags</h3>
+<p>A production harness should branch because the work has a different structural requirement, not because a generic <code>mode</code> string happened to select another path.</p>
+<p>Examples:</p>
+<ul>
+<li>a warm Session trunk enables continuation because there is state to inherit;</li>
+<li>multiple independent findings justify synthesis because there is something to aggregate;</li>
+<li>one finding can become the answer directly;</li>
+<li>dependent work uses a chain because later tasks must inherit earlier accepted findings;</li>
+<li>independent work uses parallel execution because no dependency exists;</li>
+<li>only accepted findings extend the spine.</li>
+</ul>
+<p>The structure explains the behaviour and makes the invariant reviewable in code.</p>
+<h2 id="finality-authority-and-continuity-are-different-decisions">Finality, authority, and continuity are different decisions</h2>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>model proposes
+      ↓
+policy and completion conditions
+      ↓
+application accepts
+      ↓
+guard · grant · approval where required
+      ↓
+external consequence
+      ↓
+explicit continuity decision
+</code></pre></div><p>A model proposal is only a candidate. Policy can reject it or require more evidence. A protected Tool can still be denied when the Session lacks a grant. An allowed Tool call can still fail. A successful action does not automatically decide which branch or answer becomes continuing state.</p>
+<p>Keeping these boundaries distinct prevents a schema-valid model output from silently becoming an institutionally wrong action.</p>
+<hr/>
+<h1 id="exit-cleanly">Exit cleanly</h1>
+<h2 id="normal-completion-failure-and-halt">Normal completion, failure, and halt</h2>
+<p>These endings are different.</p>
+<h3 id="return"><code>return</code></h3>
+<p>The Operation completed normally:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">return</span><span class="w"> </span><span class="nx">answer</span><span class="p">;</span>
+</code></pre></div><p>Its parent resumes with the value.</p>
+<h3 id="throw"><code>throw</code></h3>
+<p>The Operation failed:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">throw</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="ne">Error</span><span class="p">(</span><span class="s2">"No AgentApp is enabled"</span><span class="p">);</span>
+</code></pre></div><p>The error propagates to the nearest recovery boundary:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">try</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">answer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">runQuery</span><span class="p">(</span><span class="nx">query</span><span class="p">);</span>
+<span class="p">}</span><span class="w"> </span><span class="k">catch</span><span class="w"> </span><span class="p">(</span><span class="nx">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">events</span><span class="p">.</span><span class="nx">send</span><span class="p">({</span>
+<span class="w">    </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="s2">"error"</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">message</span><span class="o">:</span><span class="w"> </span><span class="kt">String</span><span class="p">(</span><span class="nx">error</span><span class="p">),</span>
+<span class="w">  </span><span class="p">});</span>
+<span class="p">}</span>
+</code></pre></div><h3 id="parent-halt">Parent halt</h3>
+<p>The owner disappears:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>connection closes
+    ↓
+Session is released
+    ↓
+harness scope halts
+    ↓
+children and resources unwind
+</code></pre></div><p>This is lifetime termination, not a domain-level AgentPolicy decision.</p>
+<p>Graceful wind-down, Agent recovery, and per-Agent cancellation occur inside a still-live scope and are covered in the AgentPolicy guide.</p>
+<hr/>
+<h2 id="ensure-cleanup-belongs-to-the-owner"><code>ensure</code>: cleanup belongs to the owner</h2>
+<p>Use <code>ensure()</code> when a scope must perform cleanup as it exits:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">let</span><span class="w"> </span><span class="nx">tookPermit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+
+<span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ensure</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">tookPermit</span><span class="p">)</span><span class="w"> </span><span class="nx">permits</span><span class="p">.</span><span class="nx">release</span><span class="p">();</span>
+<span class="p">});</span>
+
+<span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">permits</span><span class="p">.</span><span class="nx">acquire</span><span class="p">();</span>
+<span class="nx">tookPermit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+</code></pre></div><p>Cleanup runs when the scope:</p>
+<ul>
+<li>returns normally;</li>
+<li>throws;</li>
+<li>or is halted by its parent.</li>
+</ul>
+<p>The same principle is embedded throughout the framework:</p>
+<ul>
+<li>Agent setup registers branch pruning;</li>
+<li><code>withSpine</code> prunes its subtree;</li>
+<li>bindings register disposers;</li>
+<li>subscriptions end with their scopes.</li>
+</ul>
+<p>Do not design around remembering cleanup later.</p>
+<blockquote>
+<p>Make cleanup structurally inseparable from ownership.</p>
+</blockquote>
+<hr/>
+<h2 id="call-crossing-the-promise-boundary"><code>call</code>: crossing the Promise boundary</h2>
+<p>Lloyal code often invokes ordinary synchronous or Promise-returning APIs:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">modelPath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span>
+<span class="w">  </span><span class="nx">resolveModel</span><span class="p">({</span><span class="w"> </span><span class="nx">projectRoot</span><span class="p">,</span><span class="w"> </span><span class="nx">role</span><span class="o">:</span><span class="w"> </span><span class="s2">"llm"</span><span class="p">,</span><span class="w"> </span><span class="nx">spec</span><span class="w"> </span><span class="p">}),</span>
+<span class="p">);</span>
+</code></pre></div><p>Use <code>call()</code> for:</p>
+<ul>
+<li>filesystem APIs;</li>
+<li>network clients;</li>
+<li>Promise-based SDKs;</li>
+<li>async Session methods;</li>
+<li>native wrappers returning Promises.</li>
+</ul>
+<h3 id="call-does-not-make-external-work-magically-cancellable"><code>call()</code> does not make external work magically cancellable</h3>
+<p>When the owner ends, Effection can stop waiting and unwind its side.</p>
+<p>Whether the underlying activity physically stops depends on the integration:</p>
+<ul>
+<li>an abort-aware fetch can stop;</li>
+<li>a child process can be killed if cleanup is registered;</li>
+<li>an arbitrary third-party Promise may continue internally.</li>
+</ul>
+<p>For long-running work, bind the provider’s <code>AbortSignal</code>, disposer, or cancellation API to the Effection scope.</p>
+<hr/>
+<h1 id="read-it-in-code">Read it in code</h1>
+<h2 id="the-basic-harness-annotated">The basic harness, annotated</h2>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">export</span><span class="w"> </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="nx">harness</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">events</span><span class="p">,</span><span class="w"> </span><span class="nx">commands</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">session</span><span class="p">,</span><span class="w"> </span><span class="nx">events</span><span class="o">:</span><span class="w"> </span><span class="kt">agentEvents</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">initAgents</span><span class="p">(</span><span class="nx">ctx</span><span class="p">);</span>
+<span class="w">  </span><span class="c1">// Install the Agent runtime in this harness scope.</span>
+
+<span class="w">  </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">spawn</span><span class="p">(</span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">event</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">(</span><span class="nx">agentEvents</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">events</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">event</span><span class="p">);</span>
+<span class="w">      </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">.</span><span class="nx">next</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">});</span>
+<span class="w">  </span><span class="c1">// Start an event-forwarding child owned by the harness.</span>
+
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">registry</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">createAppRegistry</span><span class="p">({</span><span class="w"> </span><span class="nx">configStore</span><span class="w"> </span><span class="p">});</span>
+<span class="w">  </span><span class="c1">// Acquire the AgentApp registry and its scoped capabilities.</span>
+
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">app</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nx">apps</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">registry</span><span class="p">.</span><span class="nx">enable</span><span class="p">(</span><span class="nx">app</span><span class="p">);</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="w">  </span><span class="c1">// Enable each capability under the registry’s ownership.</span>
+
+<span class="w">  </span><span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">command</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">each</span><span class="p">(</span><span class="nx">commands</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// Own a command subscription for the Session lifetime.</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">notes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">withSpine</span><span class="p">(</span><span class="nx">options</span><span class="p">,</span><span class="w"> </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="nx">spine</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="c1">// Borrow temporary shared inference state.</span>
+
+<span class="w">      </span><span class="kd">const</span><span class="w"> </span><span class="nx">pool</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">agentPool</span><span class="p">({</span>
+<span class="w">        </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">spine</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">orchestrate</span><span class="o">:</span><span class="w"> </span><span class="kt">parallel</span><span class="p">(</span><span class="nx">tasks</span><span class="p">),</span>
+<span class="w">      </span><span class="p">});</span>
+<span class="w">      </span><span class="c1">// Run and join a managed Agent cohort.</span>
+
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="nx">pool</span><span class="p">.</span><span class="nx">agents</span><span class="p">.</span><span class="nx">flatMap</span><span class="p">((</span><span class="nx">agent</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span>
+<span class="w">        </span><span class="nx">agent</span><span class="p">.</span><span class="nx">result</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">[</span><span class="nx">agent</span><span class="p">.</span><span class="nx">result</span><span class="p">]</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[]</span>
+<span class="w">      </span><span class="p">);</span>
+<span class="w">      </span><span class="c1">// Return durable data; temporary branches remain scoped.</span>
+<span class="w">    </span><span class="p">});</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">synth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">useAgent</span><span class="p">({</span>
+<span class="w">      </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">session.trunk</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="kc">undefined</span><span class="p">,</span>
+<span class="w">      </span><span class="nx">task</span><span class="o">:</span><span class="w"> </span><span class="kt">renderSynthesis</span><span class="p">(</span><span class="nx">notes</span><span class="p">),</span>
+<span class="w">    </span><span class="p">});</span>
+<span class="w">    </span><span class="c1">// Perform one managed synthesis Agent.</span>
+
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span>
+<span class="w">      </span><span class="nx">session</span><span class="p">.</span><span class="nx">commitTurn</span><span class="p">(</span><span class="nx">command</span><span class="p">.</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">synth</span><span class="p">.</span><span class="nx">result</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="s2">""</span><span class="p">)</span>
+<span class="w">    </span><span class="p">);</span>
+<span class="w">    </span><span class="c1">// Persist the durable turn explicitly.</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div><p>The code visibly answers:</p>
+<ul>
+<li>who owns each activity;</li>
+<li>which work is concurrent;</li>
+<li>which capabilities are inherited;</li>
+<li>which inference state is temporary;</li>
+<li>which value becomes durable;</li>
+<li>what unwinds when the Session ends.</li>
+</ul>
+<hr/>
+<h1 id="advanced-patterns">Advanced patterns</h1>
+<p>The preceding sections teach how to see a Lloyal execution. These patterns show what the same primitives can express when topology, observation, evidence flow, inference shaping, lifecycle policy, authority, and continuity are composed deliberately.</p>
+<p>They are not built-in modes. Each is an application procedure assembled from ordinary TypeScript and the public inference primitives. Most harnesses should stay at the Agent, Tool, orchestrator, and policy level. Direct Branch operations are appropriate when the invariant is genuinely about token selection, search, logits, or state continuity.</p>
+<h2 id="begin-with-the-invariant">Begin with the invariant</h2>
+<p>Do not start by choosing an orchestration factory or a number of Agents.</p>
+<p>Start with:</p>
+<blockquote>
+<p><strong>What must remain true while this intelligent application investigates, concludes, acts, and continues?</strong></p>
+</blockquote>
+<p>For each pattern, identify:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>invariant
+→ required live states
+→ ownership and inheritance
+→ observations
+→ allowed interventions
+→ acceptance and authority
+→ continuity
+→ observable test
+</code></pre></div><p>The runtime owns safe execution, cancellation, branch cleanup, batching, and grant enforcement. The harness owns the semantic decisions: what evidence means, which contradiction is material, what burden of proof applies, which state is canonical, and when consequence is acceptable.</p>
+<hr/>
+<h2 id="adaptive-harness-patterns">Adaptive harness patterns</h2>
+<h3 id="contradiction-triggered-expansion">Contradiction-triggered expansion</h3>
+<p><strong>Invariant:</strong> no final result while a material contradiction remains unresolved.</p>
+<p><strong>State shape:</strong> preserve the current interpretation and the conflicting observation as distinct live states. Create only the focused work needed to resolve their disagreement.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>current interpretation
+        │
+        └── conflicting observation
+                    │
+          preserve current lineage
+                    +
+          provenance challenge
+                    +
+          applicability challenge
+                    +
+          alternative explanation
+                    │
+                 reconcile
+                    │
+          extend only resolved finding
+</code></pre></div><p>A custom orchestrator can inspect harness-owned contradiction state, conditionally <code>spawn</code> challenge Agents, <code>waitFor</code> them, and extend the spine only after the resolution passes the application's completion gate. <code>AgentPolicy</code> can keep the unresolved lineage alive or prevent terminal acceptance.</p>
+<p><strong>Why it is different:</strong> the graph is not declared once and then executed blindly. New topology appears because evidence changed the application’s understanding of the workload.</p>
+<hr/>
+<h3 id="minority-lineage-preservation">Minority-lineage preservation</h3>
+<p><strong>Invariant:</strong> majority convergence must not erase unique, higher-authority, or high-consequence evidence.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>majority convergence
+        │
+        ├── minority evidence immaterial → prune
+        │
+        └── minority evidence material
+                    → preserve
+                    → seek corroboration
+                    → reconcile
+                    → accept or block completion
+</code></pre></div><p>The harness records provenance and materiality outside the model. It may preserve a minority Agent, spawn a verification lineage, withhold completion, or prune the branch when the unique evidence proves immaterial.</p>
+<p><strong>Why it is different:</strong> the application owns the survival rule. “Consensus” is not whatever the model or the largest cohort happens to prefer.</p>
+<hr/>
+<h3 id="dynamic-retrieval-phase-switching">Dynamic retrieval phase switching</h3>
+<p><strong>Invariant:</strong> retrieval should pursue the question the workload currently needs answered, not one static search objective.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>discovery
+→ governing facts found
+→ applicability search
+→ candidate outcome
+→ contradiction search
+→ materiality check
+→ explanation-quality retrieval
+</code></pre></div><p><code>AgentPolicy.shouldExplore()</code> supplies a live explore/exploit decision at Tool dispatch. A Tool receives that decision through <code>ToolContext.explore</code> and can combine it with application-owned phase state, root intent, local branch state, pressure, and peer history.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">class</span><span class="w"> </span><span class="nx">PhasePolicy</span><span class="w"> </span><span class="k">extends</span><span class="w"> </span><span class="nx">DefaultAgentPolicy</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kr">constructor</span><span class="p">(</span><span class="k">private</span><span class="w"> </span><span class="k">readonly</span><span class="w"> </span><span class="nx">state</span><span class="o">:</span><span class="w"> </span><span class="kt">WorkloadState</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">super</span><span class="p">({</span><span class="w"> </span><span class="nx">terminalToolName</span><span class="o">:</span><span class="w"> </span><span class="s2">"report"</span><span class="w"> </span><span class="p">});</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="kd">override</span><span class="w"> </span><span class="nx">shouldExplore</span><span class="p">(</span><span class="nx">agent</span><span class="o">:</span><span class="w"> </span><span class="kt">Agent</span><span class="p">,</span><span class="w"> </span><span class="nx">pressure</span><span class="o">:</span><span class="w"> </span><span class="kt">ContextPressure</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">phase</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">state</span><span class="p">.</span><span class="nx">forAgent</span><span class="p">(</span><span class="nx">agent</span><span class="p">.</span><span class="nx">id</span><span class="p">).</span><span class="nx">phase</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">phase</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="s2">"discovery"</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">pressure</span><span class="p">.</span><span class="nx">percentAvailable</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mf">40</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div><p>The boolean boundary is intentionally small. Richer semantics—verification, falsification, applicability, or explanation—remain application and Tool concerns.</p>
+<hr/>
+<h3 id="materiality-aware-compute-allocation">Materiality-aware compute allocation</h3>
+<p><strong>Invariant:</strong> spend further inference only on uncertainty capable of changing the useful outcome.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>uncertainty exists
+→ could resolving it change the outcome?
+    ├── no  → stop or prune
+    └── yes → continue, fork, retrieve, or recover
+</code></pre></div><p>Pressure reports what the runtime can afford. Materiality reports what the application considers worth affording.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">class</span><span class="w"> </span><span class="nx">MaterialityPolicy</span><span class="w"> </span><span class="k">extends</span><span class="w"> </span><span class="nx">DefaultAgentPolicy</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kr">constructor</span><span class="p">(</span><span class="k">private</span><span class="w"> </span><span class="k">readonly</span><span class="w"> </span><span class="nx">state</span><span class="o">:</span><span class="w"> </span><span class="kt">WorkloadState</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">super</span><span class="p">({</span><span class="w"> </span><span class="nx">terminalToolName</span><span class="o">:</span><span class="w"> </span><span class="s2">"report"</span><span class="w"> </span><span class="p">});</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="kd">override</span><span class="w"> </span><span class="nx">shouldExit</span><span class="p">(</span><span class="nx">agent</span><span class="o">:</span><span class="w"> </span><span class="kt">Agent</span><span class="p">,</span><span class="w"> </span><span class="nx">pressure</span><span class="o">:</span><span class="w"> </span><span class="kt">ContextPressure</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">s</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">state</span><span class="p">.</span><span class="nx">forAgent</span><span class="p">(</span><span class="nx">agent</span><span class="p">.</span><span class="nx">id</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">pressure</span><span class="p">.</span><span class="nx">critical</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">s</span><span class="p">.</span><span class="nx">uncertaintyCouldChangeOutcome</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">noMaterialProgressTurns</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mf">3</span><span class="p">;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div><p>A custom orchestrator can also use <code>ctx.canFit(...)</code> before spawning focused work. Recovery policy decides whether an incomplete but material branch deserves a final extraction rather than silent pruning.</p>
+<hr/>
+<h2 id="programming-the-inference-trajectory">Programming the inference trajectory</h2>
+<p>These patterns move below Agent lifecycle and operate directly on live Branch state. They are the clearest proof that the harness can program inference rather than only arrange calls around it.</p>
+<h3 id="verifier-before-commit-generation">Verifier-before-commit generation</h3>
+<p><strong>Invariant:</strong> a candidate continuation must pass an application validator before it becomes branch state.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>sample candidate
+      ↓
+application validates
+   ┌──┴──────────────┐
+accept              reject
+   ↓                  ↓
+commit        alter distribution
+              and resample
+</code></pre></div><p>The critical distinction is:</p>
+<blockquote>
+<p><strong>A sampled candidate is not yet committed inference state.</strong></p>
+</blockquote>
+<p><code>Branch.produce()</code> samples without advancing the branch. <code>Branch.commit()</code> accepts and decodes the chosen token. Between them, application code can validate, steer, replace logits, or change grammar.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="nx">commitVerifiedToken</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">branch</span><span class="o">:</span><span class="w"> </span><span class="kt">Branch</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">accepts</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">candidate</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">token</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="p">})</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="kt">boolean</span><span class="p">,</span>
+<span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="kt">boolean</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">rejected</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nb">Set</span><span class="o">&lt;</span><span class="kt">number</span><span class="o">&gt;</span><span class="p">();</span>
+
+<span class="w">  </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">candidate</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">branch</span><span class="p">.</span><span class="nx">produce</span><span class="p">());</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">candidate</span><span class="p">.</span><span class="nx">isStop</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">accepts</span><span class="p">(</span><span class="nx">candidate</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">branch</span><span class="p">.</span><span class="nx">clearSteer</span><span class="p">();</span>
+<span class="w">      </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">branch</span><span class="p">.</span><span class="nx">commit</span><span class="p">(</span><span class="nx">candidate</span><span class="p">.</span><span class="nx">token</span><span class="p">));</span>
+<span class="w">      </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">rejected</span><span class="p">.</span><span class="nx">add</span><span class="p">(</span><span class="nx">candidate</span><span class="p">.</span><span class="nx">token</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">branch</span><span class="p">.</span><span class="nx">steer</span><span class="p">(</span>
+<span class="w">      </span><span class="p">[...</span><span class="nx">rejected</span><span class="p">].</span><span class="nx">map</span><span class="p">((</span><span class="nx">token</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span><span class="w"> </span><span class="nx">token</span><span class="p">,</span><span class="w"> </span><span class="nx">bias</span><span class="o">:</span><span class="w"> </span><span class="o">-</span><span class="kc">Infinity</span><span class="w"> </span><span class="p">})),</span>
+<span class="w">    </span><span class="p">);</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div><p>Use this for local syntax or semantic validators, impossible world-state transitions, phase-specific structure, or specialised token-level scoring. Grammar remains preferable when the whole valid language can be expressed structurally; verifier-before-commit is valuable when validity depends on live application state.</p>
+<hr/>
+<h3 id="diverse-tree-search">Diverse tree search</h3>
+<p><strong>Invariant:</strong> preserve several genuinely different continuations, spend work on promising paths, and remove dominated subtrees without reconstructing the shared prefix.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>shared live state
+      ↓
+fork alternatives
+      ↓
+reseed · steer · produce · score
+      ↓
+expand promising paths
+prune dominated subtrees
+      ↓
+retain or promote winner
+</code></pre></div><p>Branches can fork from roots or intermediate branches. Sampler reseeding prevents identical stochastic continuations. Path-local steering can penalise sibling choices. <code>produce()</code> separates proposal from advancement, while cohort <code>commit()</code> advances the active frontier together.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">frontier</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">all</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">seeds</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">seed</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">call</span><span class="p">(</span><span class="k">async</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">branch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">root</span><span class="p">.</span><span class="nx">fork</span><span class="p">();</span>
+<span class="w">    </span><span class="nx">branch</span><span class="p">.</span><span class="nx">reseedSampler</span><span class="p">(</span><span class="nx">seed</span><span class="p">);</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">branch</span><span class="p">;</span>
+<span class="w">  </span><span class="p">})),</span>
+<span class="p">);</span>
+
+<span class="k">for</span><span class="w"> </span><span class="p">(</span><span class="kd">let</span><span class="w"> </span><span class="nx">depth</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0</span><span class="p">;</span><span class="w"> </span><span class="nx">depth</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="nx">maxDepth</span><span class="p">;</span><span class="w"> </span><span class="nx">depth</span><span class="o">++</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">proposals</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">frontier</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">branch</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="nx">branch</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">branch</span><span class="p">.</span><span class="nx">produceSync</span><span class="p">(),</span>
+<span class="w">  </span><span class="p">]</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="kd">const</span><span class="p">);</span>
+
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">live</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">proposals</span><span class="p">.</span><span class="nx">filter</span><span class="p">(([,</span><span class="w"> </span><span class="nx">p</span><span class="p">])</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="o">!</span><span class="nx">p</span><span class="p">.</span><span class="nx">isStop</span><span class="p">);</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">live</span><span class="p">.</span><span class="nx">length</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="mf">0</span><span class="p">)</span><span class="w"> </span><span class="k">break</span><span class="p">;</span>
+
+<span class="w">  </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">store</span><span class="p">.</span><span class="nx">commit</span><span class="p">(</span>
+<span class="w">    </span><span class="nx">live</span><span class="p">.</span><span class="nx">map</span><span class="p">(([</span><span class="nx">branch</span><span class="p">,</span><span class="w"> </span><span class="nx">p</span><span class="p">])</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">[</span><span class="nx">branch</span><span class="p">,</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">token</span><span class="p">]),</span>
+<span class="w">  </span><span class="p">));</span>
+
+<span class="w">  </span><span class="c1">// Application-owned scoring decides which paths expand or prune.</span>
+<span class="w">  </span><span class="nx">pruneDominated</span><span class="p">(</span><span class="nx">frontier</span><span class="p">,</span><span class="w"> </span><span class="nx">scoreBranch</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre></div><p>A real search owns cleanup explicitly and promotes or retains the winner before the candidate scope closes.</p>
+<p><strong>Why it is different:</strong> the application is not asking for several detached answers. It is maintaining and governing a search tree of continuing model states.</p>
+<hr/>
+<h3 id="expert-state-synthesis">Expert-state synthesis</h3>
+<p><strong>Invariant:</strong> expert lineages should remain distinct while contributing directly to a common synthesis, rather than first being flattened into one textual summary.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>expert A state ─┐
+expert B state ─┼─ align to one synthesis task
+expert C state ─┘
+                       ↓
+             capture token distributions
+                       ↓
+               merge into destination
+                       ↓
+          decode under destination grammar
+               and sampler policy
+</code></pre></div><p><code>Session.prefillAligned()</code> gives the trunk and experts the same next task while preserving each lineage's prior state. <code>BranchStore.mergeLogits()</code> adds expert distributions into the destination. The destination's grammar and sampler still determine the selected token.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="nx">synthesizeFromExperts</span><span class="p">(</span>
+<span class="w">  </span><span class="nx">session</span><span class="o">:</span><span class="w"> </span><span class="kt">Session</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">store</span><span class="o">:</span><span class="w"> </span><span class="kt">BranchStore</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">experts</span><span class="o">:</span><span class="w"> </span><span class="kt">Branch</span><span class="p">[],</span>
+<span class="w">  </span><span class="nx">task</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">alpha</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.25</span><span class="p">,</span>
+<span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="kt">string</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">prefillAligned</span><span class="p">(</span><span class="nx">task</span><span class="p">,</span><span class="w"> </span><span class="nx">experts</span><span class="p">));</span>
+
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">destination</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">trunk</span><span class="p">;</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">destination</span><span class="p">)</span><span class="w"> </span><span class="k">throw</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="ne">Error</span><span class="p">(</span><span class="s2">"Expert synthesis requires a trunk"</span><span class="p">);</span>
+
+<span class="w">  </span><span class="kd">let</span><span class="w"> </span><span class="nx">output</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">""</span><span class="p">;</span>
+
+<span class="w">  </span><span class="k">while</span><span class="w"> </span><span class="p">(</span><span class="kc">true</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">store</span><span class="p">.</span><span class="nx">mergeLogits</span><span class="p">(</span><span class="nx">destination</span><span class="p">,</span><span class="w"> </span><span class="nx">experts</span><span class="p">,</span><span class="w"> </span><span class="nx">alpha</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">next</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">destination</span><span class="p">.</span><span class="nx">produceSync</span><span class="p">();</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">next</span><span class="p">.</span><span class="nx">isStop</span><span class="p">)</span><span class="w"> </span><span class="k">break</span><span class="p">;</span>
+
+<span class="w">    </span><span class="nx">output</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="nx">next</span><span class="p">.</span><span class="nx">text</span><span class="p">;</span>
+
+<span class="w">    </span><span class="c1">// Advance every lineage with the selected synthesis token so their</span>
+<span class="w">    </span><span class="c1">// distinct histories remain aligned for the next distribution merge.</span>
+<span class="w">    </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">store</span><span class="p">.</span><span class="nx">commit</span><span class="p">([</span>
+<span class="w">      </span><span class="p">[</span><span class="nx">destination</span><span class="p">,</span><span class="w"> </span><span class="nx">next</span><span class="p">.</span><span class="nx">token</span><span class="p">],</span>
+<span class="w">      </span><span class="p">...</span><span class="nx">experts</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">expert</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">[</span><span class="nx">expert</span><span class="p">,</span><span class="w"> </span><span class="nx">next</span><span class="p">.</span><span class="nx">token</span><span class="p">]</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="p">[</span><span class="nx">Branch</span><span class="p">,</span><span class="w"> </span><span class="kt">number</span><span class="p">]),</span>
+<span class="w">    </span><span class="p">]));</span>
+<span class="w">  </span><span class="p">}</span>
+
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">output</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div><p>The built-in merge applies one equal <code>alpha</code> to each expert. A custom weighting operator can read and write captured logits when experts need different weights.</p>
+<p><strong>Why it is different:</strong> the experts preserve their own evidence and attention histories while contributing to each next-token decision.</p>
+<hr/>
+<h2 id="acceptance-and-continuity-patterns">Acceptance and continuity patterns</h2>
+<h3 id="burden-of-proof-scaling">Burden-of-proof scaling</h3>
+<p><strong>Invariant:</strong> the evidence and validation required must increase with the consequence of the proposed result or action.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>advisory output
+→ modest evidence threshold
+
+persistent recommendation
+→ stronger evidence + provenance + validation
+
+consequential action
+→ corroboration + deterministic checks + grant + approval
+</code></pre></div><p>The harness owns risk tier and evidence-completeness state. <code>AgentPolicy.onProduced()</code> can reject premature terminal output. Deterministic validators can check structure and domain rules. <code>ToolGuard</code>, protected Tools, Session grants, and human commands keep permission distinct from model preference.</p>
+<p>This pattern preserves four separate facts:</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>the model proposed it
+≠ the result is accepted
+≠ the Session is authorised
+≠ the application should execute it now
+</code></pre></div><hr/>
+<h3 id="verified-state-continuation">Verified-state continuation</h3>
+<p><strong>Invariant:</strong> later work must inherit the state the application actually accepted, not merely a summary of whichever candidate happened to finish last.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>candidate lineages
+        ↓
+validator or human selection
+        ↓
+accepted winner
+        ↓
+Session.promote(...)
+        ↓
+later work forks from accepted state
+</code></pre></div><div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">winner</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">candidates</span><span class="p">.</span><span class="nx">find</span><span class="p">((</span><span class="nx">candidate</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span>
+<span class="w">  </span><span class="nx">validator</span><span class="p">.</span><span class="nx">accepts</span><span class="p">(</span><span class="nx">candidate</span><span class="p">.</span><span class="nx">result</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">winner</span><span class="p">)</span><span class="w"> </span><span class="k">throw</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="ne">Error</span><span class="p">(</span><span class="s2">"No candidate satisfied the invariant"</span><span class="p">);</span>
+
+<span class="c1">// Promote while the candidate branch is still live in its owning scope.</span>
+<span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">promote</span><span class="p">(</span><span class="nx">winner</span><span class="p">.</span><span class="nx">branch</span><span class="p">));</span>
+</code></pre></div><p>Promotion is both a topological operation and a product decision. The candidate scope must remain alive until selection and promotion complete.</p>
+<p><strong>Why it is different:</strong> the accepted inference state itself becomes the basis for follow-up work. Continuity is not reconstructed later from a lossy prose summary.</p>
+<hr/>
+<h3 id="counterfactual-policy-replay">Counterfactual policy replay</h3>
+<p><strong>Invariant:</strong> a changed policy, prompt, validator, model, or stage should be evaluated from equivalent inherited state.</p>
+<div class="code-frame"><div class="code-label">Structure</div><pre><code>historical inherited state
+→ reconstruct
+→ replace policy or stage
+→ rerun
+→ compare outcome and trace
+</code></pre></div><div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">checkpoint</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">extractSpineCheckpoint</span><span class="p">(</span><span class="nx">traceEvents</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">poolTraceId</span><span class="p">,</span>
+<span class="p">});</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">spine</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">reconstructBranch</span><span class="p">(</span><span class="nx">checkpoint</span><span class="p">);</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">agentPool</span><span class="p">({</span>
+<span class="w">  </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">spine</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">tools</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">policy</span><span class="o">:</span><span class="w"> </span><span class="kt">revisedPolicy</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">orchestrate</span><span class="o">:</span><span class="w"> </span><span class="kt">replacementStage</span><span class="p">,</span>
+<span class="p">});</span>
+</code></pre></div><p>Replay reconstructs the seed prompt and ordered spine extensions. It does not promise bit-identical future generation when sampler state or other nondeterministic inputs differ. The object under comparison is the application procedure and its trace, not only the final prose.</p>
+<hr/>
+<h2 id="additional-compositions">Additional compositions</h2>
+<p>The same grammar supports further patterns that can be added when a product needs them:</p>
+<ul>
+<li><strong>Cross-source invariant transfer:</strong> establish governing constraints in one stage, extend only the accepted constraints into the spine, and make later source work inherit them.</li>
+<li><strong>Source-diverse evidence portfolio:</strong> treat independent source classes as an application invariant rather than trusting top-K relevance alone.</li>
+<li><strong>Entitlement-aware evidence admission:</strong> allow private evidence to influence an authorised lineage while filtering or withholding its representation from other lineages and public output.</li>
+<li><strong>Temporal applicability:</strong> keep publication date, effective date, jurisdiction, supersession, and event time in application state so current validity is tested rather than inferred from semantic relevance.</li>
+</ul>
+<p>These are not special framework modes. They are different combinations of topology, Tool semantics, policy, application state, and continuity.</p>
+<hr/>
+<h2 id="design-your-own-advanced-pattern">Design your own advanced pattern</h2>
+<p>Use this worksheet.</p>
+<h3 id="state">State</h3>
+<p>What live interpretations, candidates, or expert states must exist?</p>
+<h3 id="ownership">Ownership</h3>
+<p>What work ends together, and which temporary branches must remain alive until selection or promotion?</p>
+<h3 id="inheritance">Inheritance</h3>
+<p>What state should each lineage receive? Which findings are allowed to extend the spine?</p>
+<h3 id="observation">Observation</h3>
+<p>Which model, pressure, evidence, domain, external-system, and human signals matter?</p>
+<h3 id="intervention">Intervention</h3>
+<p>Can the harness spawn, retrieve, steer, constrain, validate, retry, recover, prune, merge, or promote?</p>
+<h3 id="acceptance-and-authority">Acceptance and authority</h3>
+<p>What separates a model proposal, an accepted result, a permitted action, and an executed consequence?</p>
+<h3 id="continuity">Continuity</h3>
+<p>What becomes shared state, the Session trunk, or a reconstructable checkpoint?</p>
+<h3 id="test">Test</h3>
+<p>What trace and application state prove the invariant held even when the final answer looks plausible?</p>
+<blockquote>
+<p><strong>Start from the application invariant, not from the number of Agents.</strong></p>
+</blockquote>
+<hr/>
+<h2 id="advanced-pattern-failure-modes">Advanced-pattern failure modes</h2>
+<h3 id="creating-fan-out-without-a-survival-policy">Creating fan-out without a survival policy</h3>
+<p>More branches are not automatically better. Define what preserves, expands, recovers, prunes, and wins before creating a large frontier.</p>
+<h3 id="confusing-permission-with-authority">Confusing permission with authority</h3>
+<p>A grant means the Session may invoke a protected Tool. It does not mean the application must accept every proposed invocation or that evidence and approval conditions are satisfied.</p>
+<h3 id="treating-summaries-as-the-only-persistent-state">Treating summaries as the only persistent state</h3>
+<p>Summaries are useful data. They are not equivalent to promoting an accepted live state or deliberately extending a spine with selected findings.</p>
+<h3 id="assuming-replay-means-bit-identical-output">Assuming replay means bit-identical output</h3>
+<p>Reconstructed inherited state can be equivalent while later sampling diverges. Compare policy decisions, invariants, outcomes, and traces rather than assuming identical tokens.</p>
+<hr/>
+<h1 id="reference">Reference</h1>
+<h2 id="operator-ownership-reference">Operator ownership reference</h2>
+<p><code>yield*</code> performs the Operation it receives. Different Operations complete at different moments.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>yield* operation</code></td>
+<td>Perform scoped work and receive its result</td>
+</tr>
+<tr>
+<td><code>yield* spawn(operation)</code></td>
+<td>Attach and start a concurrent child</td>
+</tr>
+<tr>
+<td><code>yield* all(operations)</code></td>
+<td>Run and join an owned cohort</td>
+</tr>
+<tr>
+<td><code>yield* race(operations)</code></td>
+<td>Race owned alternatives and halt losers</td>
+</tr>
+<tr>
+<td><code>yield* call(() =&gt; promise)</code></td>
+<td>Cross deliberately into Promise-based code</td>
+</tr>
+<tr>
+<td><code>yield* ensure(cleanup)</code></td>
+<td>Register cleanup for scope exit</td>
+</tr>
+<tr>
+<td><code>for (... of yield* each(stream))</code></td>
+<td>Consume a subscription owned by the scope</td>
+</tr>
+<tr>
+<td><code>yield* context.expect()</code></td>
+<td>Read an inherited scoped capability</td>
+</tr>
+<tr>
+<td><code>yield* resourceOperation</code></td>
+<td>Acquire a live capability whose provider remains beneath you</td>
+</tr>
+</tbody>
+</table></div>
+<p>This matters most with <code>spawn</code> and resources: <code>yield*</code> does not always mean “wait for every activity underneath this call to finish”.</p>
+<hr/>
+<h2 id="follow-the-return-type">Follow the return type</h2>
+<p>Two APIs may share a method name but have different semantics.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="nx">events</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">event</span><span class="p">);</span>
+</code></pre></div><p>may be synchronous.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">channel</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">event</span><span class="p">);</span>
+</code></pre></div><p>may return <code>Operation&lt;void&gt;</code> and require <code>yield*</code>.</p>
+<p>Do not infer from names such as <code>send</code>, <code>read</code>, or <code>close</code>.</p>
+<p>Let TypeScript tell you whether an API is:</p>
+<ul>
+<li>synchronous;</li>
+<li>Promise-returning;</li>
+<li>or Operation-returning.</li>
+</ul>
+<p>A floating-Operation lint rule would be valuable for harness projects.</p>
+<hr/>
+<h2 id="async-to-lloyal-rosetta-stone">Async-to-Lloyal Rosetta Stone</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>JavaScript instinct</th>
+<th>Lloyal/Effection form</th>
+<th>Ownership meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>async function</code></td>
+<td><code>function*(): Operation&lt;T&gt;</code></td>
+<td>A composable scoped program</td>
+</tr>
+<tr>
+<td><code>await work()</code></td>
+<td><code>yield* work()</code></td>
+<td>Perform work under the current owner</td>
+</tr>
+<tr>
+<td><code>Promise&lt;T&gt;</code></td>
+<td><code>Operation&lt;T&gt;</code></td>
+<td>Work waiting to be placed in a scope</td>
+</tr>
+<tr>
+<td><code>Promise.all(...)</code></td>
+<td><code>yield* all(...)</code></td>
+<td>Run and join an owned cohort</td>
+</tr>
+<tr>
+<td>fire-and-forget Promise</td>
+<td><code>yield* spawn(...)</code></td>
+<td>Start a child that cannot outlive this scope</td>
+</tr>
+<tr>
+<td><code>Promise.race(...)</code></td>
+<td><code>yield* race(...)</code></td>
+<td>Race owned alternatives and halt losers</td>
+</tr>
+<tr>
+<td>call an async API</td>
+<td><code>yield* call(() =&gt; ...)</code></td>
+<td>Cross deliberately into Promise code</td>
+</tr>
+<tr>
+<td><code>finally</code> cleanup</td>
+<td><code>ensure()</code> or a resource</td>
+<td>Bind cleanup to scope exit</td>
+</tr>
+<tr>
+<td><code>for await</code></td>
+<td><code>for (... of yield* each(stream))</code></td>
+<td>Consume a scoped subscription</td>
+</tr>
+<tr>
+<td>global dependency</td>
+<td>Effection Context</td>
+<td>Inherit a capability inside a scope</td>
+</tr>
+<tr>
+<td>temporary workspace</td>
+<td><code>withSpine(...)</code></td>
+<td>Borrow live inference state and reclaim it</td>
+</tr>
+</tbody>
+</table></div>
+<p>Further language-level references:</p>
+<ul>
+<li><a href="https://frontside.com/effection/guides/v4/thinking-in-effection/" rel="noopener noreferrer" target="_blank">https://frontside.com/effection/guides/v4/thinking-in-effection/</a></li>
+<li><a href="https://frontside.com/effection/guides/v4/async-rosetta-stone/" rel="noopener noreferrer" target="_blank">https://frontside.com/effection/guides/v4/async-rosetta-stone/</a></li>
+</ul>
+<hr/>
+<h2 id="common-mistakes">Common mistakes</h2>
+<h3 id="converting-an-operation-to-async">Converting an Operation to <code>async</code></h3>
+<p>Avoid:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">runResearch</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// ...</span>
+<span class="p">}</span>
+</code></pre></div><p>when the function must compose Lloyal Operations.</p>
+<p>Use:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="nx">runResearch</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="nx">Result</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// ...</span>
+<span class="p">}</span>
+</code></pre></div><h3 id="calling-an-operation-without-performing-it">Calling an Operation without performing it</h3>
+<p>Avoid:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="nx">ctx</span><span class="p">.</span><span class="nx">spawn</span><span class="p">(</span><span class="nx">task</span><span class="p">);</span>
+</code></pre></div><p>Use:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">agent</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">spawn</span><span class="p">(</span><span class="nx">task</span><span class="p">);</span>
+</code></pre></div><h3 id="treating-an-agent-as-a-task">Treating an Agent as a Task</h3>
+<p>Avoid:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">agent</span><span class="p">;</span>
+</code></pre></div><p>Use:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">waitFor</span><span class="p">(</span><span class="nx">agent</span><span class="p">);</span>
+</code></pre></div><h3 id="returning-a-scoped-branch">Returning a scoped branch</h3>
+<p>Avoid relying on:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">spine</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">withSpine</span><span class="p">(</span><span class="nx">options</span><span class="p">,</span><span class="w"> </span><span class="kd">function</span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="nx">spine</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="nx">spine</span><span class="p">;</span>
+<span class="p">});</span>
+</code></pre></div><p>Return findings or another explicitly durable value.</p>
+<h3 id="detached-background-loops">Detached background loops</h3>
+<p>Avoid:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="ow">void</span><span class="w"> </span><span class="nx">listenForever</span><span class="p">();</span>
+</code></pre></div><p>Use:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">spawn</span><span class="p">(</span><span class="nx">listenForever</span><span class="p">);</span>
+</code></pre></div><h3 id="assuming-call-cancels-every-promise">Assuming <code>call()</code> cancels every Promise</h3>
+<p>Bind provider cancellation into the scope where available.</p>
+<h3 id="marking-a-native-tool-as-off-loop">Marking a native Tool as off-loop</h3>
+<p>Do not set <code>Tool.fanout = true</code> when the Tool may touch the main SessionContext, a branch, or a nested Agent runtime.</p>
+<hr/>
+<h2 id="repository-invariants">Repository invariants</h2>
+<div class="code-frame"><div class="code-label">Markdown</div><pre><code><span class="gu">## Lloyal structured-concurrency invariants</span>
+
+<span class="k">-</span><span class="w"> </span>A harness is a long-lived Effection scope.
+<span class="k">-</span><span class="w"> </span>Read <span class="sb">\`yield*\`</span> as “perform this operation here, under this owner.”
+<span class="k">-</span><span class="w"> </span>Do not convert Operation generators into async functions.
+<span class="k">-</span><span class="w"> </span>Do not call and ignore a value of type <span class="sb">\`Operation&lt;T&gt;\`</span>.
+<span class="k">-</span><span class="w"> </span>Perform Operations with <span class="sb">\`yield*\`</span>, <span class="sb">\`all\`</span>, <span class="sb">\`race\`</span>, <span class="sb">\`spawn\`</span>, or return them.
+<span class="k">-</span><span class="w"> </span>Use <span class="sb">\`spawn\`</span> only for concurrent children owned by the current scope.
+<span class="k">-</span><span class="w"> </span>Use <span class="sb">\`call()\`</span> at Promise or async-library boundaries.
+<span class="k">-</span><span class="w"> </span>An Agent is not an Effection Task; the pool advances Agents.
+<span class="k">-</span><span class="w"> </span>Agent concurrency is executed by the pool over BranchStore.
+<span class="k">-</span><span class="w"> </span>A Branch or spine normally cannot outlive the scope that created it.
+<span class="k">-</span><span class="w"> </span>Return durable findings from <span class="sb">\`withSpine\`</span>, not live branch handles.
+<span class="k">-</span><span class="w"> </span>Effection Context values are scoped capabilities, not globals.
+<span class="k">-</span><span class="w"> </span>Follow TypeScript return types: some <span class="sb">\`send()\`</span> methods are synchronous,
+  while Channels return Operations that must be yielded.
+<span class="k">-</span><span class="w"> </span>Do not mark a Tool as <span class="sb">\`fanout\`</span> if it may touch the main SessionContext.
+</code></pre></div><hr/>
+<h1 id="continue-into-adaptive-execution">Continue into adaptive execution</h1>
+<p>This guide establishes the ownership model and shows the advanced procedures it can express. The next guide goes deeper on the lifecycle boundary that production harnesses use most often:</p>
+<blockquote>
+<p>While work is still owned and running, what should an Agent do next?</p>
+</blockquote>
+<p><code>AgentPolicy</code> can decide to explore or exploit, accept or reject a Tool call, nudge an Agent towards reporting, retry a transient failure, stop one Agent, or recover findings before pruning. It operates inside the ownership model rather than replacing it.</p>
+<p>Continue with <a href="/agent-policy-and-context-pressure">How Agents Know When to Stop</a>.</p>
+</article>
+</main>
+<footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on their terms.</span><span>Lloyal.ai</span></footer>
+</div>
+<a aria-label="Back to top" class="back-to-top" href="#top">↑</a>`
+
+<div id="lloyal-guides" dangerouslySetInnerHTML={{__html: guideHtml}} />

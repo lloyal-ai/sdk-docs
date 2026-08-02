@@ -40,116 +40,21 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Start here",
+        "tab": "Build with Lloyal",
         "groups": [
           {
-            "group": "Start here",
+            "group": "Programming guides",
             "pages": [
-              "start-here/what-is-the-hdk",
-              "start-here/concept-spine",
-              "start-here/quick-start",
-              "start-here/privacy-and-zero-egress",
-              "start-here/thinking-in-lloyal"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Build a harness",
-        "groups": [
-          {
-            "group": "Build a harness",
-            "pages": [
-              "build-a-harness/agents-and-pools",
-              "build-a-harness/orchestrators",
-              "build-a-harness/sessions",
-              "build-a-harness/tracing",
-              "guides/deployment",
-              "build-a-harness/shipping"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Build an AgentApp",
-        "groups": [
-          {
-            "group": "Build an AgentApp",
-            "pages": [
-              "build-an-app/what-is-an-app",
-              "build-an-app/your-first-app",
-              "build-an-app/sources-and-retrieval",
-              "build-an-app/tools",
-              "build-an-app/app-security",
-              "build-an-app/lifecycle-and-registry",
-              "build-an-app/distribution"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "CLI",
-        "groups": [
-          {
-            "group": "CLI",
-            "pages": [
-              "cli/index",
-              "cli/scaffolding",
-              "cli/publishing",
-              "cli/installing"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Reference",
-        "groups": [
-          {
-            "group": "Under the hood",
-            "pages": [
-              "under-the-hood/branch-lifecycle",
-              "under-the-hood/continuous-context-spine",
-              "under-the-hood/concurrency",
-              "under-the-hood/kv-pressure",
-              "under-the-hood/grammar-and-ordering",
-              "under-the-hood/prompt-composition",
-              "under-the-hood/mixed-role-pools",
-              "under-the-hood/rerank-architecture"
+              "index",
+              "build-your-first-harness",
+              "thinking-in-lloyal",
+              "agent-policy-and-context-pressure"
             ]
           },
           {
-            "group": "Architecture & history",
+            "group": "Architecture",
             "pages": [
-              "build-a-harness/reference-architecture",
-              "under-the-hood/changelog"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Examples",
-        "groups": [
-          {
-            "group": "Examples",
-            "pages": [
-              "examples/daily-digest",
-              "examples/compare"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Licensing",
-        "groups": [
-          {
-            "group": "Licensing",
-            "pages": [
-              "licensing/index",
-              "licensing/faq",
-              "licensing/permitted-uses-examples",
-              "licensing/why-fsl",
-              "licensing/fsl-template",
-              "licensing/publisher-tos"
+              "where-a-harness-runs"
             ]
           }
         ]

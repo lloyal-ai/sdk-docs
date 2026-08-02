@@ -1,0 +1,113 @@
+---
+title: "Where a harness runs"
+description: "How one harness contract spans application surfaces, local and shared-residency execution, process boundaries, transports, hardware, and operators."
+mode: "custom"
+---
+
+export const guideHtml = `<div class="page">
+<header class="masthead wrap"><div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI's contact with reality.</div></div><div class="issue"><span>Architecture /<br>Guide</span><span>August<br>2026</span></div></header>
+<section class="hero wrap"><div class="eyebrow"><a href="/">Developer docs</a> / Architecture and operations</div><h1>Where a harness runs</h1><div class="hero-sub">One harness contract across application surfaces, execution placements, transports, hardware, and operating models.</div></section>
+<section class="thesis wrap"><div class="thesis-grid"><p>A harness remains the same intelligent application while the surface, process boundary, machine, model placement, and operator change around it.</p><div class="pullquote">One application contract.<br>Different placements.</div></div></section>
+<section class="platform-map"><div class="map-scroll"><img src="/assets/guides/where-a-harness-runs-01.png" alt="The Lloyal platform across application surfaces, a TypeScript harness, signed AgentApps, shared live model state, and deployment placements."></div><div class="map-caption">Platform map. Availability varies by surface and placement: mobile/on-device and paved managed or BYOC deployment workflows remain planned.</div></section>
+<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#you-already-know-this-architecture">You already know this architecture</a><a class="toc-l1" href="#one-application-contract">One application contract</a><a class="toc-l2" href="#convention-below-code-at-the-centre">Convention below, code at the centre</a><a class="toc-l1" href="#surface-is-not-placement">Surface is not placement</a><a class="toc-l1" href="#two-execution-families">Two execution families</a><a class="toc-l2" href="#local-edge">Local edge</a><a class="toc-l2" href="#shared-residency-host">Shared-residency host</a><a class="toc-l1" href="#shifting-the-harness-left">Shifting the harness left</a><a class="toc-l1" href="#where-the-rails-analogy-bends">Where the analogy bends</a><a class="toc-l2" href="#the-model-runs">The Model runs</a><a class="toc-l2" href="#the-model-forks">The Model forks</a><a class="toc-l2" href="#the-model-persists-differently">The Model persists differently</a><a class="toc-l1" href="#choose-a-placement">Choose a placement</a><a class="toc-l1" href="#current-and-planned">Current and planned</a></nav><article class="article">
+<h1 id="you-already-know-this-architecture">You already know this architecture</h1>
+<p>The closest familiar analogy is <strong>MVC with a live language model as the Model</strong>:</p>
+<ul><li>product surfaces are the <strong>Views</strong>;</li><li>the harness—ordinary TypeScript—is the <strong>Controller</strong>;</li><li>a resident model holds the live generative state.</li></ul>
+<p>The analogy continues into the serving layer. Rails separated the application from the server that happened to run it. Lloyal separates the harness from the surface, process boundary, and host that happen to carry it.</p>
+<div class="table-wrap"><table><thead><tr><th>Rails</th><th>Lloyal</th><th>Architectural role</th></tr></thead><tbody>
+<tr><td>Views</td><td>CLI, desktop, web, and future mobile surfaces</td><td>Presentation does not own the intelligent procedure.</td></tr>
+<tr><td>Controller</td><td>The harness</td><td>Ordinary code governs topology, evidence, policy, authority, completion, and continuity.</td></tr>
+<tr><td>Model</td><td>Resident model and live inference state</td><td>The model is inside the application boundary rather than behind an endpoint.</td></tr>
+<tr><td>Rack</td><td><code>@lloyal-labs/binding</code></td><td>One interface between every harness and every surface or transport.</td></tr>
+<tr><td><code>config.ru</code></td><td>Generated placement driver</td><td>The harness and host do not need to import or understand one another.</td></tr>
+<tr><td>Puma</td><td><code>@lloyal-labs/host</code></td><td>Multiple Sessions share one resident weight set while retaining isolated context and lifecycle.</td></tr>
+<tr><td>Unicorn</td><td>Process-isolated serving shape</td><td>Stronger OS-process isolation in exchange for duplicated residency.</td></tr>
+<tr><td>Gems</td><td>Signed AgentApps</td><td>Installable capabilities composed into the harness.</td></tr>
+<tr><td><code>rails new</code></td><td><code>npx harness.dev new</code></td><td>Scaffold the application and its conventional wiring.</td></tr>
+</tbody></table></div>
+<p>The load-bearing Rails lesson is not the nouns. It is the separation:</p>
+<blockquote><p><strong>Where the harness runs is a deployment decision, not an application decision.</strong></p></blockquote>
+<p><a class="external" href="https://lloyal.ai/blog/you-already-know-this-architecture/">Read the full Rails analogy<svg aria-hidden="true" class="ext-icon" viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></a></p>
+
+<h1 id="one-application-contract">One application contract</h1>
+<p>Every harness exposes the same headless shape:</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code>export function* harness&lt;E, C&gt;(
+  ctx: SessionContext,
+  events: EventBus&lt;E&gt;,
+  commands: Signal&lt;C, void&gt;,
+): Operation&lt;void&gt;</code></pre></div>
+<p>The harness owns the intelligent procedure. It accepts typed commands, emits typed events, and runs over an injected model context. The surface and placement bind to that contract rather than redefining it.</p>
+<div class="code-frame"><div class="code-label">Flow</div><pre><code>surface
+   ↓ commands
+harness(ctx, events, commands)
+   ↓ events
+surface</code></pre></div>
+<p>Unlike Rack's request/response cycle, this contract is a stream. A live harness may emit tokens, Agent lifecycle events, Tool progress, pressure changes, and results while a Session remains active.</p>
+<h2 id="convention-below-code-at-the-centre">Convention below, code at the centre</h2>
+<p><code>harness.dev</code> generates the repetitive wiring: targets, bindings, runners, and build configuration. Harness authors work at the centre—the procedure and domain rules that are genuinely theirs.</p>
+<p>That is convention over configuration with an intentional boundary:</p>
+<blockquote><p><strong>Infrastructure is conventional. Intelligent behaviour remains code.</strong></p></blockquote>
+
+<h1 id="surface-is-not-placement">Surface is not placement</h1>
+<p>Several independent choices are often collapsed into one word such as “deployment.” Keep them separate.</p>
+<div class="axis-grid">
+<div class="axis"><span>Surface</span><strong>Where does the user interact?</strong><p>CLI, desktop, web; mobile is planned.</p></div>
+<div class="axis"><span>Execution family</span><strong>How is the harness instantiated?</strong><p>Local edge runner or shared-residency host.</p></div>
+<div class="axis"><span>Transport</span><strong>How do events and commands cross the cut?</strong><p>Native render, NDJSON, IPC, WSS.</p></div>
+<div class="axis"><span>Location</span><strong>Where is compute physically placed?</strong><p>User laptop, private workstation, on-prem box, cloud GPU host.</p></div>
+<div class="axis"><span>Operator</span><strong>Who controls the compute?</strong><p>Self-hosted today; paved BYOC and managed workflows are planned.</p></div>
+<div class="axis"><span>Compute class</span><strong>How much model can it carry?</strong><p>Laptop, appliance, single GPU, multi-GPU frontier host.</p></div>
+</div>
+<p>A browser does not imply a public cloud. It may connect over WSS to a host on the same laptop, a private network, an on-prem appliance, or a GPU box. Likewise, “local” does not force an in-process surface: the scaffolded web target runs a browser against a local resident-model host.</p>
+
+<h1 id="two-execution-families">Two execution families</h1>
+<div class="placement-grid">
+<section class="placement-card"><div class="card-kicker">01 · Local edge</div><h2 id="local-edge">Model on user-controlled compute</h2><div class="mini-diagram"><pre>CLI or desktop surface
+        ↕
+local runner
+        ↓
+SessionContext + resident model</pre></div><p>Use local edge for offline or zero-egress operation, user-owned data and compute, a single-user application, or the lowest operational surface area.</p></section>
+<section class="placement-card"><div class="card-kicker">02 · Shared residency</div><h2 id="shared-residency-host">One model, isolated Sessions</h2><div class="mini-diagram"><pre>clients ─ WSS ─ host
+               ├ Session A
+               ├ Session B
+               └ Session C</pre></div><p>The host loads a model once and gives each admitted Session its own context, KV/recurrent state, configuration, Agent population, and structured lifetime.</p></section>
+</div>
+<p>The host is the <strong>Puma</strong> side of the analogy: density through multiplexing. A process-isolated shape is the <strong>Unicorn</strong> side: stronger kernel isolation, but each process pays its own residency. The harness contract remains unchanged either way.</p>
+
+<h1 id="shifting-the-harness-left">Shifting the harness left</h1>
+<div class="compare-grid"><div><div class="compare-label">Endpoint architecture</div><pre>application → network → model endpoint</pre></div><div><div class="compare-label">Lloyal</div><pre>surface → harness + AgentApps + live inference → placement</pre></div></div>
+<p>That changes the unit a developer builds and deploys. It is no longer merely an inference endpoint that another application must orchestrate. It is the intelligent application itself—its topology, Tools, evidence rules, policy, authority, completion, and continuity intact.</p>
+<p>The runtime owns KV tenancy, branch sharing, Continuous Tree Batching, scheduling, and accelerator execution beneath the harness. Application code owns what those mechanics mean.</p>
+<p><a class="external" href="https://lloyal.ai/blog/shifting-the-harness-left/">Read “Shifting the harness left”<svg aria-hidden="true" class="ext-icon" viewBox="0 0 16 16"><path d="M5 11L11 5M6 5h5v5"/></svg></a></p>
+
+<h1 id="where-the-rails-analogy-bends">Where the Rails analogy bends</h1>
+<div class="bend-grid">
+<div class="bend"><span>01</span><h2 id="the-model-runs">The Model runs</h2><p>An Active Record model is silent until called. A resident language model may continuously produce and react inside a Session. The binding is therefore a bidirectional event/command stream rather than a request cycle.</p></div>
+<div class="bend"><span>02</span><h2 id="the-model-forks">The Model forks</h2><p>Agents inherit shared decoded state and diverge into application-owned lineages. Topology is part of the program, not a server-side implementation detail.</p></div>
+<div class="bend"><span>03</span><h2 id="the-model-persists-differently">The Model persists differently</h2><p>Physical attention state is tied to its model and runtime configuration. Portable Session continuity is based on accepted logical state that can be reconstructed, with physical snapshots treated as optional accelerators.</p></div>
+</div>
+<p>Placement portability and durability are distinct:</p>
+<ul><li><strong>Placement portability</strong> means the same harness contract can run elsewhere.</li><li><strong>Output reattach</strong> reconnects a surface to a Session that is still live.</li><li><strong>Session rehydration</strong> reconstructs accepted state after the original runtime has gone.</li><li><strong>Mid-execution recovery</strong> reconstructs an active multi-branch graph.</li></ul>
+<p>The first is part of the platform shape today. The durability planes remain staged work and should not be inferred merely from placement independence.</p>
+
+<h1 id="choose-a-placement">Choose a placement</h1>
+<div class="table-wrap"><table><thead><tr><th>Need</th><th>Start with</th></tr></thead><tbody>
+<tr><td>Fastest path from scaffold to working application</td><td>Local CLI or desktop</td></tr>
+<tr><td>Offline, private, or user-owned inference</td><td>Local edge</td></tr>
+<tr><td>A browser over compute on the same machine</td><td>Local host + web target</td></tr>
+<tr><td>A browser over private or on-prem compute</td><td>Shared-residency host over WSS</td></tr>
+<tr><td>Several Sessions sharing a large model</td><td>Shared-residency host</td></tr>
+<tr><td>Maximum OS-process isolation</td><td>Process-isolated serving shape</td></tr>
+<tr><td>Frontier open-weight models</td><td>Multi-GPU host</td></tr>
+<tr><td>On-device mobile inference</td><td><span class="status planned">Planned</span> React Native / JSI placement</td></tr>
+<tr><td>One-command managed or BYOC deployment</td><td><span class="status planned">Planned</span> <code>harness.dev deploy</code></td></tr>
+</tbody></table></div>
+
+<h1 id="current-and-planned">Current and planned</h1>
+<div class="status-columns"><section><div class="status-title"><span class="status current">Current</span> Available now</div><ul><li><code>harness.dev new</code> with CLI, desktop, and web targets;</li><li>one headless harness contract across those surfaces;</li><li>native render, IPC, NDJSON, and WSS binding shapes;</li><li>local resident-model execution;</li><li>shared-residency hosting with per-Session state isolation;</li><li>signed AgentApps composed into the harness.</li></ul></section><section><div class="status-title"><span class="status planned">Planned</span> Not yet paved</div><ul><li>on-device mobile through <code>@lloyal-labs/lloyal-react-native</code>;</li><li>a first-class <code>harness.dev deploy</code> workflow;</li><li>managed and BYOC provisioning as developer-facing modes;</li><li>complete served output reattachment and Session rehydration;</li><li>full mid-execution graph recovery;</li><li>process-isolated serving as an equally paved front door.</li></ul></section></div>
+<blockquote><p><strong>The harness is the application. Placement wraps it; placement does not redefine it.</strong></p></blockquote>
+</article></main>
+<footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs · Melbourne</span></footer>
+</div>`
+
+<div id="lloyal-guides" dangerouslySetInnerHTML={{__html: guideHtml}} />
