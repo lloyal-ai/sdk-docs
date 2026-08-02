@@ -1,0 +1,64 @@
+---
+title: Build with Lloyal
+description: Build a harness, understand the execution model, govern adaptive behaviour, and program inference directly.
+---
+
+*Developer documentation*
+
+**Lloyal moves application control from the edges of a model call into the inference trajectory itself.** These guides progress from a working application, through the execution model beneath it, to adaptive policy and direct inference patterns.
+
+<Frame>
+  <img src="/assets/guides/index-01.png" alt="Same model, different degree of control: without Lloyal application policy acts around model calls; with Lloyal it governs reasoning while it is underway." />
+</Frame>
+
+**Choose your path**
+
+## One curriculum, four depths
+
+<CardGroup cols={2}>
+  <Card title="Build your first harness" icon="rocket" href="/guides/build-your-first-harness">
+    Use `harness.dev` to create an application, begin a Session, inspect its procedure, change its topology, and continue from accepted state.
+
+    *Start here · practical tutorial*
+  </Card>
+  <Card title="Thinking in Lloyal" icon="brain" href="/guides/thinking-in-lloyal">
+    Learn how owned lifetimes, live inference state, Agents, Tools, orchestration, finality, and continuity fit together.
+
+    *Mental model · programming guide*
+  </Card>
+  <Card title="How Agents Know When to Stop" icon="gauge" href="/guides/agent-policy-and-context-pressure">
+    Learn how policy, context pressure, retries, recovery, wind-down, and completion govern a running AgentPool.
+
+    *Adaptive execution · engineering note*
+  </Card>
+  <Card title="Advanced patterns" icon="wand-magic-sparkles" href="/guides/thinking-in-lloyal#advanced-patterns">
+    Program the inference trajectory directly with verifier-before-commit generation, diverse tree search, expert-state synthesis, verified continuation, and replay.
+
+    *Direct inference · advanced compositions*
+  </Card>
+</CardGroup>
+
+## Recommended learning path
+
+**Build your first harness** → **Thinking in Lloyal** → **Adaptive execution** → **Advanced patterns**
+
+**Architecture and operations**
+
+## One harness, different placements
+
+<Card title="Where a harness runs" icon="diagram-project" href="/guides/where-a-harness-runs">
+  Understand how one harness contract spans application surfaces, local and shared-residency execution, process boundaries, transports, hardware, and operators—using the familiar Rails architecture as the bridge.
+
+  *Surfaces · bindings · local edge · shared residency · placement choices*
+</Card>
+
+**Reference**
+
+## Continue into the platform
+
+- [harness.dev CLI](https://www.npmjs.com/package/harness.dev)
+- [CLI documentation](/cli)
+- [Build an App](/build-an-app/what-is-an-app)
+- [AgentApps catalogue](https://apps.lloyal.ai/)
+- [HDK source](https://github.com/lloyal-ai/hdk)
+- [Agent runtime](https://www.npmjs.com/package/@lloyal-labs/lloyal-agents)

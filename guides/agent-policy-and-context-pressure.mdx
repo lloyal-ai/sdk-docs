@@ -1,0 +1,1288 @@
+---
+title: How Agents Know When to Stop
+description: How policy, context pressure, retries, recovery, wind-down, and completion govern a running AgentPool.
+---
+
+_AgentPolicy, context pressure, and recovery_
+
+That sentence is the execution model.
+
+This guide explains how a live AgentPool turns finite context, time, Tool results, and model output into safe behavioural decisions.
+
+It assumes the ownership model from [Thinking in Lloyal](/guides/thinking-in-lloyal):
+
+- Effection owns the lifetime of the harness and pool;
+- the AgentPool owns Agent execution and branch lifecycle;
+- an Agent is not an Effection Task;
+- stopping one Agent is not the same as halting its parent scope.
+
+<Note>
+**BranchStore accounts. ContextPressure observes. AgentPolicy decides. AgentPool enforces.**
+
+Policy interprets live execution at explicit lifecycle boundaries. The pool remains responsible for decode, settlement, recovery, and pruning.
+
+The quickest way into the model is to separate ownership, policy, and mechanical safety.
+</Note>
+
+## Start here
+
+### The decision hierarchy
+
+A policy decision sits inside a larger execution stack:
+
+```text
+Effection scope
+└── AgentPool                              owns the live execution
+    ├── BranchStore                        accounts for inference state
+    ├── ContextPressure                    freezes the current resource facts
+    ├── AgentPolicy                        chooses the next behavioural action
+    └── Pool mechanics                     safely apply that action
+        ├── decode and commit
+        ├── Tool dispatch and settlement
+        ├── recovery
+        └── branch pruning
+```
+
+Read it from the outside in:
+
+1. **Effection decides whether the pool still has an owner.**
+2. **BranchStore records what live inference state exists.**
+3. **ContextPressure presents a stable snapshot of what remains.**
+4. **AgentPolicy interprets the situation.**
+5. **AgentPool performs the decision without violating runtime safety.**
+
+Policy never owns the Session, schedules native decode, or prunes branches directly.
+
+---
+
+### The three questions
+
+#### 1. Does this work still have an owner?
+
+That is a **structured-concurrency** question.
+
+```text
+Session released
+    ↓
+harness scope halts
+    ↓
+pool and all child work unwind
+```
+
+AgentPolicy is not consulted to preserve work whose owner has disappeared.
+
+#### 2. Should this Agent continue?
+
+That is a **policy** question.
+
+```text
+pool remains alive
+    ↓
+Agent reaches a decision boundary
+    ↓
+policy chooses continue, nudge, retry, return, stop, or recover
+```
+
+The Agent may stop while its siblings and parent pool continue.
+
+#### 3. Can the requested action be performed safely?
+
+That is an **AgentPool** question.
+
+Policy can request recovery or provide a preferred report budget. The pool computes what fits, enforces grammar and token limits, and protects the native context.
+
+---
+
+### The five rules
+
+1. **Policy is a rulebook, not a scheduler.**
+2. **Pressure is a snapshot, not a mutable global gauge.**
+3. **The soft limit closes new work.**
+4. **The hard limit prevents unsafe continuation and bounds recovery.**
+5. **Policy requests recovery; the pool makes it mechanically safe.**
+
+---
+
+### The two axes
+
+Pressure affects both strategy and lifecycle, but these are not the same decision.
+
+```text
+strategy:
+explore ───────────────────────────────→ exploit
+
+lifecycle:
+work ─────────────→ report ────────────→ recover or prune
+```
+
+An Agent can exploit while still healthy.
+
+`shouldExplore() === false` does not mean the Agent should stop.
+
+---
+
+### Choose your reading path
+
+#### I need the mental model
+
+Read:
+
+1. [Scope termination and Agent termination](#scope-termination-and-agent-termination)
+2. [The four-layer decision path](#the-four-layer-decision-path)
+3. [The two limits](#the-two-limits-are-not-symmetric)
+4. [Recovery](#recovery-save-useful-work-before-pruning)
+
+#### I am configuring `DefaultAgentPolicy`
+
+Read:
+
+1. [AgentPolicy is a rulebook](#agentpolicy-is-a-rulebook)
+2. [Exploration and lifecycle](#exploration-and-lifecycle-are-separate-axes)
+3. [Configuring the default policy](#configuring-the-default-policy)
+4. [Tuning by workload](#tuning-by-workload)
+
+#### I am implementing a custom policy
+
+Read:
+
+1. [`onProduced`](#onproduced-interpret-the-models-stop)
+2. [`shouldExit`](#shouldexit-stop-before-another-token)
+3. [`onSettleReject`](#onsettlereject-when-a-result-cannot-fit)
+4. [Tool retry](#transient-tool-failure-park-retry-or-pivot)
+5. [Writing a custom policy](#writing-a-custom-policy)
+
+#### I am debugging pressure or incomplete reports
+
+Read:
+
+1. [Pressure is a photograph](#pressure-is-a-photograph-not-a-live-gauge)
+2. [The pool decision cycle](#the-pools-decision-cycle)
+3. [Why recovery uses the hard-limit reserve](#why-recovery-uses-the-hard-limit-reserve)
+4. [In-flight report salvage](#in-flight-terminal-report-salvage)
+
+---
+
+## 1. Ownership boundary
+
+### Scope termination and Agent termination
+
+These events can look similar in a UI but have different meanings.
+
+#### The owner disappears
+
+```text
+browser disconnects
+        ↓
+Session is released
+        ↓
+harness scope halts
+        ↓
+pool, Tools, subscriptions, and child Operations unwind
+```
+
+Effection owns this behaviour.
+
+There is no longer a live parent waiting for the result.
+
+#### One Agent stops inside a live pool
+
+```text
+pool remains alive
+        ↓
+policy decides this Agent should stop
+        ↓
+its branch remains temporarily available
+        ↓
+recovery may extract useful findings
+        ↓
+branch is pruned
+        ↓
+siblings continue
+```
+
+AgentPolicy and AgentPool own this behaviour.
+
+The result may still be valuable to the active query.
+
+> **Effection halt ends an ownership scope. Policy termination changes an Agent’s lifecycle inside a scope that still exists.**
+
+Do not use policy hooks to imitate scope cancellation. Do not treat Session cancellation as an ordinary policy stop.
+
+---
+
+## 2. The decision stack
+
+### The four-layer decision path
+
+```text
+BranchStore
+    owns branches and accounts for live KV cells
+        ↓
+ContextPressure
+    freezes a consistent view of what remains
+        ↓
+AgentPolicy
+    maps Agent state and pressure to an action
+        ↓
+AgentPool
+    executes the action, batches native work, and preserves safety
+```
+
+#### BranchStore accounts
+
+BranchStore tracks:
+
+- shared prefixes;
+- private branch suffixes;
+- branch positions;
+- cells consumed by generation and prefill;
+- cells reclaimed by pruning.
+
+It does not decide whether the work is useful.
+
+#### ContextPressure observes
+
+`ContextPressure` derives stable facts for one decision boundary:
+
+```typescript
+remaining = nCtx - cellsUsed;
+headroom = remaining - softLimit;
+critical = remaining < hardLimit;
+percentAvailable = round(remaining / nCtx * 100);
+```
+
+It does not nudge, kill, retry, or recover an Agent.
+
+#### AgentPolicy decides
+
+Policy receives some combination of:
+
+- the Agent;
+- parsed model output;
+- a pending Tool result;
+- a pressure snapshot;
+- pool configuration;
+- policy state such as elapsed time.
+
+It returns a declarative action.
+
+#### AgentPool enforces
+
+The pool:
+
+- advances branches;
+- commits sampled tokens;
+- dispatches Tools;
+- admits or defers prefill;
+- forces terminal grammar during recovery;
+- clamps report budgets to what fits;
+- salvages partial reports;
+- prunes branches;
+- emits lifecycle events.
+
+Policy never bypasses those mechanics.
+
+---
+
+### Pressure is a photograph, not a live gauge
+
+The pool freezes `ContextPressure` at phase boundaries.
+
+Every policy decision in that phase sees the same baseline.
+
+Without a snapshot:
+
+```text
+Agent A evaluated first
+    sees more space
+
+Agent B evaluated later
+    sees less space
+```
+
+The same cohort could behave differently merely because an array was iterated in another order.
+
+Instead:
+
+```text
+phase begins
+    ↓
+freeze one pressure snapshot
+    ↓
+all policy decisions use that snapshot
+    ↓
+batch native mutations
+    ↓
+next phase receives a new snapshot
+```
+
+SETTLE maintains local admission accounting while building its batch because native `cellsUsed` updates only when the prefill is committed.
+
+> **Reason from the supplied snapshot. Do not poll native pressure inside a hook and do not mutate it.**
+
+---
+
+### Every Agent spends live-attention budget
+
+Each Agent spends from the Session’s finite live-attention budget through:
+
+- generated tokens;
+- Tool-result prefill;
+- recovery prompts and reports;
+- nested Agent work;
+- private suffixes across sibling branches.
+
+Shared prefixes are amortised, but new private tokens still occupy live cells.
+
+Pressure is not a static prompt-length limit. It changes as the cohort works.
+
+---
+
+## 3. Pressure boundaries
+
+### The two limits are not symmetric
+
+The most common mistake is treating `softLimit` and `hardLimit` as stronger and weaker forms of the same cutoff.
+
+They have different jobs.
+
+### Soft limit: the new-work boundary
+
+```typescript
+headroom = remaining - softLimit;
+```
+
+When `headroom > 0`, ordinary new work may be admitted.
+
+When `headroom <= 0`, the system should contract:
+
+- do not spawn new research Agents;
+- defer oversized ordinary Tool results;
+- nudge non-terminal calls towards reporting;
+- narrow from exploration towards exploitation;
+- preserve capacity for downstream work and recovery.
+
+The soft limit is advisory.
+
+Crossing it does not automatically make decode unsafe.
+
+### Hard limit: the safety and recovery boundary
+
+```typescript
+critical = remaining < hardLimit;
+```
+
+The hard limit is mechanical:
+
+- an ordinary Agent must not continue into another unsafe decode;
+- the pool forces exit before the native crash floor;
+- recovery is budgeted from the space above this line;
+- the configured value must satisfy the runtime’s batch-safety invariant.
+
+```text
+used KV       ordinary headroom       soft-to-hard reserve      hard floor
+█████████████████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░│
+                                      ↑                         ↑
+                                  soft limit                hard limit
+```
+
+> **Soft says “finish the work”. Hard says “you may not continue the work, but space was reserved to save what you found”.**
+
+### Raising `softLimit` does not reduce recovery to zero
+
+Recovery uses:
+
+```text
+remaining - hardLimit
+```
+
+not only:
+
+```text
+remaining - softLimit
+```
+
+Raising `softLimit` nudges earlier. It does not remove the reserved recovery band down to `hardLimit`.
+
+---
+
+## 4. The pool decision cycle
+
+### The pool’s decision cycle
+
+```text
+SPAWN + EXTEND
+      ↓
+PRODUCE
+      ↓
+COMMIT
+      ↓
+DRAIN
+      ↓
+SETTLE
+      ↓
+DISPATCH
+```
+
+#### SPAWN + EXTEND
+
+- admit queued Agents if they fit;
+- extend a shared spine for sequential workflows;
+- apply pending per-Agent cancellation.
+
+#### PRODUCE
+
+- freeze a pressure snapshot;
+- ask policy whether an Agent must exit before generation;
+- sample one token for every active branch;
+- parse stop boundaries and Tool calls;
+- ask `onProduced()` what the output means.
+
+#### COMMIT
+
+- commit the sampled cohort through BranchStore.
+
+#### DRAIN
+
+- receive completed off-loop Tool executions;
+- return their post-processing to the single native loop.
+
+#### SETTLE
+
+- decide whether Tool results and recovery turns fit;
+- defer oversized ordinary work;
+- consult `onSettleReject()` when waiting cannot resolve the deferral;
+- batch prefill and reactivate admitted Agents.
+
+#### DISPATCH
+
+- ask `shouldExplore()` how content-boundary Tools should score;
+- run declarative guards;
+- execute Tool calls;
+- park or fail transient errors.
+
+Policy is consulted at specific decision boundaries. It does not control the loop.
+
+---
+
+## 5. Policy surface
+
+### AgentPolicy is a rulebook
+
+The public policy surface is easiest to understand as a set of questions.
+
+| Hook or property | Question |
+|---|---|
+| `onProduced` | The model stopped or emitted a call. What does it mean? |
+| `shouldExplore` | Should this Tool broaden the search or tighten around root intent? |
+| `shouldExit` | Must this Agent stop before producing another token? |
+| `onSettleReject` | A result cannot fit and waiting cannot help. Nudge or drop? |
+| `onRecovery` | Should the pool force a final report from this stopped Agent? |
+| `onToolRetry` | Retry this transient failure or settle it as failure? |
+| `pressureThresholds` | Where are the new-work and safety boundaries? |
+| `recoveryShape` | Recover for individual quality or cohort throughput? |
+| `reportBudget` | What report size should parallel recovery prefer? |
+| `resetTick` | Which policy state is meaningful only for one tick? |
+
+The pool passes the facts it owns.
+
+Policy combines them with state such as:
+
+- elapsed time;
+- cost budget;
+- domain rules;
+- previous decisions;
+- task-specific thresholds.
+
+Then it returns an action.
+
+---
+
+### `onProduced`: interpret the model’s stop
+
+When the model reaches a stop boundary, parsing yields content and Tool calls.
+
+`onProduced()` maps that state to an action:
+
+```typescript
+type ProduceAction =
+  | { type: "tool_call"; tc: ParsedToolCall }
+  | { type: "return"; result: string }
+  | { type: "free_text_return"; content: string }
+  | { type: "nudge"; message: string; guard?: string }
+  | { type: "idle"; reason: IdleReason };
+```
+
+Typical decisions:
+
+- dispatch a valid non-terminal Tool call;
+- intercept the designated terminal Tool and extract its result;
+- reject a repeated or unauthorised call with a nudge;
+- accept free text for a role whose prose is its result;
+- stop an Agent that reached a budget boundary.
+
+#### Terminal Tools are result contracts
+
+A pool may designate a terminal Tool:
+
+```typescript
+agentPool({
+  terminal: reportTool,
+  // ...
+});
+```
+
+When the model calls it, the framework intercepts the call instead of executing it as an ordinary external action.
+
+The terminal Tool defines:
+
+- the schema of a valid Agent result;
+- the point at which the Agent is complete;
+- the grammar used to force a recovery report.
+
+The Tool can be named `report`, `submit`, `finish`, or another harness-specific term.
+
+---
+
+### Tool guards are policy, not execution
+
+A Tool defines what an action is and how it runs.
+
+A `ToolGuard` decides whether a particular call is acceptable now:
+
+```typescript
+interface ToolGuard {
+  tools: string[] | "*";
+  reject(
+    args,
+    lineageHistory,
+    agent,
+    toolName,
+    config,
+  ): boolean;
+  message: string;
+  name?: string;
+}
+```
+
+Common guards include:
+
+- deny protected Tools without a Session grant;
+- prevent duplicate fetches of the same URL;
+- prevent repeated identical searches.
+
+A rejected call becomes a nudge so the model can pivot.
+
+```text
+Tool
+    execution semantics
+
+Tool.protected
+    declares authorisation requirement
+
+GrantStore
+    holds consent
+
+ToolGuard and AgentPolicy
+    decide whether this call may proceed now
+
+AgentPool
+    enforces the decision
+```
+
+Credentials do not need to enter the model context.
+
+---
+
+### Exploration and lifecycle are separate axes
+
+`shouldExplore()` adapts retrieval strategy while the Agent remains active.
+
+#### Explore
+
+When context and time are plentiful:
+
+- favour the Agent’s local task;
+- broaden coverage;
+- admit novel evidence;
+- tolerate landscape discovery.
+
+#### Exploit
+
+As resources tighten:
+
+- enforce coherence with the original root intent;
+- rank more strictly;
+- avoid low-value tangents;
+- turn existing evidence into a result.
+
+```text
+explore ───────────────────────────────→ exploit
+```
+
+Lifecycle remains separate:
+
+```text
+work ─────────────→ report ────────────→ recover or prune
+```
+
+Do not treat exploit mode as an exit signal.
+
+---
+
+### `shouldExit`: stop before another token
+
+`shouldExit(agent, pressure)` runs before `produceSync()`.
+
+It asks:
+
+> Is it unsafe or no longer worthwhile for this Agent to generate another token?
+
+The default fallback is effectively:
+
+```typescript
+return pressure.critical;
+```
+
+A custom policy may also consider:
+
+- elapsed hard time;
+- hard cost budget;
+- domain completion state;
+- a harness-specific stop condition.
+
+When it returns `true`:
+
+- the Agent stops;
+- its branch remains temporarily available;
+- the pool may call `onRecovery()`;
+- policy does not prune the branch itself.
+
+---
+
+### `onSettleReject`: when a result cannot fit
+
+A Tool may return a result that cannot be admitted while preserving the soft reserve.
+
+The pool first defers it:
+
+```text
+result does not fit
+        ↓
+wait for siblings to complete and prune
+        ↓
+retry on a later tick
+```
+
+This often resolves naturally.
+
+`onSettleReject()` handles the stall-break case:
+
+```text
+deferred work remains
+        +
+no active sibling can free space
+        ↓
+waiting cannot change the outcome
+```
+
+Policy may return a compact nudge:
+
+```typescript
+{
+  type: "nudge",
+  message: "The result is too large. Report from the evidence already gathered."
+}
+```
+
+Or stop the Agent:
+
+```typescript
+{
+  type: "idle",
+  reason: "pressure_settle_reject"
+}
+```
+
+The pool still owns admission and branch lifecycle.
+
+---
+
+### Transient Tool failure: park, retry, or pivot
+
+A Tool may throw `ToolRetryError` for a transient condition.
+
+`onToolRetry()` returns:
+
+```typescript
+type ToolRetryAction =
+  | { type: "retry"; afterMs?: number }
+  | { type: "fail"; message?: string };
+```
+
+#### Retry
+
+The Agent parks in `awaiting_tool`:
+
+- no generation turns are consumed;
+- no tokens are produced;
+- siblings continue;
+- the same call is retried later.
+
+#### Fail
+
+The pool settles a compact failure result into the branch so the Agent can choose another route.
+
+A custom policy can consider:
+
+- retry attempt;
+- remaining wall time;
+- Tool importance;
+- available alternatives.
+
+Avoid unbounded retries.
+
+---
+
+## 6. Recovery
+
+### Recovery: save useful work before pruning
+
+An Agent may stop without a voluntary terminal result because of:
+
+- context pressure;
+- elapsed time;
+- maximum turns;
+- graceful wind-down;
+- a policy hard exit.
+
+Its branch may still contain useful evidence.
+
+`onRecovery()` chooses:
+
+```typescript
+type RecoveryAction =
+  | {
+      type: "extract";
+      prompt: {
+        system: string;
+        user: string;
+      };
+    }
+  | { type: "skip" };
+```
+
+#### Policy owns the meaning
+
+Policy decides:
+
+- whether the work is worth extracting;
+- how to instruct the Agent to compress it;
+- whether recovery should be staggered or parallel;
+- an optional preferred report budget.
+
+#### AgentPool owns the mechanics
+
+The pool:
+
+- computes what safely fits;
+- forces the terminal Tool grammar;
+- prefills the recovery turn;
+- applies a token stop where bounded;
+- parses the terminal result;
+- salvages truncated output where possible;
+- emits recovery events;
+- prunes the branch.
+
+> **Policy asks for the report. The pool guarantees that asking is mechanically safe.**
+
+#### Recovery is a real turn
+
+Recovery is not string extraction from hidden state.
+
+The pool injects a final instruction into the Agent’s live branch and constrains generation to the terminal result contract.
+
+---
+
+### Why recovery uses the hard-limit reserve
+
+Near the soft boundary:
+
+```text
+remaining ≈ softLimit
+```
+
+there may be almost no ordinary headroom:
+
+```text
+headroom = remaining - softLimit ≈ 0
+```
+
+If recovery were budgeted only from `headroom`, the system would be unable to report exactly when reporting is required.
+
+Instead:
+
+```text
+recovery capacity = remaining - hardLimit
+```
+
+The band between soft and hard limits is available for safely converting unfinished work into a result.
+
+The soft boundary means:
+
+> Stop opening ordinary work.
+
+It does not mean:
+
+> No more recovery tokens may be decoded.
+
+---
+
+### Staggered and parallel recovery
+
+`recoveryShape` expresses a product trade-off.
+
+#### Staggered
+
+```text
+recover A
+    ↓
+prune A
+    ↓
+recover B
+    ↓
+prune B
+```
+
+Properties:
+
+- one Agent at a time;
+- each report benefits from earlier pruning;
+- larger or uncapped reports;
+- maximum individual finding preservation;
+- blocks pool progress;
+- suited to high-effort, quality-first workflows.
+
+#### Parallel
+
+```text
+budget the cohort
+        ↓
+admit recovery turns
+        ↓
+decode them in the pool loop
+        ↓
+prune each as it finishes
+```
+
+Properties:
+
+- reports share recovery capacity;
+- report sizes are mechanically bounded;
+- better batching and latency;
+- suited to low/medium effort and graceful wind-down.
+
+An explicit `reportBudget` is a preference. The pool clamps it to what safely fits.
+
+---
+
+### In-flight terminal-report salvage
+
+If an Agent is force-stopped while already emitting its terminal Tool call, restarting recovery would:
+
+1. discard the partial report;
+2. inject another turn;
+3. consume additional KV;
+4. risk failing again in the same exhausted context.
+
+The pool instead parses and salvages the existing partial terminal output without further decode.
+
+This is a pool mechanic, not a policy hook.
+
+Policy decides that the Agent should stop. The pool chooses the least-destructive safe route.
+
+---
+
+### Wind-down, per-Agent cancellation, and scope halt
+
+These controls have different meanings.
+
+#### Graceful wind-down
+
+A `WindDown` signal means:
+
+> Stop expanding, drain in-flight work, and return the best available result.
+
+The pool:
+
+- stops new spawns;
+- allows in-flight Tools to settle;
+- recovers useful findings;
+- converges towards completion.
+
+This suits a **Wrap up now** action.
+
+#### Per-Agent cancellation
+
+A `CancelAgent` signal means:
+
+> Discard this one line of work.
+
+The pool reclaims that Agent while siblings continue.
+
+Depending on the contract, this may deliberately skip recovery.
+
+#### Scope halt
+
+A Session release means:
+
+> The query no longer has an owner.
+
+Effection unwinds the entire child tree.
+
+A user asking to wrap up is not the same event as a browser disappearing.
+
+---
+
+## 7. Configuration and extension
+
+### Configuring the default policy
+
+Most harnesses should configure `DefaultAgentPolicy` rather than implement the entire interface.
+
+```typescript
+const policy = new DefaultAgentPolicy({
+  terminalToolName: "report",
+
+  minToolCallsBeforeReturn: 2,
+
+  shouldExplore: {
+    context: 0.4,
+    time: 0.5,
+  },
+
+  budget: {
+    context: {
+      softLimit: 2048,
+      hardLimit: 512,
+    },
+    time: {
+      softLimit: 90_000,
+      hardLimit: 120_000,
+    },
+  },
+
+  recovery: {
+    system: "Return the strongest findings already established.",
+    user: "Produce a concise evidence-backed report.",
+  },
+
+  recoveryShape: "parallel",
+  reportBudget: 768,
+
+  maxToolRetries: 1,
+});
+```
+
+Interpretation:
+
+- retrieval becomes more exploitative as context or time tightens;
+- soft boundaries encourage completion;
+- hard boundaries force exit;
+- stopped Agents may recover;
+- parallel recovery bounds latency and report size.
+
+Tune the policy to the workload, not merely to the model.
+
+---
+
+### A worked pressure example
+
+Assume:
+
+```text
+nCtx      = 32,768
+softLimit = 2,048
+hardLimit =   512
+cellsUsed = 29,500
+```
+
+Then:
+
+```text
+remaining = 3,268
+headroom  = 1,220
+critical  = false
+```
+
+Ordinary work still has approximately 1,220 cells above the soft reserve.
+
+Later:
+
+```text
+cellsUsed = 30,900
+remaining = 1,868
+headroom  =  -180
+critical  = false
+```
+
+The soft boundary is crossed:
+
+- stop opening research;
+- defer oversized ordinary results;
+- nudge towards reporting;
+- recovery still has up to `1,868 - 512 = 1,356` cells above the hard line.
+
+Later:
+
+```text
+cellsUsed = 32,300
+remaining = 468
+critical  = true
+```
+
+An ordinary Agent must not produce another token.
+
+The pool stops it before decode and applies salvage or recovery.
+
+> `headroom <= 0` and `critical === true` are not the same state.
+
+---
+
+### Writing a custom policy
+
+Custom policy is appropriate when the harness has domain rules that configuration cannot express.
+
+Prefer extending the default:
+
+```typescript
+class CaseworkPolicy extends DefaultAgentPolicy {
+  override shouldExplore(
+    agent: Agent,
+    pressure: ContextPressure,
+  ): boolean {
+    if (hasUnresolvedMandatoryIssue(agent)) {
+      return true;
+    }
+
+    return super.shouldExplore(agent, pressure);
+  }
+
+  override shouldExit(
+    agent: Agent,
+    pressure: ContextPressure,
+  ): boolean {
+    if (caseDeadlineHasPassed()) {
+      return true;
+    }
+
+    return super.shouldExit(agent, pressure);
+  }
+}
+```
+
+This preserves default handling for:
+
+- terminal Tools;
+- authorisation and dedup guards;
+- recovery;
+- pressure safety;
+- retries.
+
+#### Override decisions, not execution
+
+A policy should return actions.
+
+It should not:
+
+- call native decode;
+- mutate BranchStore;
+- prune branches;
+- execute Tools;
+- create asynchronous side effects inside hooks;
+- maintain a second scheduler.
+
+If a decision requires substantial asynchronous work, it probably belongs in:
+
+- an orchestrator;
+- a Tool;
+- a Source;
+- or another scoped Operation.
+
+---
+
+### The synthesiser exception
+
+A Tool-less synthesiser may treat free text as its terminal result.
+
+The basic scaffold currently expresses that through a narrow `onProduced()` override:
+
+```typescript
+class SynthPolicy extends DefaultAgentPolicy {
+  override onProduced(
+    ...args: Parameters<DefaultAgentPolicy["onProduced"]>
+  ): ReturnType<DefaultAgentPolicy["onProduced"]> {
+    const [, parsed] = args;
+
+    if (!parsed.toolCalls[0] && parsed.content) {
+      return {
+        type: "free_text_return",
+        content: parsed.content,
+      };
+    }
+
+    return super.onProduced(...args);
+  }
+}
+```
+
+This changes one semantic rule:
+
+> For this role, prose is the result.
+
+It does not change ownership, scheduling, branch lifetime, or pressure enforcement.
+
+A future stock text-return policy or `returnMode: "text"` can simplify this common case.
+
+---
+
+### Tuning by workload
+
+#### Interactive assistant
+
+Prefer:
+
+- fewer Agents;
+- earlier exploit;
+- tighter time limits;
+- parallel recovery;
+- modest report budgets;
+- low retry count.
+
+#### Broad research
+
+Prefer:
+
+- exploration while context is healthy;
+- enough soft reserve for synthesis;
+- `pruneOnReturn`;
+- terminal Tool contracts;
+- parallel recovery for lower effort levels.
+
+#### Deep research
+
+Prefer:
+
+- dynamic orchestration;
+- larger context;
+- later exploit thresholds;
+- staggered recovery;
+- generous hard time;
+- explicit downstream synthesis reserve.
+
+#### Casework
+
+Prefer:
+
+- policy guards for institutional rules;
+- domain-specific exit conditions;
+- recoverable intermediate findings;
+- protected action Tools;
+- grants and audit events;
+- procedural orchestration.
+
+Policy should reflect the product’s meaning of **done**.
+
+---
+
+## Quick reference
+
+### Common mistakes
+
+#### Treating the soft limit as a kill line
+
+It is the new-work and nudge boundary. Recovery may use the reserve down to the hard limit.
+
+#### Raising the soft limit to get longer recovery
+
+That nudges earlier. Recovery remains bounded by the hard-limit reserve and current cohort.
+
+#### Making policy prune branches
+
+Policy returns decisions. AgentPool owns branch lifecycle.
+
+#### Performing async work inside hooks
+
+Hooks are decision boundaries. Move asynchronous work into an orchestrator, Tool, Source, or Operation.
+
+#### Conflating exploit with exit
+
+`shouldExplore() === false` narrows retrieval. It does not end the Agent.
+
+#### Retrying without considering time
+
+A retry that cannot finish inside the useful time budget should fail or pivot.
+
+#### Using Session halt for wrap-up
+
+A halt removes the owner. Use graceful wind-down when the user wants the best available result.
+
+#### Treating policy as a native-safety escape hatch
+
+The pool validates hard invariants. Policy cannot opt out of runtime safety.
+
+---
+
+### Rules for coding agents
+
+```markdown
+## Lloyal AgentPolicy invariants
+
+- AgentPolicy is a synchronous decision strategy, not a scheduler.
+- BranchStore accounts, ContextPressure observes, policy decides, and
+  AgentPool enforces.
+- Do not mutate branches, prune KV, or call native decode from a policy hook.
+- Treat ContextPressure as an immutable decision-boundary snapshot.
+- `softLimit` is the new-work and nudge boundary.
+- `hardLimit` is the mechanical decode floor and recovery boundary.
+- Recovery budgets from `remaining - hardLimit`, not only from `headroom`.
+- `shouldExplore` changes retrieval strategy; it does not terminate an Agent.
+- `shouldExit` stops an Agent but leaves its branch available for recovery.
+- `onRecovery` chooses extract or skip; AgentPool enforces grammar and budget.
+- `onSettleReject` is a stall-break after ordinary deferral cannot resolve.
+- Wind-down, per-Agent cancellation, and Effection scope halt are different.
+- Prefer configuring or extending `DefaultAgentPolicy` over replacing it.
+```
+
+---
+
+## Relationship to the programming model
+
+Structured concurrency answers:
+
+> Who owns this work, and what happens when its owner ends?
+
+AgentPolicy answers:
+
+> While the owner and AgentPool remain alive, what should this Agent do next?
+
+```text
+Effection scope
+    owns the pool
+        ↓
+AgentPool
+    owns Agent execution and BranchStore mechanics
+        ↓
+ContextPressure
+    presents stable resource facts
+        ↓
+AgentPolicy
+    returns behavioural decisions
+        ↓
+AgentPool
+    safely applies them
+```
+
+That separation allows harness developers to customise judgement under scarcity without rewriting lifecycle management or inference scheduling.
+
+Return to [Thinking in Lloyal](/guides/thinking-in-lloyal).

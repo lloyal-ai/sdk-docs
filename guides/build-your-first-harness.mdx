@@ -1,0 +1,453 @@
+---
+title: Build your first harness
+description: Use harness.dev to create an application, begin a Session, inspect its procedure, change its topology, and continue from accepted state.
+---
+
+**Put the Lloyal programming model into practice with `harness.dev`**
+
+Start at the front door: create a harness, begin a Session over a resident model, then change the TypeScript that governs how work unfolds and what state survives.
+
+The guide follows the CLI and the running application in one progression. Programming-model callouts appear only when the corresponding idea becomes concrete.
+
+> **Choose → start → change → continue.**
+
+<Note>
+The five key concepts from *Thinking in Lloyal* form the instructional spine, not the visible table of contents.
+
+By the end, you will have changed Agent intent, orchestration topology, and the state later work inherits.
+</Note>
+
+## 1. Create the harness
+
+Start the interactive scaffold:
+
+Requires Node 24 or newer.
+
+```bash
+npx harness.dev@latest new
+```
+
+The wizard defines the application boundary before it writes any code. Each choice below becomes an explicit part of the generated harness.
+
+### Name the application
+
+Type `hello-harness` and press Enter. The name becomes the project folder and npm package name.
+
+<img src="/assets/guides/build-your-first-harness-01.png" alt="harness.dev at the Harness name step with hello-harness entered" />
+
+*The harness is named as an application artifact, not as an endpoint or request handler.*
+
+A harness is the program you are building. The CLI materialises the project around that application boundary.
+
+<Note>
+**Programming model — owned application lifetime**
+
+The generated `harness(...)` is a long-lived program whose work and resources belong to its scope.
+</Note>
+
+### Choose its surfaces
+
+Select CLI, desktop, and web.
+
+<img src="/assets/guides/build-your-first-harness-02.png" alt="harness.dev with CLI, desktop, and web selected" />
+
+*CLI is always included; desktop and web mount the same harness through their own bindings.*
+
+These are three presentations of one application contract—not three agent implementations. The intelligent procedure remains under `harness/`; target-specific wiring is generated under `targets/`.
+
+<Note>
+**Programming model — procedure is separate from presentation**
+
+Commands enter the harness and events leave it through one protocol. Each selected surface renders the same running application.
+</Note>
+
+### Choose a trunk model
+
+Use the recommended Qwen3.5 4B weight.
+
+<img src="/assets/guides/build-your-first-harness-03.png" alt="harness.dev at the trunk model step" />
+
+*The recommended model is fetched and digest-verified on first run. You can also bring a local GGUF.*
+
+The model is part of the application's execution environment. You are not configuring a client to an inference-provider endpoint.
+
+<Note>
+**Programming model — resident inference**
+
+The Session and its temporary work run over live resident state rather than reconstructing context around detached calls.
+</Note>
+
+### Choose a starting point
+
+Select **basic**.
+
+<img src="/assets/guides/build-your-first-harness-04.png" alt="harness.dev with the basic Wikipedia research harness selected" />
+
+*`basic` is a compact Wikipedia research harness; `research` is the larger tuned recon → plan → Agents → synthesis pipeline.*
+
+A template is editable TypeScript, not a hosted mode. It gives the harness an initial procedure and topology that you will change directly later in this guide.
+
+<Note>
+**Programming model — procedure is code**
+
+The model supplies learned capability. The harness supplies procedure, topology, Tools, policy, completion, and continuity.
+</Note>
+
+### Materialise the project
+
+The CLI scaffolds the targets, vendors the signed Wikipedia App, and installs the project dependencies.
+
+<img src="/assets/guides/build-your-first-harness-05.png" alt="harness.dev scaffolding hello-harness and installing dependencies" />
+
+*The project is materialised from the choices above; the generated code remains yours.*
+
+When installation completes, the wizard prints the exact command for every selected surface.
+
+<img src="/assets/guides/build-your-first-harness-06.png" alt="hello-harness ready with commands for CLI, desktop, and web" />
+
+*`hello-harness` is ready to run as CLI, desktop, or web.*
+
+### Begin a Session
+
+Enter the project and start the web target:
+
+```bash
+cd hello-harness
+npm run dev:web
+```
+
+<img src="/assets/guides/build-your-first-harness-07.png" alt="npm run dev:web starting the resident-model host and browser client" />
+
+*The web target boots the resident-model host and Vite browser client together. On first run, the host fetches and digest-verifies the model.*
+
+Open the local address printed by Vite: `http://localhost:5173/`. The browser is a surface over the host; the host owns the resident model and runs the same `harness.ts` application contract.
+
+When the model finishes loading and the browser connects, the application begins a Session. Submit an initial task and watch the starter procedure unfold:
+
+```text
+browser command
+  ↓
+running Session
+  ↓
+two research Agents over one shared spine
+  ↓
+Tools acquire source material
+  ↓
+one synthesis Agent combines the findings
+  ↓
+the accepted result is committed to the Session
+```
+
+A useful first task is:
+
+```text
+What caused the decline of the Western Roman Empire?
+```
+
+<Note>
+**Programming model — the surface is not the intelligence**
+
+The browser renders commands and events. The harness, Session, orchestration, and continuity rules remain in the host process as the surface changes.
+</Note>
+
+## 2. Find the application
+
+The scaffold contains runtime and surface wiring, but the application is concentrated in three files:
+
+```text
+harness/
+├── harness.ts     the intelligent procedure
+├── protocol.ts    commands in and events out
+└── state.ts       events folded into renderable state
+```
+
+Open `harness/harness.ts` first.
+
+The harness is a headless TypeScript program. The CLI and web UI are surfaces over it; the application procedure does not live in the terminal or browser.
+
+For this guide, you only need to follow:
+
+```text
+harness(...)
+  ↓
+runQuery(...)
+  ↓
+withSpine(...)
+  ↓
+agentPool(...)
+  ↓
+useAgent(...)
+  ↓
+session.commitTurn(...)
+```
+
+That path puts the programming model into practice.
+
+## 3. Work always belongs somewhere
+
+The harness itself is a long-lived Effection `Operation`:
+
+```typescript
+export function* harness(
+  ctx: SessionContext,
+  events: EventBus<WorkflowEvent>,
+  commands: Signal<Command, void>,
+): Operation<void> {
+  // ...
+}
+```
+
+Inside it, the scaffold starts an event-forwarding task:
+
+```typescript
+yield* spawn(function* () {
+  for (const ev of yield* each(agentEvents)) {
+    events.send(ev as WorkflowEvent);
+    yield* each.next();
+  }
+});
+```
+
+The harness then remains inside its command loop:
+
+```typescript
+for (const cmd of yield* each(commands)) {
+  if (cmd.type === "quit") return;
+
+  if (cmd.type === "submit_query") {
+    const answer = yield* runQuery(cmd.query, session, events);
+    events.send({ type: "answer", text: answer });
+  }
+
+  yield* each.next();
+}
+```
+
+The command loop and event forwarder run concurrently, but neither is detached. Both belong to the harness scope.
+
+> **When the harness ends, its child work ends with it.**
+
+This is the first key concept: asynchronous work has an explicit owner.
+
+## 4. Live attention is a resource
+
+The starter's task handler borrows a temporary spine inside the continuing Session:
+
+```typescript
+const notes = yield* withSpine<string[]>(
+  {
+    parent: session.trunk ?? undefined,
+    systemPrompt: spinePrompt,
+    tools,
+  },
+  function* (spine) {
+    // research work over shared live state
+  },
+);
+```
+
+Read this as:
+
+> Borrow a shared line of live attention, perform owned work inside it, return ordinary data, then reclaim the temporary inference subtree.
+
+The spine may inherit the Session trunk. Research Agents fork from the spine and share its decoded prefix. Their findings leave the scope as strings in `notes`; their branches do not need to survive.
+
+```text
+Session trunk
+└── task spine
+    ├── research Agent A
+    └── research Agent B
+
+branches are reclaimed
+notes leave as data
+```
+
+This is the second key concept: live inference state has a lifetime and belongs in the program's structure.
+
+## 5. Agents are managed, not launched
+
+Inside the spine, the starter declares an Agent pool:
+
+```typescript
+const pool = yield* agentPool({
+  tools,
+  parent: spine,
+  terminal: reportTool,
+  maxTurns: MAX_TURNS,
+  pruneOnReturn: true,
+  policy: new DefaultAgentPolicy({ terminalToolName: "report" }),
+  enableThinking: true,
+  orchestrate: parallel(
+    ANGLES.map((angle, i) => ({
+      content: `${query}\n\nFocus: ${angle}`,
+      systemPrompt: agentPreamble(apps[0], i),
+      seed: 1000 + i,
+    })),
+  ),
+});
+```
+
+`parallel(...)` declares the relationship between the tasks. The AgentPool creates the corresponding branches and advances the runnable cohort through its inference loop.
+
+```text
+shared spine
+├── Agent A: core facts
+└── Agent B: context and significance
+```
+
+An Agent is not one detached task and not one remote model request. It is a live branch given intent and managed by the pool.
+
+This is the third key concept: harness code declares Agent relationships; the pool owns their execution.
+
+## 6. Application code controls execution
+
+The starter is a complete procedure, but none of its cognitive structure is fixed by the framework. Change the application code and the running intelligence changes with it.
+
+### Change the intent
+
+Replace the starter's research angles:
+
+```typescript
+const ANGLES = [
+  "Establish the core facts and timeline.",
+  "Identify important disagreements or uncertainty.",
+  "Explain the practical significance.",
+];
+```
+
+Run the same task again.
+
+You changed what interpretations the harness creates without changing the model, Tool, surface, or runtime.
+
+This is the fourth key concept in its first form: application code controls execution by deciding what work exists.
+
+### Change the topology
+
+The starter uses `parallel(...)` because each angle can proceed independently from the same starting state:
+
+```text
+parallel
+A ─┐
+B ─┼─ inherit the same starting spine
+C ─┘
+```
+
+Now import `chain`:
+
+```typescript
+import {
+  // ...
+  parallel,
+  chain,
+  // ...
+} from "@lloyal-labs/lloyal-agents";
+```
+
+Replace the `orchestrate` value:
+
+```typescript
+orchestrate: chain(ANGLES, (angle, i) => ({
+  task: {
+    content: `${query}\n\nFocus: ${angle}`,
+    systemPrompt: agentPreamble(apps[0], i),
+    seed: 1000 + i,
+  },
+  userContent: `Research focus: ${angle}`,
+})),
+```
+
+The execution now has a different shape:
+
+```text
+chain
+A reports
+  ↓ accepted finding extends the spine
+B inherits A
+  ↓ accepted finding extends the spine
+C inherits A + B
+```
+
+Nothing selected a predefined "deep research mode." Ordinary TypeScript changed which live state later work inherits.
+
+Use `parallel` when tasks need independent breadth. Use `chain` when later work should build on accepted earlier findings.
+
+## 7. Finality and continuity are explicit
+
+After research, the starter creates one synthesis Agent:
+
+```typescript
+const synth = yield* useAgent({
+  systemPrompt: SYNTH_SYSTEM,
+  task: renderTemplate(SYNTH_USER, {
+    query,
+    notes: notes.map((n, i) => `[${i + 1}] ${n}`).join("\n\n"),
+  }),
+  parent: session.trunk ?? undefined,
+  policy: new SynthPolicy(),
+  maxTurns: MAX_TURNS,
+});
+```
+
+The research notes are working state. The synthesis policy accepts the final free-text result, and the harness cleans it into `answer`.
+
+The answer becomes continuing Session state only here:
+
+```typescript
+yield* call(() => session.commitTurn(query, answer));
+```
+
+```text
+research branches
+      ↓ temporary findings
+synthesis result
+      ↓ accepted by the harness
+Session commit
+      ↓
+subsequent work may inherit it
+```
+
+Submit a follow-up task that depends on the first result. New work can inherit the committed turn even though the temporary research subtree has been reclaimed.
+
+This is the fifth key concept:
+
+```text
+model output
+≠ accepted result
+≠ continuing Session state
+```
+
+The starter already exercises result acceptance and continuity. Protected external actions add a separate authority boundary, covered in [How Agents Know When to Stop](/guides/agent-policy-and-context-pressure).
+
+## What you just programmed
+
+| Code | Programming-model concept |
+| --- | --- |
+| `harness(...)` | Owned application lifetime |
+| `spawn(...)` | Owned concurrent work |
+| `withSpine(...)` | Scoped live inference state |
+| `agentPool(...)` | Managed Agents |
+| `parallel(...)` | Independent breadth over shared state |
+| `chain(...)` | Sequential inheritance through the spine |
+| terminal `report` / `SynthPolicy` | Application-defined completion |
+| `session.commitTurn(...)` | Explicit continuity |
+
+The progression was deliberately small:
+
+```text
+create the harness
+  → begin a Session
+    → find the application
+      → change intent
+        → change topology
+          → continue from accepted state
+```
+
+You have now used the five key concepts in a real harness.
+
+## Continue
+
+Read [Thinking in Lloyal](/guides/thinking-in-lloyal) for the complete execution model behind the code you just changed.
+
+Then read [How Agents Know When to Stop](/guides/agent-policy-and-context-pressure) for policy, context pressure, recovery, and lifecycle boundaries.
+
+For the full CLI surface—models, targets, Apps, publishing, and served placements—see [`harness.dev` on npm](https://www.npmjs.com/package/harness.dev).

@@ -55,6 +55,26 @@
         ]
       },
       {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Programming guides",
+            "pages": [
+              "guides/index",
+              "guides/build-your-first-harness",
+              "guides/thinking-in-lloyal",
+              "guides/agent-policy-and-context-pressure"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "guides/where-a-harness-runs"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Build a harness",
         "groups": [
           {
