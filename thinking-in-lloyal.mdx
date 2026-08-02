@@ -13,13 +13,13 @@ export const guideHtml = `<div class="page" id="top">
 <div class="issue"><span>Programming /<br/>Model</span><span>August<br/>2026</span></div>
 </header>
 <section class="hero wrap">
-<div class="eyebrow"><a href="/guides/index">Programming guides</a> / Engineering note</div>
+<div class="eyebrow"><a href="/">Programming guides</a> / Engineering note</div>
 <h1>Thinking in Lloyal</h1>
 <div class="hero-sub">Structured concurrency, scoped capabilities, and live inference state</div>
 </section>
 <section class="thesis wrap">
 <div class="thesis-grid">
-<div class="thesis-copy"><p>Lloyal gives applications control through inference rather than only around model calls. <a href="/guides/index">Build with Lloyal</a> introduces that architectural shift; this guide explains the execution model that makes it possible. Lloyal gives application code structured ownership of both the work being performed and the model's live inference-state tree.</p><p>A query can create a temporary inference subtree, fork concurrent Agents from shared state, route evidence into selected lineages, change what receives further work, commit the accepted result, and reclaim the entire working tree when its owning scope ends.</p><p>Lloyal makes those relationships explicit directly in TypeScript.</p></div>
+<div class="thesis-copy"><p>Lloyal gives applications control through inference rather than only around model calls. <a href="/">Build with Lloyal</a> introduces that architectural shift; this guide explains the execution model that makes it possible. Lloyal gives application code structured ownership of both the work being performed and the model's live inference-state tree.</p><p>A query can create a temporary inference subtree, fork concurrent Agents from shared state, route evidence into selected lineages, change what receives further work, commit the accepted result, and reclaim the entire working tree when its owning scope ends.</p><p>Lloyal makes those relationships explicit directly in TypeScript.</p></div>
 <div>
 <div class="pullquote"><strong>A harness is a tree of owned lifetimes governing a tree of live inference state.</strong></div>
 <div class="control-line">Structured ownership determines what lives and dies together. Application control determines what the owned execution does next.</div>
@@ -1328,7 +1328,7 @@ later work forks from accepted state
 <p>While work is still owned and running, what should an Agent do next?</p>
 </blockquote>
 <p><code>AgentPolicy</code> can decide to explore or exploit, accept or reject a Tool call, nudge an Agent towards reporting, retry a transient failure, stop one Agent, or recover findings before pruning. It operates inside the ownership model rather than replacing it.</p>
-<p>Continue with <a href="/guides/agent-policy-and-context-pressure">How Agents Know When to Stop</a>.</p>
+<p>Continue with <a href="/agent-policy-and-context-pressure">How Agents Know When to Stop</a>.</p>
 </article>
 </main>
 <footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on their terms.</span><span>Lloyal.ai</span></footer>

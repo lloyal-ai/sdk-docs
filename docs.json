@@ -45,16 +45,16 @@
           {
             "group": "Programming guides",
             "pages": [
-              "guides/index",
-              "guides/build-your-first-harness",
-              "guides/thinking-in-lloyal",
-              "guides/agent-policy-and-context-pressure"
+              "index",
+              "build-your-first-harness",
+              "thinking-in-lloyal",
+              "agent-policy-and-context-pressure"
             ]
           },
           {
             "group": "Architecture",
             "pages": [
-              "guides/where-a-harness-runs"
+              "where-a-harness-runs"
             ]
           }
         ]
