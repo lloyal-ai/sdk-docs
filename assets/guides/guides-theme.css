@@ -2,6 +2,9 @@
 @import url('https://cdn.jsdelivr.net/fontsource/css/readex-pro:vf@latest/index.css');
 /* Wipe Mintlify theme styles inside the guides wrapper; the scoped rules below re-create the export's own baseline. */
 #lloyal-guides, #lloyal-guides * { all: revert; }
+/* Pages carrying the guides wrapper drop the Mintlify shell entirely — the export renders edge-to-edge. Hidden legacy pages keep their normal chrome. */
+body:has(#lloyal-guides) #navbar { display: none !important; }
+body:has(#lloyal-guides) .fixed.z-999 { display: none !important; }
 #lloyal-guides /* ---- index.html ---- */
 
 @font-face{
