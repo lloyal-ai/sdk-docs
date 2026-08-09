@@ -1,21 +1,21 @@
 ---
-title: "Reference"
+title: "Lookup"
 description: "Signatures, enumerations, and floors — the facts you look up mid-task. Each entry derived from current source, with the file it came from."
 mode: "custom"
 ---
 
-export const guideHtml = `<nav class="lloyal-topnav" aria-label="Site"><a href="https://lloyal.ai">Home</a><a href="/" class="lloyal-topnav-current">Docs</a><a href="https://lloyal.ai/blog/">Blog</a></nav><div class="page" id="top">
+export const guideHtml = `<div class="page" id="top">
 <header class="masthead wrap">
 <div>
 <div class="wordmark">Lloyal Labs</div>
 <div class="tagline">Engineering AI's contact with reality.</div>
 </div>
-<nav class="lloyal-subnav" aria-label="Guides"><a href="/build-your-first-harness">Build your first harness</a><a href="/thinking-in-lloyal">Thinking in Lloyal</a><a href="/agent-policy-and-context-pressure">Adaptive execution</a><a href="/reference" class="lloyal-subnav-current">Reference</a></nav>
+<div class="issue"><span>Lookup /<br>Reference</span><span>August<br>2026</span></div>
 </header>
 
 <section class="hero wrap">
-<div class="eyebrow"><a href="/">Programming guides</a> / Reference</div>
-<h1>Reference</h1>
+<div class="eyebrow"><a href="/">Programming guides</a> / Lookup</div>
+<h1>Lookup</h1>
 <div class="hero-sub">Signatures, enumerations, and floors — the facts you look up mid-task</div>
 </section>
 
@@ -154,19 +154,4 @@ GrantStoreCtx  // createContext&lt;GrantStore&gt;('lloyal.grantStore')</code></p
 <footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs · Melbourne</span></footer>
 </div>`
 
-{/*
-  The live CSS is scoped PER PAGE — every rule is `#lloyal-guides.pg-<slug>`,
-  and Mintlify derives that class from the filename. So `reference.mdx` gets
-  `pg-reference`, for which no rules exist, and the page matches only the
-  `all: revert` reset with nothing to restore it — a dark, unstyled page.
-
-  Those `pg-*` rules are NOT in this repo (grep finds none), and
-  assets/guides/guides-theme.css is not even served (404) — it is a stale,
-  unscoped copy. The real stylesheet is injected outside version control.
-
-  So this page borrows the slug of a page that IS styled. Its structure is
-  identical to where-a-harness-runs (hero → thesis → article-shell/toc/article
-  → footer), so the borrowed rules fit. Remove this the moment the real CSS is
-  back in the repo and a `pg-reference` block can exist.
-*/}
-<div id="lloyal-guides" className="pg-where-a-harness-runs" dangerouslySetInnerHTML={{__html: guideHtml}} />
+<div id="lloyal-guides" dangerouslySetInnerHTML={{__html: guideHtml}} />

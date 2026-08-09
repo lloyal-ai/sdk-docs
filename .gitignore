@@ -3,3 +3,6 @@ node_modules/
 
 # Reference copy of the contact-form Apps Script — lives in Google, not used at runtime
 website/contact-apps-script.gs
+
+# static build output
+dist/

@@ -75,12 +75,12 @@
     },
     {
       "source": "/learn/sources",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
       "source": "/learn/tools",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
@@ -130,7 +130,7 @@
     },
     {
       "source": "/reference/playbooks",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
@@ -145,7 +145,7 @@
     },
     {
       "source": "/reference/prompt-composition",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
@@ -160,32 +160,32 @@
     },
     {
       "source": "/reference/search-strategy",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
       "source": "/under-the-hood/search-strategy",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
       "source": "/reference/rig/overview",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
       "source": "/reference/rig/corpus-source",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
       "source": "/reference/rig/web-source",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
       "source": "/guides/custom-source",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
@@ -230,7 +230,7 @@
     },
     {
       "source": "/learn/tracing",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
@@ -250,12 +250,12 @@
     },
     {
       "source": "/guides/debugging",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
       "source": "/guides/custom-tool",
-      "destination": "/reference",
+      "destination": "/lookup",
       "permanent": true
     },
     {
@@ -315,31 +315,31 @@
     },
     {
       "source": "/build-a-harness/tracing",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/build-an-app/sources-and-retrieval",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/build-an-app/app-security",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/build-an-app/what-is-an-app",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/build-an-app/tools",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/build-an-app/lifecycle-and-registry",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/build-an-app/distribution",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/build-an-app/your-first-app",
@@ -371,11 +371,11 @@
     },
     {
       "source": "/under-the-hood/mixed-role-pools",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/under-the-hood/prompt-composition",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/under-the-hood/branch-lifecycle",
@@ -391,7 +391,7 @@
     },
     {
       "source": "/under-the-hood/rerank-architecture",
-      "destination": "/reference"
+      "destination": "/lookup"
     },
     {
       "source": "/under-the-hood/changelog",
@@ -408,6 +408,10 @@
     {
       "source": "/examples/daily-digest",
       "destination": "/"
+    },
+    {
+      "source": "/reference",
+      "destination": "/lookup"
     }
   ],
   "footer": {
