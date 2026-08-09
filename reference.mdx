@@ -1,0 +1,156 @@
+---
+title: "Reference"
+description: "Signatures, enumerations, and floors — the facts you look up mid-task. Every entry derived from current source, with its file path."
+mode: "custom"
+---
+
+export const guideHtml = `<nav class="lloyal-topnav" aria-label="Site"><a href="https://lloyal.ai">Home</a><a href="/" class="lloyal-topnav-current">Docs</a><a href="https://lloyal.ai/blog/">Blog</a></nav><div class="page" id="top">
+<header class="masthead wrap">
+<div>
+<div class="wordmark">Lloyal Labs</div>
+<div class="tagline">Engineering AI's contact with reality.</div>
+</div>
+<nav class="lloyal-subnav" aria-label="Guides"><a href="/build-your-first-harness">Build your first harness</a><a href="/thinking-in-lloyal">Thinking in Lloyal</a><a href="/agent-policy-and-context-pressure">Adaptive execution</a><a href="/reference" class="lloyal-subnav-current">Reference</a></nav>
+</header>
+
+<section class="hero wrap">
+<div class="eyebrow"><a href="/">Programming guides</a> / Reference</div>
+<h1>Reference</h1>
+<div class="hero-sub">Signatures, enumerations, and floors — the facts you look up mid-task</div>
+</section>
+
+<section class="thesis wrap">
+<p><strong>This page is lookup material, not a guide.</strong> It admits a fact only when you would look it up mid-task and could not derive it: a signature, an enumeration, a named constant, a threshold, a compatibility floor. Everything explaining <em>why</em> lives in the guides, and the CLI surface lives in <a href="https://www.npmjs.com/package/harness.dev">the harness.dev README</a>. Each entry cites the file it was derived from — read that file when the two disagree.</p>
+</section>
+
+<section class="paths wrap">
+<div class="section-kicker">Floors</div>
+<h2>Runtime and hardware</h2>
+<div class="reference-grid">
+<a href="#floors">Node <span class="out">&gt;=24</span></a>
+<a href="#floors">Memory <span class="out">16 GB</span></a>
+<a href="#floors">Weights <span class="out">2.6 GB</span></a>
+</div>
+<p><strong>Node 24 or newer</strong>, declared by both the CLI and every scaffolded project. <strong>16 GB of RAM or unified memory</strong> is the working recommendation: the recommended trunk model is 2.6 GB of weights, the <code>research</code> template adds a 630 MB reranker, and the remainder covers KV at the recommended 32k context plus the OS and whichever surface is running.</p>
+<p><strong>Concurrent agents do not multiply this.</strong> They share one context, so cost tracks KV <em>fullness</em>, not agent count — four agents is not four times the model.</p>
+<p class="path-label">Model catalog · packages/rig/src/models.ts</p>
+<div class="reference-grid">
+<a href="#floors">qwen3.5-4b · Q4_K_M · 2.6 GB · context 32768 <span class="out">llm</span></a>
+<a href="#floors">qwen3-reranker-0.6b-q8 · 630 MB <span class="out">reranker</span></a>
+</div>
+</section>
+
+<section class="architecture wrap">
+<div class="section-kicker">Retrieval</div>
+<h2>Scoring</h2>
+<p>One cross-encoder serves four distinct roles. Conflating the three queries in play — the per-call tool query, the per-agent task, and the original research query — produces wrong scores.</p>
+<p class="path-label">packages/agents/src/source.ts</p>
+<pre><code>interface EntailmentScorer {
+  scoreEntailmentBatch(texts: string[]): Promise&lt;number[]&gt;;
+  scoreRelevanceBatch(texts: string[], localQuery: string): Promise&lt;number[]&gt;;
+  scoreSimilarityBatch(reference: string, texts: string[]): Promise&lt;number[]&gt;;
+  shouldProceed(score: number): boolean;
+}
+
+interface ScorerReranker {
+  scoreBatch(query: string, texts: string[]): Promise&lt;number[]&gt;;
+}</code></pre>
+<div class="reference-grid">
+<a href="#scoring">scoreEntailmentBatch <span class="out">against the original query</span></a>
+<a href="#scoring">scoreRelevanceBatch <span class="out">min(local, original) — exploit</span></a>
+<a href="#scoring">scoreSimilarityBatch <span class="out">echo detection at delegation</span></a>
+<a href="#scoring">shouldProceed <span class="out">floor gate</span></a>
+</div>
+<p>The score is a <strong>logit-diff</strong> — <code>logit(yes) − logit(no)</code>, unbounded, sign carries meaning. <code>Source._entailmentFloor</code> defaults to <strong>0</strong>: a hit passes when the cross-encoder leans yes. Raise it for noise-heavy corpora, lower it for sparse ones.</p>
+<p><code>Source</code> is abstract over <code>&lt;TCtx, TChunk&gt;</code> with <code>name</code>, <code>get tools(): Tool[]</code>, <code>createScorer(originalQuery)</code>, <code>promptData(): Record&lt;string, unknown&gt;</code>, and <code>getChunks(): TChunk[]</code>. <code>promptData()</code> is what the per-spawn skill template reads, so an agent learns what kind of source it is holding before it searches.</p>
+</section>
+
+<section class="architecture wrap">
+<div class="section-kicker">Authority</div>
+<h2>Consent and protected tools</h2>
+<p>The gate for consequential actions runs at DISPATCH, in the agent runtime — below any application or UI code that could misreport it.</p>
+<p class="path-label">packages/agents/src/grant-store.ts · context.ts</p>
+<pre><code>interface GrantStore {
+  has(toolName: string): Operation&lt;boolean&gt;;
+  grant(toolName: string): Operation&lt;void&gt;;
+  revoke(toolName: string): Operation&lt;void&gt;;
+}
+
+GrantStoreCtx  // createContext&lt;GrantStore&gt;('lloyal.grantStore')</code></pre>
+<p><strong>Fail-closed.</strong> A tool marked <code>protected</code> is denied unless the session holds a grant. No grant store configured means every protected tool is denied. Credentials never enter the model's context — the model can trigger a gated call, never see or replay the secret.</p>
+</section>
+
+<section class="architecture wrap">
+<div class="section-kicker">Diagnosis</div>
+<h2>Traces</h2>
+<p>Pass a writer to <code>initAgents</code> to capture the inference graph as newline-delimited JSON. With none passed, <code>NullTraceWriter</code> makes every trace call a no-op at zero cost.</p>
+<p class="path-label">packages/agents/src/trace-types.ts — the full event union</p>
+<div class="reference-grid">
+<a href="#traces">scope:open / close <span class="out">named boundaries + duration</span></a>
+<a href="#traces">prompt:format <span class="out">the exact prompt the model saw</span></a>
+<a href="#traces">agent:turn <span class="out">raw output, parsed content, tool calls</span></a>
+<a href="#traces">tool:dispatch <span class="out">args, toolkit position, explore, pressure</span></a>
+<a href="#traces">tool:result / error / retry <span class="out">prefill tokens, duration</span></a>
+<a href="#traces">tool:authReject <span class="out">protected-tool denial + lineage</span></a>
+<a href="#traces">pool:open / close / agentDrop <span class="out">pressure, findings, drop reason</span></a>
+<a href="#traces">pool:recovery* <span class="out">extraction diagnostics</span></a>
+<a href="#traces">spine:extend <span class="out">orchestrator extensions</span></a>
+<a href="#traces">branch:create / prefill / prune <span class="out">KV lifecycle</span></a>
+<a href="#traces">entailment:* <span class="out">scoring decisions at each boundary</span></a>
+</div>
+<p>Events form a tree via <code>parentTraceId</code>; the <code>TraceParent</code> context connects inner pools to the tool dispatch that spawned them with no manual wiring.</p>
+</section>
+
+<section class="learning-path wrap">
+<div class="learning-grid">
+<div>
+<div class="section-kicker">Diagnosis</div>
+<h2>Six failure modes</h2>
+<p style="color:#555;font-size:14px;line-height:1.55">Start from the symptom; the trace answers the rest.</p>
+</div>
+<div class="reference-grid">
+<a href="#failures">Agents not using tools <span class="out">tool:dispatch</span></a>
+<a href="#failures">Early termination — reporting too soon <span class="out">agent:turn</span></a>
+<a href="#failures">Agents killed by pressure <span class="out">pool:agentDrop</span></a>
+<a href="#failures">Recovery extraction fails <span class="out">pool:recovery*</span></a>
+<a href="#failures">Synthesis ignores research findings <span class="out">spine:extend</span></a>
+<a href="#failures">Plan produces poor sub-questions <span class="out">prompt:format</span></a>
+</div>
+</div>
+</section>
+
+<section class="references wrap">
+<div class="section-kicker">Imports</div>
+<h2>Where things live</h2>
+<p style="max-width:930px;color:#555">The most common staleness in older material was a wrong import path. These are the current homes.</p>
+<div class="reference-grid">
+<a href="#imports">withSpine · agentPool · dag <span class="out">@lloyal-labs/lloyal-agents</span></a>
+<a href="#imports">Source · EntailmentScorer <span class="out">@lloyal-labs/lloyal-agents</span></a>
+<a href="#imports">GrantStore · GrantStoreCtx <span class="out">@lloyal-labs/lloyal-agents</span></a>
+<a href="#imports">composePrompt · renderPrompt · renderTemplate <span class="out">@lloyal-labs/lloyal-agents</span></a>
+<a href="#imports">renderSpine <span class="out">@lloyal-labs/rig</span></a>
+<a href="#imports">reportTool <span class="out">@lloyal-labs/rig</span></a>
+</div>
+<p>Prompt templates live in <code>prompts/</code> beside the harness — <code>.eta</code> for templates with conditionals, loaded as raw strings at startup and rendered at call time.</p>
+</section>
+
+<section class="references wrap">
+<div class="section-kicker">Elsewhere</div>
+<h2>Continue</h2>
+<div class="reference-grid">
+<a href="/build-your-first-harness">Build your first harness <span class="out">→</span></a>
+<a href="/thinking-in-lloyal">Thinking in Lloyal <span class="out">→</span></a>
+<a href="/agent-policy-and-context-pressure">Adaptive execution <span class="out">→</span></a>
+<a href="https://www.npmjs.com/package/harness.dev">harness.dev CLI <span class="out">↗</span></a>
+<a href="https://apps.lloyal.ai/">AgentApps catalogue <span class="out">↗</span></a>
+<a href="https://github.com/lloyal-ai/hdk">HDK source <span class="out">↗</span></a>
+</div>
+</section>
+
+<footer class="footer wrap">
+<div class="mission">Enable every organisation to deliver intelligence on its terms.</div>
+<div>Lloyal Labs · Melbourne</div>
+</footer>
+</div>`
+
+<div id="lloyal-guides" dangerouslySetInnerHTML={{ __html: guideHtml }} />
