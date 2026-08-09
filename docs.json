@@ -56,6 +56,12 @@
             "pages": [
               "where-a-harness-runs"
             ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference"
+            ]
           }
         ]
       }
@@ -64,208 +70,344 @@
   "redirects": [
     {
       "source": "/learn/introduction",
-      "destination": "/start-here/what-is-the-hdk",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/learn/sources",
-      "destination": "/build-an-app/sources-and-retrieval",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/learn/tools",
-      "destination": "/build-an-app/tools",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/reference/agent-policy",
-      "destination": "/under-the-hood/kv-pressure",
+      "destination": "/agent-policy-and-context-pressure",
       "permanent": true
     },
     {
       "source": "/under-the-hood/agent-policy",
-      "destination": "/under-the-hood/kv-pressure",
+      "destination": "/agent-policy-and-context-pressure",
       "permanent": true
     },
     {
       "source": "/under-the-hood/recovery-extraction",
-      "destination": "/under-the-hood/kv-pressure",
+      "destination": "/agent-policy-and-context-pressure",
       "permanent": true
     },
     {
       "source": "/reference/branch-lifecycle",
-      "destination": "/under-the-hood/branch-lifecycle",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/reference/changelog",
-      "destination": "/under-the-hood/changelog",
+      "destination": "/",
       "permanent": true
     },
     {
       "source": "/reference/concurrency",
-      "destination": "/under-the-hood/concurrency",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/reference/continuous-context-spine",
-      "destination": "/under-the-hood/continuous-context-spine",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/reference/grammar-and-ordering",
-      "destination": "/under-the-hood/grammar-and-ordering",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/reference/kv-pressure",
-      "destination": "/under-the-hood/kv-pressure",
+      "destination": "/agent-policy-and-context-pressure",
       "permanent": true
     },
     {
       "source": "/reference/playbooks",
-      "destination": "/under-the-hood/mixed-role-pools",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/reference/prefix-sharing",
-      "destination": "/under-the-hood/continuous-context-spine",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/under-the-hood/prefix-sharing",
-      "destination": "/under-the-hood/continuous-context-spine",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/reference/prompt-composition",
-      "destination": "/under-the-hood/prompt-composition",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/reference/scratchpad-extraction",
-      "destination": "/under-the-hood/kv-pressure",
+      "destination": "/agent-policy-and-context-pressure",
       "permanent": true
     },
     {
       "source": "/under-the-hood/scratchpad-extraction",
-      "destination": "/under-the-hood/kv-pressure",
+      "destination": "/agent-policy-and-context-pressure",
       "permanent": true
     },
     {
       "source": "/reference/search-strategy",
-      "destination": "/under-the-hood/rerank-architecture",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/under-the-hood/search-strategy",
-      "destination": "/under-the-hood/rerank-architecture",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/reference/rig/overview",
-      "destination": "/build-an-app/sources-and-retrieval",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/reference/rig/corpus-source",
-      "destination": "/build-an-app/sources-and-retrieval",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/reference/rig/web-source",
-      "destination": "/build-an-app/sources-and-retrieval",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/guides/custom-source",
-      "destination": "/build-an-app/sources-and-retrieval",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/examples/react-agent",
-      "destination": "/start-here/quick-start",
+      "destination": "/build-your-first-harness",
       "permanent": true
     },
     {
       "source": "/examples/reflection",
-      "destination": "/under-the-hood/branch-lifecycle",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/learn/quick-start",
-      "destination": "/start-here/quick-start",
+      "destination": "/build-your-first-harness",
       "permanent": true
     },
     {
       "source": "/learn/thinking-in-lloyal",
-      "destination": "/start-here/thinking-in-lloyal",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/start-here/thinking-in-effection",
-      "destination": "/start-here/thinking-in-lloyal",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/learn/agents",
-      "destination": "/build-a-harness/agents-and-pools",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/learn/pipelines",
-      "destination": "/build-a-harness/orchestrators",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/learn/sessions",
-      "destination": "/build-a-harness/sessions",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/learn/tracing",
-      "destination": "/build-a-harness/tracing",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/reference/rig/pipeline",
-      "destination": "/build-a-harness/reference-architecture",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/reference/rig/bridges",
-      "destination": "/build-a-harness/reference-architecture",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/build-a-harness/bridges",
-      "destination": "/build-a-harness/reference-architecture",
+      "destination": "/thinking-in-lloyal",
       "permanent": true
     },
     {
       "source": "/guides/debugging",
-      "destination": "/build-a-harness/tracing",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/guides/custom-tool",
-      "destination": "/build-an-app/tools",
+      "destination": "/reference",
       "permanent": true
     },
     {
       "source": "/cli/auth",
-      "destination": "/cli/index",
+      "destination": "/",
       "permanent": true
     },
     {
       "source": "/cli/publishers",
-      "destination": "/cli/publishing",
+      "destination": "/",
       "permanent": true
     },
     {
       "source": "/guides/custom-pipeline",
-      "destination": "/examples/compare",
+      "destination": "/",
       "permanent": true
+    },
+    {
+      "source": "/start-here/what-is-the-hdk",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/start-here/concept-spine",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/start-here/thinking-in-lloyal",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/start-here/quick-start",
+      "destination": "/build-your-first-harness"
+    },
+    {
+      "source": "/start-here/privacy-and-zero-egress",
+      "destination": "/"
+    },
+    {
+      "source": "/build-a-harness/agents-and-pools",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/build-a-harness/orchestrators",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/build-a-harness/sessions",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/build-a-harness/reference-architecture",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/build-a-harness/shipping",
+      "destination": "/where-a-harness-runs"
+    },
+    {
+      "source": "/build-a-harness/tracing",
+      "destination": "/reference"
+    },
+    {
+      "source": "/build-an-app/sources-and-retrieval",
+      "destination": "/reference"
+    },
+    {
+      "source": "/build-an-app/app-security",
+      "destination": "/reference"
+    },
+    {
+      "source": "/build-an-app/what-is-an-app",
+      "destination": "/reference"
+    },
+    {
+      "source": "/build-an-app/tools",
+      "destination": "/reference"
+    },
+    {
+      "source": "/build-an-app/lifecycle-and-registry",
+      "destination": "/reference"
+    },
+    {
+      "source": "/build-an-app/distribution",
+      "destination": "/reference"
+    },
+    {
+      "source": "/build-an-app/your-first-app",
+      "destination": "/build-your-first-harness"
+    },
+    {
+      "source": "/cli/index",
+      "destination": "/"
+    },
+    {
+      "source": "/cli/installing",
+      "destination": "/"
+    },
+    {
+      "source": "/cli/publishing",
+      "destination": "/"
+    },
+    {
+      "source": "/cli/scaffolding",
+      "destination": "/"
+    },
+    {
+      "source": "/under-the-hood/concurrency",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/under-the-hood/kv-pressure",
+      "destination": "/agent-policy-and-context-pressure"
+    },
+    {
+      "source": "/under-the-hood/mixed-role-pools",
+      "destination": "/reference"
+    },
+    {
+      "source": "/under-the-hood/prompt-composition",
+      "destination": "/reference"
+    },
+    {
+      "source": "/under-the-hood/branch-lifecycle",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/under-the-hood/continuous-context-spine",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/under-the-hood/grammar-and-ordering",
+      "destination": "/thinking-in-lloyal"
+    },
+    {
+      "source": "/under-the-hood/rerank-architecture",
+      "destination": "/reference"
+    },
+    {
+      "source": "/under-the-hood/changelog",
+      "destination": "/"
+    },
+    {
+      "source": "/guides/deployment",
+      "destination": "/where-a-harness-runs"
+    },
+    {
+      "source": "/examples/compare",
+      "destination": "/"
+    },
+    {
+      "source": "/examples/daily-digest",
+      "destination": "/"
     }
   ],
   "footer": {
