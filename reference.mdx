@@ -154,4 +154,19 @@ GrantStoreCtx  // createContext&lt;GrantStore&gt;('lloyal.grantStore')</code></p
 <footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs · Melbourne</span></footer>
 </div>`
 
-<div id="lloyal-guides" dangerouslySetInnerHTML={{__html: guideHtml}} />
+{/*
+  The live CSS is scoped PER PAGE — every rule is `#lloyal-guides.pg-<slug>`,
+  and Mintlify derives that class from the filename. So `reference.mdx` gets
+  `pg-reference`, for which no rules exist, and the page matches only the
+  `all: revert` reset with nothing to restore it — a dark, unstyled page.
+
+  Those `pg-*` rules are NOT in this repo (grep finds none), and
+  assets/guides/guides-theme.css is not even served (404) — it is a stale,
+  unscoped copy. The real stylesheet is injected outside version control.
+
+  So this page borrows the slug of a page that IS styled. Its structure is
+  identical to where-a-harness-runs (hero → thesis → article-shell/toc/article
+  → footer), so the borrowed rules fit. Remove this the moment the real CSS is
+  back in the repo and a `pg-reference` block can exist.
+*/}
+<div id="lloyal-guides" className="pg-where-a-harness-runs" dangerouslySetInnerHTML={{__html: guideHtml}} />
