@@ -1,6 +1,6 @@
 ---
 title: "Reference"
-description: "Signatures, enumerations, and floors — the facts you look up mid-task. Every entry derived from current source, with its file path."
+description: "Signatures, enumerations, and floors — the facts you look up mid-task. Each entry derived from current source, with the file it came from."
 mode: "custom"
 ---
 
@@ -20,32 +20,28 @@ export const guideHtml = `<nav class="lloyal-topnav" aria-label="Site"><a href="
 </section>
 
 <section class="thesis wrap">
-<p><strong>This page is lookup material, not a guide.</strong> It admits a fact only when you would look it up mid-task and could not derive it: a signature, an enumeration, a named constant, a threshold, a compatibility floor. Everything explaining <em>why</em> lives in the guides, and the CLI surface lives in <a href="https://www.npmjs.com/package/harness.dev">the harness.dev README</a>. Each entry cites the file it was derived from — read that file when the two disagree.</p>
+<p><strong>This page is lookup material, not a guide.</strong> It admits a fact only when you would look it up mid-task and could not derive it: a signature, an enumeration, a named constant, a threshold, a floor. Everything explaining <em>why</em> stays in the guides; the CLI surface stays in the <a href="https://www.npmjs.com/package/harness.dev">harness.dev README</a>. Each entry names the file it came from — read that file when the two disagree.</p>
 </section>
 
-<section class="paths wrap">
+<nav class="toc" aria-label="Table of contents"><div class="toc-label">On this page</div><a class="toc-l1" href="#floors">Runtime and hardware floors</a><a class="toc-l1" href="#scoring">Retrieval and scoring</a><a class="toc-l1" href="#consent">Consent and protected tools</a><a class="toc-l1" href="#traces">Trace events</a><a class="toc-l1" href="#failures">Six failure modes</a><a class="toc-l1" href="#imports">Where things live</a></nav>
+
+<section class="architecture wrap">
 <div class="section-kicker">Floors</div>
-<h2>Runtime and hardware</h2>
-<div class="reference-grid">
-<a href="#floors">Node <span class="out">&gt;=24</span></a>
-<a href="#floors">Memory <span class="out">16 GB</span></a>
-<a href="#floors">Weights <span class="out">2.6 GB</span></a>
-</div>
-<p><strong>Node 24 or newer</strong>, declared by both the CLI and every scaffolded project. <strong>16 GB of RAM or unified memory</strong> is the working recommendation: the recommended trunk model is 2.6 GB of weights, the <code>research</code> template adds a 630 MB reranker, and the remainder covers KV at the recommended 32k context plus the OS and whichever surface is running.</p>
-<p><strong>Concurrent agents do not multiply this.</strong> They share one context, so cost tracks KV <em>fullness</em>, not agent count — four agents is not four times the model.</p>
-<p class="path-label">Model catalog · packages/rig/src/models.ts</p>
-<div class="reference-grid">
-<a href="#floors">qwen3.5-4b · Q4_K_M · 2.6 GB · context 32768 <span class="out">llm</span></a>
-<a href="#floors">qwen3-reranker-0.6b-q8 · 630 MB <span class="out">reranker</span></a>
-</div>
+<h2 id="floors">Runtime and hardware</h2>
+<p><strong>Node 24 or newer</strong>, declared by the CLI and by every scaffolded project. <strong>16 GB of RAM or unified memory</strong> is the working recommendation: the recommended trunk model is 2.6 GB of weights, the <code>research</code> template adds a 630 MB reranker, and the remainder covers KV at the recommended 32k context plus the OS and whichever surface is running.</p>
+<div class="table-wrap"><table><thead><tr><th>Model</th><th>Role</th><th>Size</th><th>Context</th></tr></thead><tbody>
+<tr><td><code>qwen3.5-4b</code> · Q4_K_M</td><td>llm</td><td>2.6 GB</td><td>32768</td></tr>
+<tr><td><code>qwen3-reranker-0.6b-q8</code></td><td>reranker</td><td>630 MB</td><td>—</td></tr>
+</tbody></table></div>
+<p class="path-label">packages/rig/src/models.ts</p>
+<blockquote><p><strong>Concurrent agents do not multiply this.</strong> They share one context, so cost tracks KV <em>fullness</em>, not agent count — four agents is not four times the model.</p></blockquote>
 </section>
 
 <section class="architecture wrap">
 <div class="section-kicker">Retrieval</div>
-<h2>Scoring</h2>
-<p>One cross-encoder serves four distinct roles. Conflating the three queries in play — the per-call tool query, the per-agent task, and the original research query — produces wrong scores.</p>
-<p class="path-label">packages/agents/src/source.ts</p>
-<pre><code>interface EntailmentScorer {
+<h2 id="scoring">Retrieval and scoring</h2>
+<p>One cross-encoder serves four roles. Three different queries are in play — the per-call tool query, the per-agent task, and the original research query — and conflating them produces wrong scores.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code>interface EntailmentScorer {
   scoreEntailmentBatch(texts: string[]): Promise&lt;number[]&gt;;
   scoreRelevanceBatch(texts: string[], localQuery: string): Promise&lt;number[]&gt;;
   scoreSimilarityBatch(reference: string, texts: string[]): Promise&lt;number[]&gt;;
@@ -54,83 +50,88 @@ export const guideHtml = `<nav class="lloyal-topnav" aria-label="Site"><a href="
 
 interface ScorerReranker {
   scoreBatch(query: string, texts: string[]): Promise&lt;number[]&gt;;
-}</code></pre>
-<div class="reference-grid">
-<a href="#scoring">scoreEntailmentBatch <span class="out">against the original query</span></a>
-<a href="#scoring">scoreRelevanceBatch <span class="out">min(local, original) — exploit</span></a>
-<a href="#scoring">scoreSimilarityBatch <span class="out">echo detection at delegation</span></a>
-<a href="#scoring">shouldProceed <span class="out">floor gate</span></a>
-</div>
-<p>The score is a <strong>logit-diff</strong> — <code>logit(yes) − logit(no)</code>, unbounded, sign carries meaning. <code>Source._entailmentFloor</code> defaults to <strong>0</strong>: a hit passes when the cross-encoder leans yes. Raise it for noise-heavy corpora, lower it for sparse ones.</p>
-<p><code>Source</code> is abstract over <code>&lt;TCtx, TChunk&gt;</code> with <code>name</code>, <code>get tools(): Tool[]</code>, <code>createScorer(originalQuery)</code>, <code>promptData(): Record&lt;string, unknown&gt;</code>, and <code>getChunks(): TChunk[]</code>. <code>promptData()</code> is what the per-spawn skill template reads, so an agent learns what kind of source it is holding before it searches.</p>
+}</code></pre></div>
+<div class="table-wrap"><table><thead><tr><th>Method</th><th>Scores against</th><th>Used at</th></tr></thead><tbody>
+<tr><td><code>scoreEntailmentBatch</code></td><td>the original query</td><td>content prefill boundaries</td></tr>
+<tr><td><code>scoreRelevanceBatch</code></td><td><code>min(local, original)</code></td><td>exploit mode, when pressure tightens focus</td></tr>
+<tr><td><code>scoreSimilarityBatch</code></td><td>an arbitrary reference</td><td>echo detection at delegation</td></tr>
+<tr><td><code>shouldProceed</code></td><td>the floor</td><td>the gate itself</td></tr>
+</tbody></table></div>
+<p>The score is a <strong>logit-diff</strong> — <code>logit(yes) − logit(no)</code>, unbounded, with the sign carrying the meaning. <code>Source._entailmentFloor</code> defaults to <strong>0</strong>: a hit passes when the cross-encoder leans yes. Raise it for noise-heavy corpora, lower it for sparse ones.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code>abstract class Source&lt;TCtx = unknown, TChunk = unknown&gt; {
+  abstract readonly name: string;
+  abstract get tools(): Tool[];
+  protected _reranker: ScorerReranker | null;
+  protected _entailmentFloor: number;          // default 0
+  createScorer(originalQuery: string): EntailmentScorer;
+  promptData(): Record&lt;string, unknown&gt;;
+  getChunks(): TChunk[];
+}</code></pre></div>
+<p><code>promptData()</code> is what the per-spawn skill template reads, so an agent learns what kind of source it holds before it searches.</p>
+<p class="path-label">packages/agents/src/source.ts</p>
 </section>
 
 <section class="architecture wrap">
 <div class="section-kicker">Authority</div>
-<h2>Consent and protected tools</h2>
-<p>The gate for consequential actions runs at DISPATCH, in the agent runtime — below any application or UI code that could misreport it.</p>
-<p class="path-label">packages/agents/src/grant-store.ts · context.ts</p>
-<pre><code>interface GrantStore {
+<h2 id="consent">Consent and protected tools</h2>
+<p>The gate for consequential actions runs at DISPATCH, inside the agent runtime — below any application or interface code that could misreport it.</p>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code>interface GrantStore {
   has(toolName: string): Operation&lt;boolean&gt;;
   grant(toolName: string): Operation&lt;void&gt;;
   revoke(toolName: string): Operation&lt;void&gt;;
 }
 
-GrantStoreCtx  // createContext&lt;GrantStore&gt;('lloyal.grantStore')</code></pre>
-<p><strong>Fail-closed.</strong> A tool marked <code>protected</code> is denied unless the session holds a grant. No grant store configured means every protected tool is denied. Credentials never enter the model's context — the model can trigger a gated call, never see or replay the secret.</p>
+GrantStoreCtx  // createContext&lt;GrantStore&gt;('lloyal.grantStore')</code></pre></div>
+<p><strong>Fail-closed.</strong> A tool marked <code>protected</code> is denied unless the session holds a grant, and no grant store configured means every protected tool is denied. Credentials never enter the model's context — the model can trigger a gated call, never see or replay the secret.</p>
+<p class="path-label">packages/agents/src/grant-store.ts · context.ts</p>
 </section>
 
 <section class="architecture wrap">
 <div class="section-kicker">Diagnosis</div>
-<h2>Traces</h2>
-<p>Pass a writer to <code>initAgents</code> to capture the inference graph as newline-delimited JSON. With none passed, <code>NullTraceWriter</code> makes every trace call a no-op at zero cost.</p>
+<h2 id="traces">Trace events</h2>
+<p>Pass a writer to <code>initAgents</code> to capture the inference graph as newline-delimited JSON. With none passed, <code>NullTraceWriter</code> makes every trace call a no-op at zero cost. Events form a tree through <code>parentTraceId</code>; the <code>TraceParent</code> context connects inner pools to the tool dispatch that spawned them without manual wiring.</p>
+<div class="table-wrap"><table><thead><tr><th>Event</th><th>Captures</th></tr></thead><tbody>
+<tr><td><code>scope:open</code> / <code>close</code></td><td>named boundaries with duration — pools, tools, spines</td></tr>
+<tr><td><code>prompt:format</code></td><td>the exact prompt the model saw, and the task before formatting</td></tr>
+<tr><td><code>agent:turn</code></td><td>raw output, parsed content, parsed tool calls per turn</td></tr>
+<tr><td><code>tool:dispatch</code></td><td>args, toolkit position, explore flag, pressure</td></tr>
+<tr><td><code>tool:result</code> / <code>error</code> / <code>retry</code></td><td>result, prefill token count, duration, transient parking</td></tr>
+<tr><td><code>tool:authReject</code></td><td>protected-tool denial with full lineage</td></tr>
+<tr><td><code>pool:open</code> / <code>close</code> / <code>agentDrop</code></td><td>agent count, pressure snapshot, findings, drop reason</td></tr>
+<tr><td><code>pool:recovery*</code></td><td>recovery extraction — every attempt ends in exactly one outcome</td></tr>
+<tr><td><code>spine:extend</code></td><td>orchestrator extensions, delta tokens, position after</td></tr>
+<tr><td><code>branch:create</code> / <code>prefill</code> / <code>prune</code></td><td>KV lifecycle with token counts and roles</td></tr>
+<tr><td><code>entailment:*</code></td><td>scoring decisions at search, delegation, and content boundaries</td></tr>
+</tbody></table></div>
 <p class="path-label">packages/agents/src/trace-types.ts — the full event union</p>
-<div class="reference-grid">
-<a href="#traces">scope:open / close <span class="out">named boundaries + duration</span></a>
-<a href="#traces">prompt:format <span class="out">the exact prompt the model saw</span></a>
-<a href="#traces">agent:turn <span class="out">raw output, parsed content, tool calls</span></a>
-<a href="#traces">tool:dispatch <span class="out">args, toolkit position, explore, pressure</span></a>
-<a href="#traces">tool:result / error / retry <span class="out">prefill tokens, duration</span></a>
-<a href="#traces">tool:authReject <span class="out">protected-tool denial + lineage</span></a>
-<a href="#traces">pool:open / close / agentDrop <span class="out">pressure, findings, drop reason</span></a>
-<a href="#traces">pool:recovery* <span class="out">extraction diagnostics</span></a>
-<a href="#traces">spine:extend <span class="out">orchestrator extensions</span></a>
-<a href="#traces">branch:create / prefill / prune <span class="out">KV lifecycle</span></a>
-<a href="#traces">entailment:* <span class="out">scoring decisions at each boundary</span></a>
-</div>
-<p>Events form a tree via <code>parentTraceId</code>; the <code>TraceParent</code> context connects inner pools to the tool dispatch that spawned them with no manual wiring.</p>
 </section>
 
-<section class="learning-path wrap">
-<div class="learning-grid">
-<div>
+<section class="architecture wrap">
 <div class="section-kicker">Diagnosis</div>
-<h2>Six failure modes</h2>
-<p style="color:#555;font-size:14px;line-height:1.55">Start from the symptom; the trace answers the rest.</p>
-</div>
-<div class="reference-grid">
-<a href="#failures">Agents not using tools <span class="out">tool:dispatch</span></a>
-<a href="#failures">Early termination — reporting too soon <span class="out">agent:turn</span></a>
-<a href="#failures">Agents killed by pressure <span class="out">pool:agentDrop</span></a>
-<a href="#failures">Recovery extraction fails <span class="out">pool:recovery*</span></a>
-<a href="#failures">Synthesis ignores research findings <span class="out">spine:extend</span></a>
-<a href="#failures">Plan produces poor sub-questions <span class="out">prompt:format</span></a>
-</div>
-</div>
+<h2 id="failures">Six failure modes</h2>
+<p>Start from the symptom; the trace answers the rest.</p>
+<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>Start from</th></tr></thead><tbody>
+<tr><td>Agents not using tools</td><td><code>tool:dispatch</code> — is anything dispatched at all?</td></tr>
+<tr><td>Early termination — reporting too soon</td><td><code>agent:turn</code> — what did the model actually emit?</td></tr>
+<tr><td>Agents killed by pressure</td><td><code>pool:agentDrop</code> — the drop reason</td></tr>
+<tr><td>Recovery extraction fails</td><td><code>pool:recovery*</code> — every attempt ends in one outcome</td></tr>
+<tr><td>Synthesis ignores research findings</td><td><code>spine:extend</code> — did the findings reach the spine?</td></tr>
+<tr><td>Plan produces poor sub-questions</td><td><code>prompt:format</code> — the prompt the planner saw</td></tr>
+</tbody></table></div>
 </section>
 
-<section class="references wrap">
+<section class="architecture wrap">
 <div class="section-kicker">Imports</div>
-<h2>Where things live</h2>
-<p style="max-width:930px;color:#555">The most common staleness in older material was a wrong import path. These are the current homes.</p>
-<div class="reference-grid">
-<a href="#imports">withSpine · agentPool · dag <span class="out">@lloyal-labs/lloyal-agents</span></a>
-<a href="#imports">Source · EntailmentScorer <span class="out">@lloyal-labs/lloyal-agents</span></a>
-<a href="#imports">GrantStore · GrantStoreCtx <span class="out">@lloyal-labs/lloyal-agents</span></a>
-<a href="#imports">composePrompt · renderPrompt · renderTemplate <span class="out">@lloyal-labs/lloyal-agents</span></a>
-<a href="#imports">renderSpine <span class="out">@lloyal-labs/rig</span></a>
-<a href="#imports">reportTool <span class="out">@lloyal-labs/rig</span></a>
-</div>
+<h2 id="imports">Where things live</h2>
+<p>Wrong import paths were the single most common staleness in older material. These are the current homes.</p>
+<div class="table-wrap"><table><thead><tr><th>Symbol</th><th>Package</th></tr></thead><tbody>
+<tr><td><code>withSpine</code> · <code>agentPool</code> · <code>dag</code></td><td><code>@lloyal-labs/lloyal-agents</code></td></tr>
+<tr><td><code>Source</code> · <code>EntailmentScorer</code> · <code>ScorerReranker</code></td><td><code>@lloyal-labs/lloyal-agents</code></td></tr>
+<tr><td><code>GrantStore</code> · <code>GrantStoreCtx</code></td><td><code>@lloyal-labs/lloyal-agents</code></td></tr>
+<tr><td><code>composePrompt</code> · <code>renderPrompt</code> · <code>renderTemplate</code></td><td><code>@lloyal-labs/lloyal-agents</code></td></tr>
+<tr><td><code>renderSpine</code></td><td><code>@lloyal-labs/rig</code></td></tr>
+<tr><td><code>reportTool</code></td><td><code>@lloyal-labs/rig</code></td></tr>
+</tbody></table></div>
 <p>Prompt templates live in <code>prompts/</code> beside the harness — <code>.eta</code> for templates with conditionals, loaded as raw strings at startup and rendered at call time.</p>
 </section>
 
@@ -147,10 +148,7 @@ GrantStoreCtx  // createContext&lt;GrantStore&gt;('lloyal.grantStore')</code></p
 </div>
 </section>
 
-<footer class="footer wrap">
-<div class="mission">Enable every organisation to deliver intelligence on its terms.</div>
-<div>Lloyal Labs · Melbourne</div>
-</footer>
+<footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs · Melbourne</span></footer>
 </div>`
 
-<div id="lloyal-guides" dangerouslySetInnerHTML={{ __html: guideHtml }} />
+<div id="lloyal-guides" dangerouslySetInnerHTML={{__html: guideHtml}} />
