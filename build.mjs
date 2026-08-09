@@ -175,6 +175,48 @@ writeFileSync(join(OUT, '_headers'), `/assets/*
   Cache-Control: public, max-age=0, must-revalidate
 `);
 
+// Without a 404.html, Cloudflare Pages falls back to index.html for ANY
+// unmatched path — so every dead link returns the homepage with a 200. That is
+// a soft 404: links look alive, and crawlers index endless duplicates of the
+// hub. This makes a miss say so, in the site's own idiom.
+writeFileSync(join(OUT, '404.html'), `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found — Lloyal Labs</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="${CSS}">
+</head>
+<body id="lloyal-guides" class="pg-index">
+<div class="page">
+<header class="masthead wrap">
+<div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI's contact with reality.</div></div>
+<div class="issue"><span>Not /<br>found</span><span>August<br>2026</span></div>
+</header>
+<section class="hero wrap">
+<div class="eyebrow"><a href="/">Programming guides</a> / 404</div>
+<h1>Not found</h1>
+<div class="hero-sub">That page does not exist here.</div>
+</section>
+<section class="references wrap">
+<div class="section-kicker">Try instead</div><h2>The guides</h2>
+<div class="reference-grid">
+<a href="/">Build with Lloyal <span class="out">&rarr;</span></a>
+<a href="/build-your-first-harness">Build your first harness <span class="out">&rarr;</span></a>
+<a href="/thinking-in-lloyal">Thinking in Lloyal <span class="out">&rarr;</span></a>
+<a href="/agent-policy-and-context-pressure">Adaptive execution <span class="out">&rarr;</span></a>
+<a href="/where-a-harness-runs">Where a harness runs <span class="out">&rarr;</span></a>
+<a href="/lookup">Lookup <span class="out">&rarr;</span></a>
+</div>
+</section>
+<footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs &middot; Melbourne</span></footer>
+</div>
+</body>
+</html>
+`);
+
 // Mintlify generated this; emit an equivalent so it does not vanish silently.
 writeFileSync(join(OUT, 'llms.txt'), `# Lloyal HDK documentation
 
