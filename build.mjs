@@ -121,6 +121,31 @@ const TOC_SCRIPT = `<script>
 })();
 </script>`;
 
+/**
+ * Site navigation.
+ *
+ * The docs are a hub and six spokes, so without this bar the only way from one
+ * guide to another is back through the index. The labels are the short names
+ * the hub already uses in its learning-flow and path-labels — NOT the page
+ * `<h1>`s, which do not fit on one line ("How Agents Know When to Stop"). Six
+ * long labels wrapping to two lines is what sank the earlier attempt at this.
+ *
+ * Built here rather than written into each `.mdx` so the six pages cannot drift
+ * apart, and so `current` follows the slug by construction.
+ */
+const NAV = [
+  { slug: 'index', href: '/', label: 'Docs' },
+  { slug: 'build-your-first-harness', href: '/build-your-first-harness', label: 'Build your first harness' },
+  { slug: 'thinking-in-lloyal', href: '/thinking-in-lloyal', label: 'Thinking in Lloyal' },
+  { slug: 'agent-policy-and-context-pressure', href: '/agent-policy-and-context-pressure', label: 'Adaptive execution' },
+  { slug: 'where-a-harness-runs', href: '/where-a-harness-runs', label: 'Where a harness runs' },
+  { slug: 'lookup', href: '/lookup', label: 'Lookup' },
+];
+
+const nav = (slug) => `<nav class="lloyal-topnav" aria-label="Guides">${NAV.map(
+  (n) => `<a href="${n.href}"${n.slug === slug ? ' class="lloyal-topnav-current" aria-current="page"' : ''}>${n.label}</a>`,
+).join('')}</nav>`;
+
 const pages = readdirSync('.').filter((f) => f.endsWith('.mdx')).sort();
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
@@ -144,6 +169,7 @@ for (const file of pages) {
 <link rel="stylesheet" href="${CSS}">
 </head>
 <body id="lloyal-guides" class="pg-${slug}">
+${nav(slug)}
 ${body}
 ${body.includes('class="toc"') ? TOC_SCRIPT : ''}
 </body>
@@ -190,6 +216,7 @@ writeFileSync(join(OUT, '404.html'), `<!doctype html>
 <link rel="stylesheet" href="${CSS}">
 </head>
 <body id="lloyal-guides" class="pg-index">
+${nav('')}
 <div class="page">
 <header class="masthead wrap">
 <div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI's contact with reality.</div></div>
