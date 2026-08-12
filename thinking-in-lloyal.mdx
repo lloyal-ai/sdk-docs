@@ -97,7 +97,6 @@ export const guideHtml = `<div class="page" id="top">
 <p>When the run finishes, findings leave the temporary inference tree as ordinary data. The accepted answer is committed to the Session. The spine and worker branches are reclaimed.</p>
 <p>If the Session disappears before that happens, the ownership tree unwinds the work instead.</p>
 <p>That is the core model. The rest of the guide gives each relationship a precise shape.</p>
-<hr/>
 <h2 id="three-structures-one-control-loop">Three structures, one control loop</h2>
 <p>The same query looks different depending on the question being asked.</p>
 <h3 id="ownership-what-ends-together">Ownership: what ends together?</h3>
@@ -145,7 +144,6 @@ observe the resulting execution
 <li><strong>What survives when the scope ends?</strong></li>
 </ol>
 <p>Those questions scale from a single Tool call to an adaptive multi-stage harness.</p>
-<hr/>
 <h2 id="five-key-concepts">Five key concepts</h2>
 <h3 id="work-always-belongs-somewhere">Work always belongs somewhere</h3>
 <p>An <code>Operation&lt;T&gt;</code> does not float like an eager Promise. It runs beneath a scope that owns its completion, failure, children, and cleanup.</p>
@@ -180,7 +178,6 @@ observe the resulting execution
 </code></pre></div><p>A terminal Tool or policy decision may accept a result. A guard or grant may determine whether a proposed action is allowed. The application may require additional evidence, validation, or approval. The resulting state becomes durable only through an explicit continuity decision.</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">commitTurn</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">answer</span><span class="p">));</span>
 </code></pre></div><p>Data can leave a scope. Owned runtime state normally cannot.</p>
-<hr/>
 <h2 id="withspine-borrow-live-attention-return-durable-findings"><code>withSpine</code>: borrow live attention, return durable findings</h2>
 <p><code>withSpine</code> is the clearest expression of the Lloyal model:</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">notes</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">withSpine</span><span class="p">(</span>
@@ -226,7 +223,6 @@ observe the resulting execution
 <li>Durable conversation state changes only through explicit commit.</li>
 <li>Application code can change topology, evidence flow, lifecycle, and continuity while the execution is underway.</li>
 </ul>
-<hr/>
 <h2 id="four-lines-that-carry-the-model">Four lines that carry the model</h2>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">value</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">operation</span><span class="p">;</span>
 </code></pre></div><p>Perform owned work and resume with its result.</p>
@@ -236,7 +232,6 @@ observe the resulting execution
 </code></pre></div><p>Borrow live inference state, return durable data, and reclaim the temporary subtree.</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">session</span><span class="p">.</span><span class="nx">commitTurn</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">answer</span><span class="p">));</span>
 </code></pre></div><p>Cross into a Promise boundary and persist the result explicitly.</p>
-<hr/>
 <h2 id="how-the-guide-unfolds">How the guide unfolds</h2>
 <p>The execution stack establishes the architectural boundary. From there, the guide deepens the model in the same order a harness executes it:</p>
 <ol>
@@ -282,7 +277,6 @@ observe the resulting execution
 </code></pre></div><p>When the Session is released, the harness scope ends. Its child tasks, subscriptions, Tool executions, pools, and temporary inference branches unwind with it.</p>
 <p>You do not need to manually enumerate every outstanding child and cancel it.</p>
 <p>The ownership tree already knows.</p>
-<hr/>
 <h2 id="operation-t-work-waiting-for-an-owner"><code>Operation&lt;T&gt;</code>: work waiting for an owner</h2>
 <p>An Effection <code>Operation&lt;T&gt;</code> is not an eager <code>Promise&lt;T&gt;</code>.</p>
 <p>It is a description of asynchronous work that can be performed inside a scope:</p>
@@ -302,7 +296,6 @@ observe the resulting execution
 <blockquote>
 <p><strong>Every <code>Operation</code> must be yielded, spawned, joined, raced, returned, or deliberately transferred to another owner. Never leave one floating.</strong></p>
 </blockquote>
-<hr/>
 <h2 id="what-yield-means-in-lloyal">What <code>yield*</code> means in Lloyal</h2>
 <p>The operative definition is:</p>
 <blockquote>
@@ -325,7 +318,6 @@ observe the resulting execution
 <h3 id="do-not-teach-bare-yield">Do not teach bare <code>yield</code></h3>
 <p>Harness authors use <code>yield*</code>, not bare <code>yield</code>.</p>
 <p>Bare <code>yield</code> belongs to JavaScript’s generator protocol. The Lloyal programming model composes Operations with <code>yield*</code>.</p>
-<hr/>
 <h2 id="spawn-concurrency-without-orphaned-work"><code>spawn</code>: concurrency without orphaned work</h2>
 <p>The basic harness forwards agent events while it separately listens for commands:</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">session</span><span class="p">,</span><span class="w"> </span><span class="nx">events</span><span class="o">:</span><span class="w"> </span><span class="kt">agentEvents</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">initAgents</span><span class="p">(</span><span class="nx">ctx</span><span class="p">);</span>
@@ -353,7 +345,6 @@ observe the resulting execution
 </code></pre></div><p>or:</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="nx">somePromiseReturningFunction</span><span class="p">();</span>
 </code></pre></div><p>Use <code>spawn()</code> when work should continue concurrently under the current scope.</p>
-<hr/>
 <h2 id="all-a-concurrent-cohort"><code>all</code>: a concurrent cohort</h2>
 <p>Orchestrators use <code>all()</code> when several Operations should run concurrently and complete as a cohort:</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">agents</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">all</span><span class="p">(</span>
@@ -402,10 +393,8 @@ SETTLE
       ↓
 DISPATCH
 </code></pre></div><p>The AgentPool owns execution. BranchStore batches inference. An orchestrator determines which Agents should exist and which dependencies must be satisfied.</p>
-<hr/>
 <h2 id="agents-sit-across-three-structures">Agents sit across three structures</h2>
 <p>An Agent's owner, inherited attention, and logical dependencies are separate facts. Use the <a href="#three-structures-one-control-loop">three-structures model</a> before inferring one tree from another.</p>
-<hr/>
 <h2 id="a-spine-is-not-the-session-trunk">A spine is not the Session trunk</h2>
 <p>These branches have different jobs.</p>
 <h3 id="session-trunk">Session trunk</h3>
@@ -431,7 +420,6 @@ worker findings escape as data
         ↓
 answer is committed to trunk
 </code></pre></div><p>Do not use branch survival as persistence.</p>
-<hr/>
 <h2 id="context-inherited-capability-not-global-state">Context: inherited capability, not global state</h2>
 <p>Lloyal uses Effection Context so descendant Operations can access runtime capabilities without manually threading every value through every call.</p>
 <p><code>initAgents()</code> installs capabilities such as:</p>
@@ -465,7 +453,6 @@ answer is committed to trunk
 <blockquote>
 <p>How long is it available?</p>
 </blockquote>
-<hr/>
 <h2 id="resources-acquire-a-live-capability">Resources: acquire a live capability</h2>
 <p>Some Operations do not merely compute a value and finish. They expose a live capability while keeping backing work alive beneath the caller.</p>
 <p><code>useAgentPool()</code> is a resource. It can expose a Subscription while the pool and its branches remain live.</p>
@@ -527,7 +514,6 @@ prefill into that lineage
         ↓
 continue inference from transformed state
 </code></pre></div><p>The Tool runs inside the pool's scope. It is not ownerless background work, and its result is not broadcast to every lineage unless the harness explicitly makes it shared state.</p>
-<hr/>
 <h2 id="structured-ownership-does-not-imply-every-operation-is-concurrency-safe">Structured ownership does not imply every operation is concurrency-safe</h2>
 <p>The pool protects the main <code>llama_context</code> with a single-loop discipline.</p>
 <p>By default, a Tool executes inline on the pool loop. This is safe even when it:</p>
@@ -552,7 +538,6 @@ continue inference from transformed state
 <li><strong>agent fan-out</strong>: an orchestration shape;</li>
 <li><strong>off-loop Tool execution</strong>: an execution-safety declaration.</li>
 </ul>
-<hr/>
 <h2 id="control-is-split-across-explicit-boundaries">Control is split across explicit boundaries</h2>
 <p>The harness can govern a continuing execution without pretending every decision belongs in one abstraction.</p>
 <div class="table-wrap"><table>
@@ -590,7 +575,6 @@ continue inference from transformed state
 </tbody>
 </table></div>
 <p>Use the highest-level surface that expresses the invariant. Drop to direct Branch operations when the requirement is inherently about token selection, logits, search, or state promotion—not merely because a lower-level operation exists.</p>
-<hr/>
 <h2 id="in-lloyal-control-flow-is-orchestration">In Lloyal, control flow is orchestration</h2>
 <p>An orchestrator is an ordinary Operation over <code>PoolContext</code>:</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kr">type</span><span class="w"> </span><span class="nx">Orchestrator</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">ctx</span><span class="o">:</span><span class="w"> </span><span class="kt">PoolContext</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">Operation</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span><span class="p">;</span>
@@ -682,7 +666,6 @@ harness scope halts
 children and resources unwind
 </code></pre></div><p>This is lifetime termination, not a domain-level AgentPolicy decision.</p>
 <p>Graceful wind-down, Agent recovery, and per-Agent cancellation occur inside a still-live scope and are covered in the AgentPolicy guide.</p>
-<hr/>
 <h2 id="ensure-cleanup-belongs-to-the-owner"><code>ensure</code>: cleanup belongs to the owner</h2>
 <p>Use <code>ensure()</code> when a scope must perform cleanup as it exits:</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">let</span><span class="w"> </span><span class="nx">tookPermit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span><span class="p">;</span>
@@ -710,7 +693,6 @@ children and resources unwind
 <blockquote>
 <p>Make cleanup structurally inseparable from ownership.</p>
 </blockquote>
-<hr/>
 <h2 id="call-crossing-the-promise-boundary"><code>call</code>: crossing the Promise boundary</h2>
 <p>Lloyal code often invokes ordinary synchronous or Promise-returning APIs:</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">modelPath</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span>
@@ -815,7 +797,6 @@ children and resources unwind
 → continuity
 → observable test
 </code></pre></div><p>The runtime owns safe execution, cancellation, branch cleanup, batching, and grant enforcement. The harness owns the semantic decisions: what evidence means, which contradiction is material, what burden of proof applies, which state is canonical, and when consequence is acceptable.</p>
-<hr/>
 <h2 id="adaptive-harness-patterns">Adaptive harness patterns</h2>
 <h3 id="contradiction-triggered-expansion">Contradiction-triggered expansion</h3>
 <p><strong>Invariant:</strong> no final result while a material contradiction remains unresolved.</p>
@@ -895,7 +876,6 @@ children and resources unwind
 <span class="w">  </span><span class="p">}</span>
 <span class="p">}</span>
 </code></pre></div><p>A custom orchestrator can also use <code>ctx.canFit(...)</code> before spawning focused work. Recovery policy decides whether an incomplete but material branch deserves a final extraction rather than silent pruning.</p>
-<hr/>
 <h2 id="programming-the-inference-trajectory">Programming the inference trajectory</h2>
 <p>These patterns move below Agent lifecycle and operate directly on live Branch state. They are the clearest proof that the harness can program inference rather than only arrange calls around it.</p>
 <h3 id="verifier-before-commit-generation">Verifier-before-commit generation</h3>
@@ -1023,7 +1003,6 @@ expert C state ─┘
 <span class="p">}</span>
 </code></pre></div><p>The built-in merge applies one equal <code>alpha</code> to each expert. A custom weighting operator can read and write captured logits when experts need different weights.</p>
 <p><strong>Why it is different:</strong> the experts preserve their own evidence and attention histories while contributing to each next-token decision.</p>
-<hr/>
 <h2 id="acceptance-and-continuity-patterns">Acceptance and continuity patterns</h2>
 <h3 id="burden-of-proof-scaling">Burden-of-proof scaling</h3>
 <p><strong>Invariant:</strong> the evidence and validation required must increase with the consequence of the proposed result or action.</p>
@@ -1132,7 +1111,6 @@ later work forks from accepted state
 <li><strong>Game world:</strong> reason from the world state at the event time rather than current state.</li>
 </ul>
 <p><strong>Why it is different:</strong> semantic relevance is not validity. The application determines which evidence governs which live state rather than asking the model to infer applicability from a mixed transcript.</p>
-<hr/>
 <h2 id="additional-compositions">Additional compositions</h2>
 <p>The same grammar supports further patterns that can be added when a product needs them:</p>
 <ul>
@@ -1141,7 +1119,6 @@ later work forks from accepted state
 <li><strong>Entitlement-aware evidence admission:</strong> allow private evidence to influence an authorised lineage while filtering or withholding its representation from other lineages and public output.</li>
 </ul>
 <p>These are not special framework modes. They are different combinations of topology, Tool semantics, policy, application state, and continuity.</p>
-<hr/>
 <h2 id="design-your-own-advanced-pattern">Design your own advanced pattern</h2>
 <p>Use this worksheet.</p>
 <h3 id="state">State</h3>
@@ -1163,7 +1140,6 @@ later work forks from accepted state
 <blockquote>
 <p><strong>Start from the application invariant, not from the number of Agents.</strong></p>
 </blockquote>
-<hr/>
 <h2 id="advanced-pattern-failure-modes">Advanced-pattern failure modes</h2>
 <h3 id="creating-fan-out-without-a-survival-policy">Creating fan-out without a survival policy</h3>
 <p>More branches are not automatically better. Define what preserves, expands, recovers, prunes, and wins before creating a large frontier.</p>
@@ -1224,7 +1200,6 @@ later work forks from accepted state
 </tbody>
 </table></div>
 <p>This matters most with <code>spawn</code> and resources: <code>yield*</code> does not always mean “wait for every activity underneath this call to finish”.</p>
-<hr/>
 <h2 id="follow-the-return-type">Follow the return type</h2>
 <p>Two APIs may share a method name but have different semantics.</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="nx">events</span><span class="p">.</span><span class="nx">send</span><span class="p">(</span><span class="nx">event</span><span class="p">);</span>
@@ -1239,7 +1214,6 @@ later work forks from accepted state
 <li>or Operation-returning.</li>
 </ul>
 <p>A floating-Operation lint rule would be valuable for harness projects.</p>
-<hr/>
 <h2 id="async-to-lloyal-rosetta-stone">Async-to-Lloyal Rosetta Stone</h2>
 <div class="table-wrap"><table>
 <thead>
@@ -1312,7 +1286,6 @@ later work forks from accepted state
 <li><a href="https://frontside.com/effection/guides/v4/thinking-in-effection/" rel="noopener noreferrer" target="_blank">https://frontside.com/effection/guides/v4/thinking-in-effection/</a></li>
 <li><a href="https://frontside.com/effection/guides/v4/async-rosetta-stone/" rel="noopener noreferrer" target="_blank">https://frontside.com/effection/guides/v4/async-rosetta-stone/</a></li>
 </ul>
-<hr/>
 <h2 id="common-mistakes">Common mistakes</h2>
 <h3 id="converting-an-operation-to-async">Converting an Operation to <code>async</code></h3>
 <p>Avoid:</p>
@@ -1349,7 +1322,6 @@ later work forks from accepted state
 <p>Bind provider cancellation into the scope where available.</p>
 <h3 id="marking-a-native-tool-as-off-loop">Marking a native Tool as off-loop</h3>
 <p>Do not set <code>Tool.fanout = true</code> when the Tool may touch the main SessionContext, a branch, or a nested Agent runtime.</p>
-<hr/>
 <h2 id="repository-invariants">Repository invariants</h2>
 <div class="code-frame"><div class="code-label">Markdown</div><pre><code><span class="gu">## Lloyal structured-concurrency invariants</span>
 

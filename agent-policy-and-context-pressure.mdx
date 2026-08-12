@@ -64,7 +64,6 @@ export const guideHtml = `<div class="page">
 <li><strong>AgentPool performs the decision without violating runtime safety.</strong></li>
 </ol>
 <p>Policy never owns the Session, schedules native decode, or prunes branches directly.</p>
-<hr/>
 <h2 id="the-three-questions">The three questions</h2>
 <h3 id="1-does-this-work-still-have-an-owner">1. Does this work still have an owner?</h3>
 <p>That is a <strong>structured-concurrency</strong> question.</p>
@@ -85,7 +84,6 @@ policy chooses continue, nudge, retry, return, stop, or recover
 <h3 id="3-can-the-requested-action-be-performed-safely">3. Can the requested action be performed safely?</h3>
 <p>That is an <strong>AgentPool</strong> question.</p>
 <p>Policy can request recovery or provide a preferred report budget. The pool computes what fits, enforces grammar and token limits, and protects the native context.</p>
-<hr/>
 <h2 id="the-five-rules">The five rules</h2>
 <ol>
 <li><strong>Policy is a rulebook, not a scheduler.</strong></li>
@@ -94,7 +92,6 @@ policy chooses continue, nudge, retry, return, stop, or recover
 <li><strong>The hard limit prevents unsafe continuation and bounds recovery.</strong></li>
 <li><strong>Policy requests recovery; the pool makes it mechanically safe.</strong></li>
 </ol>
-<hr/>
 <h2 id="the-two-axes">The two axes</h2>
 <p>Pressure affects both strategy and lifecycle, but these are not the same decision.</p>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>strategy:
@@ -104,7 +101,6 @@ lifecycle:
 work ─────────────→ report ────────────→ recover or prune
 </code></pre></div><p>An Agent can exploit while still healthy.</p>
 <p><code>shouldExplore() === false</code> does not mean the Agent should stop.</p>
-<hr/>
 <h2 id="choose-your-reading-path">Choose your reading path</h2>
 <h3 id="i-need-the-mental-model">I need the mental model</h3>
 <p>Read:</p>
@@ -227,7 +223,6 @@ AgentPool
 <li>emits lifecycle events.</li>
 </ul>
 <p>Policy never bypasses those mechanics.</p>
-<hr/>
 <h2 id="pressure-is-a-photograph-not-a-live-gauge">Pressure is a photograph, not a live gauge</h2>
 <p>The pool freezes <code>ContextPressure</code> at phase boundaries.</p>
 <p>Every policy decision in that phase sees the same baseline.</p>
@@ -252,7 +247,6 @@ next phase receives a new snapshot
 <blockquote>
 <p><strong>Reason from the supplied snapshot. Do not poll native pressure inside a hook and do not mutate it.</strong></p>
 </blockquote>
-<hr/>
 <h2 id="every-agent-spends-live-attention-budget">Every Agent spends live-attention budget</h2>
 <p>Each Agent spends from the Session’s finite live-attention budget through:</p>
 <ul>
@@ -420,7 +414,6 @@ DISPATCH
 <li>task-specific thresholds.</li>
 </ul>
 <p>Then it returns an action.</p>
-<hr/>
 <h2 id="onproduced-interpret-the-models-stop"><code>onProduced</code>: interpret the model’s stop</h2>
 <p>When the model reaches a stop boundary, parsing yields content and Tool calls.</p>
 <p><code>onProduced()</code> maps that state to an action:</p>
@@ -452,7 +445,6 @@ DISPATCH
 <li>the grammar used to force a recovery report.</li>
 </ul>
 <p>The Tool can be named <code>report</code>, <code>submit</code>, <code>finish</code>, or another harness-specific term.</p>
-<hr/>
 <h2 id="tool-guards-are-policy-not-execution">Tool guards are policy, not execution</h2>
 <p>A Tool defines what an action is and how it runs.</p>
 <p>A <code>ToolGuard</code> decides whether a particular call is acceptable now:</p>
@@ -490,7 +482,6 @@ ToolGuard and AgentPolicy
 AgentPool
     enforces the decision
 </code></pre></div><p>Credentials do not need to enter the model context.</p>
-<hr/>
 <h2 id="exploration-and-lifecycle-are-separate-axes">Exploration and lifecycle are separate axes</h2>
 <p><code>shouldExplore()</code> adapts retrieval strategy while the Agent remains active.</p>
 <h3 id="explore">Explore</h3>
@@ -513,7 +504,6 @@ AgentPool
 </code></pre></div><p>Lifecycle remains separate:</p>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>work ─────────────→ report ────────────→ recover or prune
 </code></pre></div><p>Do not treat exploit mode as an exit signal.</p>
-<hr/>
 <h2 id="shouldexit-stop-before-another-token"><code>shouldExit</code>: stop before another token</h2>
 <p><code>shouldExit(agent, pressure)</code> runs before <code>produceSync()</code>.</p>
 <p>It asks:</p>
@@ -536,7 +526,6 @@ AgentPool
 <li>the pool may call <code>onRecovery()</code>;</li>
 <li>policy does not prune the branch itself.</li>
 </ul>
-<hr/>
 <h2 id="onsettlereject-when-a-result-cannot-fit"><code>onSettleReject</code>: when a result cannot fit</h2>
 <p>A Tool may return a result that cannot be admitted while preserving the soft reserve.</p>
 <p>The pool first defers it:</p>
@@ -563,7 +552,6 @@ waiting cannot change the outcome
 <span class="w">  </span><span class="nx">reason</span><span class="o">:</span><span class="w"> </span><span class="s2">"pressure_settle_reject"</span>
 <span class="p">}</span>
 </code></pre></div><p>The pool still owns admission and branch lifecycle.</p>
-<hr/>
 <h2 id="transient-tool-failure-park-retry-or-pivot">Transient Tool failure: park, retry, or pivot</h2>
 <p>A Tool may throw <code>ToolRetryError</code> for a transient condition.</p>
 <p><code>onToolRetry()</code> returns:</p>
@@ -636,7 +624,6 @@ waiting cannot change the outcome
 <h3 id="recovery-is-a-real-turn">Recovery is a real turn</h3>
 <p>Recovery is not string extraction from hidden state.</p>
 <p>The pool injects a final instruction into the Agent’s live branch and constrains generation to the terminal result contract.</p>
-<hr/>
 <h2 id="why-recovery-uses-the-hard-limit-reserve">Why recovery uses the hard-limit reserve</h2>
 <p>Near the soft boundary:</p>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>remaining ≈ softLimit
@@ -654,7 +641,6 @@ waiting cannot change the outcome
 <blockquote>
 <p>No more recovery tokens may be decoded.</p>
 </blockquote>
-<hr/>
 <h2 id="staggered-and-parallel-recovery">Staggered and parallel recovery</h2>
 <p><code>recoveryShape</code> expresses a product trade-off.</p>
 <h3 id="staggered">Staggered</h3>
@@ -690,7 +676,6 @@ prune each as it finishes
 <li>suited to low/medium effort and graceful wind-down.</li>
 </ul>
 <p>An explicit <code>reportBudget</code> is a preference. The pool clamps it to what safely fits.</p>
-<hr/>
 <h2 id="in-flight-terminal-report-salvage">In-flight terminal-report salvage</h2>
 <p>If an Agent is force-stopped while already emitting its terminal Tool call, restarting recovery would:</p>
 <ol>
@@ -702,7 +687,6 @@ prune each as it finishes
 <p>The pool instead parses and salvages the existing partial terminal output without further decode.</p>
 <p>This is a pool mechanic, not a policy hook.</p>
 <p>Policy decides that the Agent should stop. The pool chooses the least-destructive safe route.</p>
-<hr/>
 <h2 id="wind-down-per-agent-cancellation-and-scope-halt">Wind-down, per-Agent cancellation, and scope halt</h2>
 <p>These controls have different meanings.</p>
 <h3 id="graceful-wind-down">Graceful wind-down</h3>
@@ -776,7 +760,6 @@ prune each as it finishes
 <li>parallel recovery bounds latency and report size.</li>
 </ul>
 <p>Tune the policy to the workload, not merely to the model.</p>
-<hr/>
 <h2 id="a-worked-pressure-example">A worked pressure example</h2>
 <p>Assume:</p>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>nCtx      = 32,768
@@ -809,7 +792,6 @@ critical  = true
 <blockquote>
 <p><code>headroom &lt;= 0</code> and <code>critical === true</code> are not the same state.</p>
 </blockquote>
-<hr/>
 <h2 id="writing-a-custom-policy">Writing a custom policy</h2>
 <p>Custom policy is appropriate when the harness has domain rules that configuration cannot express.</p>
 <p>Prefer extending the default:</p>
@@ -862,7 +844,6 @@ critical  = true
 <li>a Source;</li>
 <li>or another scoped Operation.</li>
 </ul>
-<hr/>
 <h2 id="the-synthesiser-exception">The synthesiser exception</h2>
 <p>A Tool-less synthesiser may treat free text as its terminal result.</p>
 <p>The basic scaffold currently expresses that through a narrow <code>onProduced()</code> override:</p>
@@ -888,7 +869,6 @@ critical  = true
 </blockquote>
 <p>It does not change ownership, scheduling, branch lifetime, or pressure enforcement.</p>
 <p>A future stock text-return policy or <code>returnMode: "text"</code> can simplify this common case.</p>
-<hr/>
 <h2 id="tuning-by-workload">Tuning by workload</h2>
 <h3 id="interactive-assistant">Interactive assistant</h3>
 <p>Prefer:</p>
@@ -949,7 +929,6 @@ critical  = true
 <p>A halt removes the owner. Use graceful wind-down when the user wants the best available result.</p>
 <h3 id="treating-policy-as-a-native-safety-escape-hatch">Treating policy as a native-safety escape hatch</h3>
 <p>The pool validates hard invariants. Policy cannot opt out of runtime safety.</p>
-<hr/>
 <h2 id="rules-for-coding-agents">Rules for coding agents</h2>
 <div class="code-frame"><div class="code-label">Markdown</div><pre><code><span class="gu">## Lloyal AgentPolicy invariants</span>
 
