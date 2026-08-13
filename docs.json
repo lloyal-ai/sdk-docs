@@ -54,6 +54,7 @@
           {
             "group": "Architecture",
             "pages": [
+              "continuous-context",
               "where-a-harness-runs"
             ]
           },
@@ -115,7 +116,7 @@
     },
     {
       "source": "/reference/continuous-context-spine",
-      "destination": "/thinking-in-lloyal",
+      "destination": "/continuous-context",
       "permanent": true
     },
     {
@@ -383,7 +384,7 @@
     },
     {
       "source": "/under-the-hood/continuous-context-spine",
-      "destination": "/thinking-in-lloyal"
+      "destination": "/continuous-context"
     },
     {
       "source": "/under-the-hood/grammar-and-ordering",

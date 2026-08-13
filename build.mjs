@@ -119,6 +119,20 @@ const TOC_SCRIPT = `<script>
   addEventListener('hashchange', onScroll);
   sync();
 })();
+
+/* Back to top.
+
+   Every page already ships an <a class="back-to-top"> and the stylesheet gives
+   it opacity:0 until .show — but nothing ever added that class, so the control
+   has been inert on all of them. Its own block rather than part of the TOC's:
+   that one returns early when a page has no TOC entries. */
+(function () {
+  var btn = document.querySelector('.back-to-top');
+  if (!btn) return;
+  function toggle() { btn.classList.toggle('show', window.scrollY > 900); }
+  addEventListener('scroll', toggle, { passive: true });
+  toggle();
+})();
 </script>`;
 
 /**
@@ -136,6 +150,7 @@ const TOC_SCRIPT = `<script>
 const NAV = [
   { slug: 'index', href: '/', label: 'Docs' },
   { slug: 'build-your-first-harness', href: '/build-your-first-harness', label: 'Build your first harness' },
+  { slug: 'continuous-context', href: '/continuous-context', label: 'Continuous Context' },
   { slug: 'thinking-in-lloyal', href: '/thinking-in-lloyal', label: 'Thinking in Lloyal' },
   { slug: 'agent-policy-and-context-pressure', href: '/agent-policy-and-context-pressure', label: 'Adaptive execution' },
   { slug: 'where-a-harness-runs', href: '/where-a-harness-runs', label: 'Where a harness runs' },
