@@ -736,8 +736,9 @@ body:has(#lloyal-guides) .fixed.z-999 { display: none !important; }
   #lloyal-guides .lloyal-navtoggle {
     display: inline-flex;
     align-items: center;
-    gap: 9px;
+    justify-content: flex-end;
     margin-inline-start: auto;
+    width: 44px;
     height: var(--nav-h);
     padding: 0;
     border: 0;
