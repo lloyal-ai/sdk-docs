@@ -73,6 +73,42 @@ const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, 
  * and it degrades to the current behaviour if JS is off. The original export
  * shipped zero JavaScript and this is the only script on the site.
  */
+/**
+ * The menu ships on every page. It lived inside TOC_SCRIPT, which is only
+ * injected when a page has a table of contents — so the button rendered on the
+ * hub and the 404 page with nothing listening to it.
+ */
+const NAV_SCRIPT = `<script>
+/* Guides menu.
+
+   Below the nav breakpoint the bar collapses to a button. Toggling an attribute
+   on the nav is the whole of it — the open and closed layouts are both CSS, so
+   there is no measuring here and nothing to keep in sync. */
+(function () {
+  var nav = document.querySelector('.lloyal-topnav');
+  if (!nav) return;
+  var btn = nav.querySelector('.lloyal-navtoggle');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var open = nav.hasAttribute('data-open');
+    if (open) nav.removeAttribute('data-open');
+    else nav.setAttribute('data-open', '');
+    btn.setAttribute('aria-expanded', String(!open));
+  });
+  // A link press navigates; leaving the panel open would flash it on the next page.
+  nav.addEventListener('click', function (e) {
+    if (e.target.tagName === 'A') nav.removeAttribute('data-open');
+  });
+  addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && nav.hasAttribute('data-open')) {
+      nav.removeAttribute('data-open');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.focus();
+    }
+  });
+})();
+</script>`;
+
 const TOC_SCRIPT = `<script>
 (function () {
   var toc = document.querySelector('.toc');
@@ -157,9 +193,21 @@ const NAV = [
   { slug: 'lookup', href: '/lookup', label: 'Lookup' },
 ];
 
-const nav = (slug) => `<nav class="lloyal-topnav" aria-label="Guides">${NAV.map(
-  (n) => `<a href="${n.href}"${n.slug === slug ? ' class="lloyal-topnav-current" aria-current="page"' : ''}>${n.label}</a>`,
-).join('')}</nav>`;
+/**
+ * Seven labels need ~1250px. Above that the bar is a row; below it the row
+ * becomes a disclosure, because a strip that scrolls sideways shows a phone two
+ * entries and gives no sign the other five exist.
+ *
+ * The button ships in the markup and is hidden by CSS above the breakpoint, so
+ * there is nothing to construct at runtime and nothing moves if the script
+ * fails; the links are plain anchors either way.
+ */
+const nav = (slug) => `<nav class="lloyal-topnav" aria-label="Guides">` +
+  `<button type="button" class="lloyal-navtoggle" aria-expanded="false" aria-label="Guides menu">` +
+  `<span class="lloyal-navtoggle-bars" aria-hidden="true"></span></button>` +
+  NAV.map(
+    (n) => `<a href="${n.href}"${n.slug === slug ? ' class="lloyal-topnav-current" aria-current="page"' : ''}>${n.label}</a>`,
+  ).join('') + `</nav>`;
 
 const pages = readdirSync('.').filter((f) => f.endsWith('.mdx')).sort();
 rmSync(OUT, { recursive: true, force: true });
@@ -186,6 +234,7 @@ for (const file of pages) {
 <body id="lloyal-guides" class="pg-${slug}">
 ${nav(slug)}
 ${body}
+${NAV_SCRIPT}
 ${body.includes('class="toc"') ? TOC_SCRIPT : ''}
 </body>
 </html>
@@ -235,7 +284,7 @@ ${nav('')}
 <div class="page">
 <header class="masthead wrap">
 <div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI's contact with reality.</div></div>
-<div class="issue"><span>Not /<br>found</span><span>August<br>2026</span></div>
+<div class="issue"><span>Not /<br>found</span></div>
 </header>
 <section class="hero wrap">
 <div class="eyebrow"><a href="/">Programming guides</a> / 404</div>
@@ -256,6 +305,7 @@ ${nav('')}
 </section>
 <footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs &middot; Melbourne</span></footer>
 </div>
+${NAV_SCRIPT}
 </body>
 </html>
 `);
