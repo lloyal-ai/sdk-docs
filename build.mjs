@@ -150,9 +150,9 @@ const TOC_SCRIPT = `<script>
 const NAV = [
   { slug: 'index', href: '/', label: 'Docs' },
   { slug: 'build-your-first-harness', href: '/build-your-first-harness', label: 'Build your first harness' },
-  { slug: 'continuous-context', href: '/continuous-context', label: 'Continuous Context' },
   { slug: 'thinking-in-lloyal', href: '/thinking-in-lloyal', label: 'Thinking in Lloyal' },
-  { slug: 'agent-policy-and-context-pressure', href: '/agent-policy-and-context-pressure', label: 'Adaptive execution' },
+  { slug: 'continuous-context', href: '/continuous-context', label: 'Continuous Context' },
+  { slug: 'agent-policy-and-context-pressure', href: '/agent-policy-and-context-pressure', label: 'Context pressure' },
   { slug: 'where-a-harness-runs', href: '/where-a-harness-runs', label: 'Where a harness runs' },
   { slug: 'lookup', href: '/lookup', label: 'Lookup' },
 ];
@@ -248,7 +248,8 @@ ${nav('')}
 <a href="/">Build with Lloyal <span class="out">&rarr;</span></a>
 <a href="/build-your-first-harness">Build your first harness <span class="out">&rarr;</span></a>
 <a href="/thinking-in-lloyal">Thinking in Lloyal <span class="out">&rarr;</span></a>
-<a href="/agent-policy-and-context-pressure">Adaptive execution <span class="out">&rarr;</span></a>
+<a href="/continuous-context">Continuous Context <span class="out">&rarr;</span></a>
+<a href="/agent-policy-and-context-pressure">Context pressure <span class="out">&rarr;</span></a>
 <a href="/where-a-harness-runs">Where a harness runs <span class="out">&rarr;</span></a>
 <a href="/lookup">Lookup <span class="out">&rarr;</span></a>
 </div>
