@@ -674,6 +674,47 @@ body:has(#lloyal-guides) .fixed.z-999 { display: none !important; }
 #lloyal-guides.pg-where-a-harness-runs [id],
 #lloyal-guides.pg-lookup [id] { scroll-margin-top: calc(var(--nav-h) + 24px); }
 
+/* Masthead on a phone.
+
+   The masthead is a flex row: the wordmark and tagline on the left, the issue
+   block on the right — and the issue block is itself a two-column grid of
+   letterspaced uppercase. Below ~480px those three cannot share a line, so all
+   three wrap at once: the tagline breaks, "Programming /" leaves "Model" on its
+   own line, and the month leaves the year on its own. The existing 560px rules
+   only tighten the gap and letter-spacing, which does not buy enough room.
+
+   Stacking is the fix rather than shrinking further; the type is already at 9px.
+   Enumerated per page because the scoped blocks set .masthead at (1,1,1) and a
+   shared #lloyal-guides .masthead would lose to them. */
+@media (max-width: 560px) {
+#lloyal-guides.pg-index .masthead,
+#lloyal-guides.pg-build-your-first-harness .masthead,
+#lloyal-guides.pg-thinking-in-lloyal .masthead,
+#lloyal-guides.pg-continuous-context .masthead,
+#lloyal-guides.pg-agent-policy-and-context-pressure .masthead,
+#lloyal-guides.pg-where-a-harness-runs .masthead,
+#lloyal-guides.pg-lookup .masthead {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 14px;
+    height: auto;
+    padding-top: 22px;
+    padding-bottom: 20px;
+  }
+#lloyal-guides.pg-index .issue,
+#lloyal-guides.pg-build-your-first-harness .issue,
+#lloyal-guides.pg-thinking-in-lloyal .issue,
+#lloyal-guides.pg-continuous-context .issue,
+#lloyal-guides.pg-agent-policy-and-context-pressure .issue,
+#lloyal-guides.pg-where-a-harness-runs .issue,
+#lloyal-guides.pg-lookup .issue {
+    grid-template-columns: auto auto;
+    gap: 26px;
+    text-align: left;
+  }
+}
+
 @media print { #lloyal-guides .lloyal-topnav { display: none; } }
 
 /* The six labels need ~1050px at the default 32px gap. Tightening the gutters
