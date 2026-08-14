@@ -88,7 +88,7 @@ SessionContext + resident model</pre></div><p>Use local edge for offline or zero
 </div>
 <p>Placement portability and durability are distinct:</p>
 <ul><li><strong>Placement portability</strong> means the same harness contract can run elsewhere.</li><li><strong>Output reattach</strong> reconnects a surface to a Session that is still live.</li><li><strong>Session rehydration</strong> reconstructs accepted state after the original runtime has gone.</li><li><strong>Mid-execution recovery</strong> reconstructs an active multi-branch graph after its runtime is gone. Not to be confused with the pool&rsquo;s <a href="/agent-policy-and-context-pressure#recovery-save-useful-work-before-pruning">recovery</a>, which salvages a stopping Agent&rsquo;s findings while the pool is still running.</li></ul>
-<p>Placement portability, trace-based Session rehydration, and mid-execution recovery are part of the platform shape today. What remains staged is the live durability plane: <code>checkpointLive</code>, agent-shaped retrospective rebase, and binary resume-after-restart.</p>
+<p>Placement portability, trace-based Session rehydration, and mid-execution recovery are part of the platform shape today. What remains planned is the live durability plane: <code>checkpointLive</code>, agent-shaped retrospective rebase, and binary resume-after-restart.</p>
 
 <h1 id="choose-a-placement">Choose a placement</h1>
 <div class="table-wrap"><table><thead><tr><th>Need</th><th>Start with</th></tr></thead><tbody>
