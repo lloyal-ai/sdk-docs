@@ -320,27 +320,27 @@
     },
     {
       "source": "/build-an-app/sources-and-retrieval",
-      "destination": "/lookup"
+      "destination": "/agentapps"
     },
     {
       "source": "/build-an-app/app-security",
-      "destination": "/lookup"
+      "destination": "/agentapps"
     },
     {
       "source": "/build-an-app/what-is-an-app",
-      "destination": "/lookup"
+      "destination": "/agentapps"
     },
     {
       "source": "/build-an-app/tools",
-      "destination": "/lookup"
+      "destination": "/agentapps"
     },
     {
       "source": "/build-an-app/lifecycle-and-registry",
-      "destination": "/lookup"
+      "destination": "/agentapps"
     },
     {
       "source": "/build-an-app/distribution",
-      "destination": "/lookup"
+      "destination": "/agentapps"
     },
     {
       "source": "/build-an-app/your-first-app",
