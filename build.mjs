@@ -177,7 +177,7 @@ const TOC_SCRIPT = `<script>
  * The docs are a hub and six spokes, so without this bar the only way from one
  * guide to another is back through the index. The labels are the short names
  * the hub already uses in its learning-flow and path-labels — NOT the page
- * `<h1>`s, which do not fit on one line ("How Agents Know When to Stop"). Six
+ * `<h1>`s, which do not fit on one line ("Adaptive compute through semantic pruning"). Six
  * long labels wrapping to two lines is what sank the earlier attempt at this.
  *
  * Built here rather than written into each `.mdx` so the six pages cannot drift
