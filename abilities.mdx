@@ -38,7 +38,7 @@ export const guideHtml = `<div class="page">
 </code></pre></div>
 
 <h2 id="the-manifest">The manifest</h2>
-<p>Validated <strong>eagerly, at import</strong> — a malformed manifest fails before the Ability can be enabled, let alone reach a prompt.</p>
+<p><strong>A broken Ability never reaches a prompt.</strong> The manifest is validated eagerly, at import — before the Ability can be enabled, let alone say anything to the model.</p>
 <div class="table-wrap"><table><thead><tr><th>field</th><th>role</th></tr></thead><tbody>
 <tr><td><code>name</code></td><td>Identity. Lowercase ASCII, 2–64 chars.</td></tr>
 <tr><td><code>protocol.name</code></td><td>The discipline an agent applies. Appears in the boundary marker on every per-spawn message.</td></tr>
@@ -51,7 +51,7 @@ export const guideHtml = `<div class="page">
 <p>Loading is eager and shared. The harness takes every <code>services</code> entry across every installed Ability and provisions the union once, at boot. Two Abilities that declare <code>reranker</code> share one runtime. A harness whose Abilities declare none loads nothing.</p>
 <p><strong>The Abilities you install decide which models your application runs.</strong> A plugin asks for a package. An Ability asks for a model, and gets it.</p>
 <h2 id="the-setup">The setup</h2>
-<p>A generator returning the parts. Its output is validated when the factory runs — the same point the Ability is enabled.</p>
+<p><strong>One signed artefact, bound to your data when you enable it.</strong> The setup is a generator returning the parts, and its output is validated when the factory runs — the same moment the Ability comes alive against your instance of the domain.</p>
 <div class="table-wrap"><table><thead><tr><th>part</th><th>role</th></tr></thead><tbody>
 <tr><td><strong>source</strong></td><td>Access to a live system, plus retrieval intelligence: the tools getter, a contents advert, and a reranker-backed scorer.</td></tr>
 <tr><td><strong>tools</strong></td><td>The actions. Each carries a JSON-Schema <code>parameters</code>, an <code>execute</code> generator, and a <code>protected</code> flag marking sensitive or write operations.</td></tr>
@@ -82,13 +82,13 @@ export const guideHtml = `<div class="page">
 <p>An Ability is a signed npm tarball. Two routes put it in a harness's <code>node_modules</code>, and both converge on the same runtime path — a plain static <code>import</code> of the factory, handed to <code>registry.enable</code>. There is no runtime "load an Ability by name" verb.</p>
 
 <h2 id="the-signed-channel">The signed channel</h2>
-<p>Anything reaching a harness that does not own it flows through <code>apps.lloyal.ai</code>: reviewed for contract conformance, tool safety, manifest validity and signature provenance before listing. A first-party harness may also depend on an Ability it owns from a private source, as an ordinary npm dependency — not a parallel public path.</p>
+<p><strong>Deep access is the reason for the gate, and the gate is what makes deep access safe.</strong> Anything reaching a harness that does not own it flows through <code>apps.lloyal.ai</code>: reviewed for contract conformance, tool safety, manifest validity and signature provenance before listing. A first-party harness may also depend on an Ability it owns from a private source, as an ordinary npm dependency — not a parallel public path.</p>
 <p>The framework points at that catalogue by default. The install command takes a <em>name</em>, never a URL; the catalogue URL and the Ed25519 trust roots are compile-time constants. Every harness therefore resolves Abilities through the same verified channel, and the protocol does not fragment into incompatible sub-catalogues.</p>
 
 <h2 id="installing">Installing</h2>
 <div class="code-frame"><div class="code-label">TERMINAL</div><pre><code>npx lloyal-ai install acme/jira@^1.2.0
 </code></pre></div>
-<p>The install verifies before anything is written: it fetches the signed catalogue and checks its Ed25519 signature against the vendored trust roots; resolves your semver range to a version the catalogue pins; fetches the manifest and cross-checks name, version and size; fetches the tarball and verifies the signature over its raw bytes; then cross-checks a sha512 integrity digest. Only then is the package vendored and installed. A failure at any step rolls back — nothing unverified is left behind.</p>
+<p><strong>One command, and a verified chain from publisher to process.</strong> The install verifies before anything is written: it fetches the signed catalogue and checks its Ed25519 signature against the vendored trust roots; resolves your semver range to a version the catalogue pins; fetches the manifest and cross-checks name, version and size; fetches the tarball and verifies the signature over its raw bytes; then cross-checks a sha512 integrity digest. Only then is the package vendored and installed. A failure at any step rolls back — nothing unverified is left behind.</p>
 
 <h1 id="security">Security</h1>
 <p>Abilities run <strong>in-process</strong> with the model. That is the performance story — no IPC, no serialisation on the hot tool path, one shared spine across many agents — and it is also the security story: with no process boundary, the trust boundary becomes the prompt itself.</p>
@@ -97,7 +97,7 @@ export const guideHtml = `<div class="page">
 <ol><li><strong>Catalogue escape.</strong> An Ability-supplied string interpolated into the shared spine could carry a newline, a fake role marker, or a code fence — convincing the model the catalogue has ended and the prompt is now elsewhere.</li><li><strong>Cross-ability injection.</strong> Abilities share one prompt surface. A web page fetched by one Ability could contain text instructing the model to call another Ability's tool.</li><li><strong>Unauthorised writes.</strong> A model may decide to call a write tool because of a planning mistake or an injected page. It must not be able to perform the write without the session — not the model — having consented.</li></ol>
 
 <h2 id="the-defences">The defences</h2>
-<p><strong>Metadata is grammar-constrained at definition time.</strong> Names match a strict pattern; <code>useWhen</code> is length-bounded and rejects role markers, code fences and newlines; the skill may not re-emit the boundary marker; tool names must match the manifest exactly. These checks throw synchronously, so a malformed Ability never enters the registry, and the worst case is a rejected Ability rather than a compromised spine.</p>
+<p><strong>An Ability writes into the model’s attention, so what it may say is fixed before it runs.</strong> Metadata is grammar-constrained at definition time. Names match a strict pattern; <code>useWhen</code> is length-bounded and rejects role markers, code fences and newlines; the skill may not re-emit the boundary marker; tool names must match the manifest exactly. These checks throw synchronously, so a malformed Ability never enters the registry, and the worst case is a rejected Ability rather than a compromised spine.</p>
 <p><strong>Every per-spawn message is prefixed with a boundary marker</strong> naming the protocol in force, so instructions arriving through fetched content are read as content inside a discipline rather than as a new instruction frame.</p>
 <p><strong>Sensitive tools are marked <code>protected</code></strong> and require session-level consent. The model can request; it cannot authorise.</p>
 
