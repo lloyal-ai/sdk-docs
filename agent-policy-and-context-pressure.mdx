@@ -15,13 +15,13 @@ export const guideHtml = `<div class="page">
 
   <section class="hero wrap">
     <div class="eyebrow"><a href="/">Programming guides</a> / Engineering note</div>
-    <h1>Spend attention and get it back</h1>
-    <div class="hero-sub">Agents return the attention they borrowed, while the run continues</div>
+    <h1>Adaptive compute through semantic pruning</h1>
+    <div class="hero-sub">Whole lines of work are pruned on judgement, not windows compacted on arithmetic</div>
   </section>
 
   <section class="thesis wrap">
     <div class="thesis-grid">
-      <div class="thesis-copy"><p><strong>Every other agent system grows its context until it has to compact. Here the window moves both ways.</strong> An Agent that finishes returns its KV cells to its siblings mid-run, so headroom is something the pool recovers rather than something it runs out of.</p>
+      <div class="thesis-copy"><p><strong>Compaction is positional: hit a token count, summarise the window. Pruning here is semantic: AgentPolicy decides a line of work is finished, drifted or no longer owned, and that whole branch returns its KV to its siblings mid-run.</strong> Headroom becomes something the pool recovers rather than something it runs out of &mdash; which is what makes effort a dial instead of a budget you spend once.</p>
 <p>This guide is how you drive that: what the pool watches, where the limits sit, what an Agent should do next, and how work is saved before its memory is reclaimed.</p>
 <p>It assumes the ownership model from <a href="/thinking-in-lloyal">Thinking in Lloyal</a> &mdash; scopes, Agents, and what ends together:</p>
 <ul>
