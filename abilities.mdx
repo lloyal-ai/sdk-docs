@@ -1,0 +1,104 @@
+---
+title: "Abilities"
+description: "A packaged capability — manifest, source, tools, skill — that any harness can enable. What the model learns about it, how it is built, how it is distributed and signed, and why it runs in-process."
+mode: "custom"
+---
+
+export const guideHtml = `<div class="page">
+<header class="masthead wrap"><div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI's contact with reality.</div></div><div class="issue"><span>Protocol /<br>Guide</span></div></header>
+<section class="hero wrap"><div class="eyebrow"><a href="/">Developer docs</a> / Capabilities</div><h1>Abilities</h1><div class="hero-sub">A packaged capability any harness can enable — and a manifest that tells the model exactly when to reach for it.</div></section>
+<section class="thesis wrap"><div class="thesis-grid"><p>An integration is usually code you call. An Ability is code the <em>model</em> chooses to call, which means the interesting part is not the implementation — it is the handful of sentences the model reads when deciding.</p><div class="pullquote">The manifest is the product.<br>The code is the consequence.</div></div></section>
+<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#what-the-model-learns">What the model learns</a><a class="toc-l1" href="#anatomy">Anatomy</a><a class="toc-l2" href="#the-manifest">The manifest</a><a class="toc-l2" href="#the-setup">The setup</a><a class="toc-l1" href="#where-it-sits-in-memory">Where it sits in memory</a><a class="toc-l1" href="#build-one">Build one</a><a class="toc-l1" href="#the-attention-surface">The attention surface</a><a class="toc-l1" href="#distribution">Distribution</a><a class="toc-l2" href="#the-signed-channel">The signed channel</a><a class="toc-l2" href="#installing">Installing</a><a class="toc-l1" href="#security">Security</a><a class="toc-l2" href="#three-attacks">Three attacks</a><a class="toc-l2" href="#the-defences">The defences</a></nav><article class="article">
+
+<h1 id="what-the-model-learns">What the model learns</h1>
+<p>An Ability is what you publish so any harness can load your capability. Almost all of it is ordinary TypeScript. But only one part of it ever reaches the model, and that part is small enough to read in full:</p>
+<div class="code-frame"><div class="code-label">ability.json</div><pre><code>{
+  "name": "corpus",
+  "abilityProtocolVersion": "3.0",
+  "protocol": {
+    "name": "corpus_research",
+    "useWhen": "investigating a local document corpus — finding occurrences of terms, reading specific files at line offsets, semantic retrieval over indexed corpus content.",
+    "tools": ["grep", "read_file", "search"]
+  }
+}
+</code></pre></div>
+<p>That is the real manifest of the <code>corpus</code> reference Ability. The <code>protocol</code> block — a name, one routing sentence, a tool list — is decoded into the <strong>shared spine</strong> once, at boot. Every agent forked afterwards inherits the whole catalogue through attention, and routes work by reading <code>useWhen</code> at execution time.</p>
+<p>So <code>useWhen</code> is not documentation. It is the input to a decision the model makes hundreds of times, and it is the highest-leverage sentence you will write. Be specific about the domain; the planner reads it verbatim when choosing between abilities.</p>
+
+<h1 id="anatomy">Anatomy</h1>
+<p><code>defineAbility</code>, from <code>@lloyal-labs/rig</code>, pairs a declarative manifest with a setup that constructs the runtime pieces, and returns the factory a harness enables.</p>
+<div class="code-frame"><div class="code-label">src/index.ts</div><pre><code>export const createCorpusAbility = defineAbility(manifest, function* () {
+  const source = new CorpusSource();
+  const tools: Record&lt;string, Tool&gt; = {};
+  for (const t of source.tools) tools[t.name] = t;
+
+  return { source, tools, skill };
+});
+</code></pre></div>
+
+<h2 id="the-manifest">The manifest</h2>
+<p>Validated <strong>eagerly, at import</strong> — a malformed manifest fails before the ability can be enabled, let alone reach a prompt.</p>
+<div class="table-wrap"><table><thead><tr><th>field</th><th>role</th></tr></thead><tbody>
+<tr><td><code>name</code></td><td>Identity. Lowercase ASCII, 2–64 chars.</td></tr>
+<tr><td><code>protocol.name</code></td><td>The discipline an agent applies. Appears in the boundary marker on every per-spawn message.</td></tr>
+<tr><td><code>protocol.useWhen</code></td><td>One sentence, read by the planner at execution time to route work here.</td></tr>
+<tr><td><code>protocol.tools[]</code></td><td>Tool names. Must equal the setup's tool map keys as a set — no missing, no extras.</td></tr>
+<tr><td><code>configSchema</code></td><td>Optional JSON Schema for operator-supplied config.</td></tr>
+<tr><td><code>services</code></td><td>Optional. Models the ability needs, such as a reranker, so the harness can provision them before enabling.</td></tr>
+</tbody></table></div>
+
+<h2 id="the-setup">The setup</h2>
+<p>A generator returning the parts. Its output is validated when the factory runs — the same point the ability is enabled.</p>
+<div class="table-wrap"><table><thead><tr><th>part</th><th>role</th></tr></thead><tbody>
+<tr><td><strong>source</strong></td><td>Access to a live system, plus retrieval intelligence: the tools getter, a contents advert, and a reranker-backed scorer.</td></tr>
+<tr><td><strong>tools</strong></td><td>The actions. Each carries a JSON-Schema <code>parameters</code>, an <code>execute</code> generator, and a <code>protected</code> flag marking sensitive or write operations.</td></tr>
+<tr><td><strong>skill</strong></td><td>The per-spawn preamble — <em>how</em> an agent should investigate with this ability. Rendered per spawn, never folded into the shared spine.</td></tr>
+</tbody></table></div>
+
+<h1 id="where-it-sits-in-memory">Where it sits in memory</h1>
+<p>The anatomy carries a claim worth making explicit: <strong>an Ability ships with its placement in the model's memory hierarchy.</strong></p>
+<ul><li>Its <strong>protocol</strong> is encoded once onto the shared spine, where every forked agent inherits it at no re-encoding cost.</li><li>Its <strong>reference content</strong> stays corpus-resident, pulled into live attention only when a task needs it.</li><li>Its <strong>tools</strong> cost nothing until invoked.</li></ul>
+<p>Orchestration frameworks cannot express that distinction. Without a memory hierarchy an integration's knowledge has exactly one residency — re-sent, in full, with every call.</p>
+
+<h1 id="build-one">Build one</h1>
+<div class="code-frame"><div class="code-label">TERMINAL</div><pre><code>npx lloyal-ai ability:new jira --publisher acme
+</code></pre></div>
+<p>You get a complete, buildable ability: a manifest, a source, two working tools, and a skill template. Edit <code>ability.json</code> first — particularly <code>useWhen</code> — then replace the tool bodies with your backend.</p>
+<p>Tool descriptions and parameter schemas are not incidental either. They are rendered into the model's context and are what it reasons over when choosing a call, so they are worth the same care as <code>useWhen</code>.</p>
+
+<h1 id="the-attention-surface">The attention surface</h1>
+<p>At publish time the CLI constructs your ability and reads back what it actually registers — every tool name, description and parameter schema, plus the skill template. That is written into the tarball as <code>attention-surface.json</code>, so the signature covers it.</p>
+<p>This exists so a reviewer, and anyone installing, can read <strong>exactly what an ability injects into a model's context without executing its code</strong>. It is derived from the code rather than declared, so it reports what the ability really does, not what its author says it does.</p>
+<div class="code-frame"><div class="code-label">TERMINAL</div><pre><code>What acme/jira adds to your model's context:
+  protocol:  jira_research
+  use when:  investigating tickets, their history and linked work
+  tools:     jira_search, jira_fetch
+</code></pre></div>
+
+<h1 id="distribution">Distribution</h1>
+<p>An Ability is a signed npm tarball. Two routes put it in a harness's <code>node_modules</code>, and both converge on the same runtime path — a plain static <code>import</code> of the factory, handed to <code>registry.enable</code>. There is no runtime "load ability by name" verb.</p>
+
+<h2 id="the-signed-channel">The signed channel</h2>
+<p>Anything reaching a harness that does not own it flows through <code>abilities.lloyal.ai</code>: reviewed for contract conformance, tool safety, manifest validity and signature provenance before listing. A first-party harness may also depend on an ability it owns from a private source, as an ordinary npm dependency — not a parallel public path.</p>
+<p>The framework points at that catalogue by default. The install command takes a <em>name</em>, never a URL; the catalogue URL and the Ed25519 trust roots are compile-time constants. Every harness therefore resolves abilities through the same verified channel, and the protocol does not fragment into incompatible sub-catalogues.</p>
+
+<h2 id="installing">Installing</h2>
+<div class="code-frame"><div class="code-label">TERMINAL</div><pre><code>npx lloyal-ai install acme/jira@^1.2.0
+</code></pre></div>
+<p>The install verifies before anything is written: it fetches the signed catalogue and checks its Ed25519 signature against the vendored trust roots; resolves your semver range to a version the catalogue pins; fetches the manifest and cross-checks name, version and size; fetches the tarball and verifies the signature over its raw bytes; then cross-checks a sha512 integrity digest. Only then is the package vendored and installed. A failure at any step rolls back — nothing unverified is left behind.</p>
+
+<h1 id="security">Security</h1>
+<p>Abilities run <strong>in-process</strong> with the model. That is the performance story — no IPC, no serialisation on the hot tool path, one shared spine across many agents — and it is also the security story: with no process boundary, the trust boundary becomes the prompt itself.</p>
+
+<h2 id="three-attacks">Three attacks</h2>
+<ol><li><strong>Catalogue escape.</strong> An ability-supplied string interpolated into the shared spine could carry a newline, a fake role marker, or a code fence — convincing the model the catalogue has ended and the prompt is now elsewhere.</li><li><strong>Cross-ability injection.</strong> Abilities share one prompt surface. A web page fetched by one ability could contain text instructing the model to call another ability's tool.</li><li><strong>Unauthorised writes.</strong> A model may decide to call a write tool because of a planning mistake or an injected page. It must not be able to perform the write without the session — not the model — having consented.</li></ol>
+
+<h2 id="the-defences">The defences</h2>
+<p><strong>Metadata is grammar-constrained at definition time.</strong> Names match a strict pattern; <code>useWhen</code> is length-bounded and rejects role markers, code fences and newlines; the skill may not re-emit the boundary marker; tool names must match the manifest exactly. These checks throw synchronously, so a malformed ability never enters the registry, and the worst case is a rejected ability rather than a compromised spine.</p>
+<p><strong>Every per-spawn message is prefixed with a boundary marker</strong> naming the protocol in force, so instructions arriving through fetched content are read as content inside a discipline rather than as a new instruction frame.</p>
+<p><strong>Sensitive tools are marked <code>protected</code></strong> and require session-level consent. The model can request; it cannot authorise.</p>
+
+
+
+</article></main>
+</div>`;
