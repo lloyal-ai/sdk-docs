@@ -7,14 +7,14 @@ description: "The terms under which you publish HDK apps to the apps.lloyal.ai d
 **Version:** v1 · **Effective:** 2026-06-08
 
 These terms apply to anyone who publishes an HDK app to the
-`apps.lloyal.ai` distribution channel via [`harness.dev publish`](/cli/publishing)
+`apps.lloyal.ai` distribution channel via [`lloyal publish`](/cli/publishing)
 or the underlying API. Registering a publisher handle and submitting a
 tarball constitutes acceptance.
 </Note>
 
 ## Who this applies to
 
-If you've run [`harness.dev publishers register`](/cli/publishing) and
+If you've run [`lloyal publishers register`](/cli/publishing) and
 claimed a handle, you are a **publisher** under these terms. Each
 subsequent submission is made under the handle you registered.
 
@@ -25,7 +25,7 @@ your submissions must meet.
 
 ## What you grant Lloyal Labs
 
-By submitting a tarball through `harness.dev publish`, you grant Lloyal
+By submitting a tarball through `lloyal publish`, you grant Lloyal
 Labs a non-exclusive, worldwide, royalty-free license to:
 
 1. **Inspect the tarball** during review — including extracting and
@@ -131,7 +131,7 @@ by the `tosVersion` field in your publisher record. When Lloyal Labs
 revises the ToS in a way that materially changes publisher obligations,
 the version increments and your existing registration's `tosVersion`
 becomes stale. The publish CLI will refuse to submit until you
-re-attest by running `harness.dev publishers register` again.
+re-attest by running `lloyal publishers register` again.
 
 Editorial or clarifying changes that don't change publisher obligations
 keep the same `tosVersion`.

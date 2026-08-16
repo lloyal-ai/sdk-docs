@@ -188,7 +188,7 @@ const NAV = [
   { slug: 'build-your-first-harness', href: '/build-your-first-harness', label: 'Build your first harness' },
   { slug: 'thinking-in-lloyal', href: '/thinking-in-lloyal', label: 'Thinking in Lloyal' },
   { slug: 'continuous-context', href: '/continuous-context', label: 'Continuous Context' },
-  { slug: 'agentapps', href: '/agentapps', label: 'AgentApps' },
+  { slug: 'abilities', href: '/abilities', label: 'Abilities' },
   { slug: 'agent-policy-and-context-pressure', href: '/agent-policy-and-context-pressure', label: 'Adaptive compute' },
   { slug: 'where-a-harness-runs', href: '/where-a-harness-runs', label: 'Where a harness runs' },
   { slug: 'lookup', href: '/lookup', label: 'Lookup' },

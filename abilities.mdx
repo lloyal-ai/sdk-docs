@@ -1,17 +1,17 @@
 ---
-title: "AgentApps"
+title: "Abilities"
 description: "A packaged capability — manifest, source, tools, skill — that any harness can enable. What the model learns about it, how it is built, how it is distributed and signed, and why it runs in-process."
 mode: "custom"
 ---
 
 export const guideHtml = `<div class="page">
 <header class="masthead wrap"><div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI's contact with reality.</div></div><div class="issue"><span>Protocol /<br>Guide</span></div></header>
-<section class="hero wrap"><div class="eyebrow"><a href="/">Developer docs</a> / Capabilities</div><h1>AgentApps</h1><div class="hero-sub">A packaged capability any harness can enable — and a manifest that tells the model exactly when to reach for it.</div></section>
-<section class="thesis wrap"><div class="thesis-grid"><p>An integration is usually code you call. An AgentApp is code the <em>model</em> chooses to call, which means the interesting part is not the implementation — it is the handful of sentences the model reads when deciding.</p><div class="pullquote">The manifest is the product.<br>The code is the consequence.</div></div></section>
+<section class="hero wrap"><div class="eyebrow"><a href="/">Developer docs</a> / Capabilities</div><h1>Abilities</h1><div class="hero-sub">A packaged capability any harness can enable — and a manifest that tells the model exactly when to reach for it.</div></section>
+<section class="thesis wrap"><div class="thesis-grid"><p>An integration is usually code you call. An Ability is code the <em>model</em> chooses to call, which means the interesting part is not the implementation — it is the handful of sentences the model reads when deciding.</p><div class="pullquote">The manifest is the product.<br>The code is the consequence.</div></div></section>
 <main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#what-the-model-learns">What the model learns</a><a class="toc-l1" href="#anatomy">Anatomy</a><a class="toc-l2" href="#the-manifest">The manifest</a><a class="toc-l2" href="#the-setup">The setup</a><a class="toc-l1" href="#where-it-sits-in-memory">Where it sits in memory</a><a class="toc-l1" href="#build-one">Build one</a><a class="toc-l1" href="#the-attention-surface">The attention surface</a><a class="toc-l1" href="#distribution">Distribution</a><a class="toc-l2" href="#the-signed-channel">The signed channel</a><a class="toc-l2" href="#installing">Installing</a><a class="toc-l1" href="#security">Security</a><a class="toc-l2" href="#three-attacks">Three attacks</a><a class="toc-l2" href="#the-defences">The defences</a><a class="toc-l1" href="#naming">A note on naming</a></nav><article class="article">
 
 <h1 id="what-the-model-learns">What the model learns</h1>
-<p>An AgentApp is what you publish so any harness can load your capability. Almost all of it is ordinary TypeScript. But only one part of it ever reaches the model, and that part is small enough to read in full:</p>
+<p>An Ability is what you publish so any harness can load your capability. Almost all of it is ordinary TypeScript. But only one part of it ever reaches the model, and that part is small enough to read in full:</p>
 <div class="code-frame"><div class="code-label">app.json</div><pre><code>{
   "name": "corpus",
   "appProtocolVersion": "3.0",
@@ -22,7 +22,7 @@ export const guideHtml = `<div class="page">
   }
 }
 </code></pre></div>
-<p>That is the real manifest of the <code>corpus</code> reference AgentApp. The <code>protocol</code> block — a name, one routing sentence, a tool list — is decoded into the <strong>shared spine</strong> once, at boot. Every agent forked afterwards inherits the whole catalogue through attention, and routes work by reading <code>useWhen</code> at execution time.</p>
+<p>That is the real manifest of the <code>corpus</code> reference Ability. The <code>protocol</code> block — a name, one routing sentence, a tool list — is decoded into the <strong>shared spine</strong> once, at boot. Every agent forked afterwards inherits the whole catalogue through attention, and routes work by reading <code>useWhen</code> at execution time.</p>
 <p>So <code>useWhen</code> is not documentation. It is the input to a decision the model makes hundreds of times, and it is the highest-leverage sentence you will write. Be specific about the domain; the planner reads it verbatim when choosing between apps.</p>
 
 <h1 id="anatomy">Anatomy</h1>
@@ -56,7 +56,7 @@ export const guideHtml = `<div class="page">
 </tbody></table></div>
 
 <h1 id="where-it-sits-in-memory">Where it sits in memory</h1>
-<p>The anatomy carries a claim worth making explicit: <strong>an AgentApp ships with its placement in the model's memory hierarchy.</strong></p>
+<p>The anatomy carries a claim worth making explicit: <strong>an Ability ships with its placement in the model's memory hierarchy.</strong></p>
 <ul><li>Its <strong>protocol</strong> is encoded once onto the shared spine, where every forked agent inherits it at no re-encoding cost.</li><li>Its <strong>reference content</strong> stays corpus-resident, pulled into live attention only when a task needs it.</li><li>Its <strong>tools</strong> cost nothing until invoked.</li></ul>
 <p>Orchestration frameworks cannot express that distinction. Without a memory hierarchy an integration's knowledge has exactly one residency — re-sent, in full, with every call.</p>
 
@@ -76,7 +76,7 @@ export const guideHtml = `<div class="page">
 </code></pre></div>
 
 <h1 id="distribution">Distribution</h1>
-<p>An AgentApp is a signed npm tarball. Two routes put it in a harness's <code>node_modules</code>, and both converge on the same runtime path — a plain static <code>import</code> of the factory, handed to <code>registry.enable</code>. There is no runtime "load app by name" verb.</p>
+<p>An Ability is a signed npm tarball. Two routes put it in a harness's <code>node_modules</code>, and both converge on the same runtime path — a plain static <code>import</code> of the factory, handed to <code>registry.enable</code>. There is no runtime "load app by name" verb.</p>
 
 <h2 id="the-signed-channel">The signed channel</h2>
 <p>Anything reaching a harness that does not own it flows through <code>apps.lloyal.ai</code>: reviewed for contract conformance, tool safety, manifest validity and signature provenance before listing. A first-party harness may also depend on an app it owns from a private source, as an ordinary npm dependency — not a parallel public path.</p>
@@ -88,7 +88,7 @@ export const guideHtml = `<div class="page">
 <p>The install verifies before anything is written: it fetches the signed catalogue and checks its Ed25519 signature against the vendored trust roots; resolves your semver range to a version the catalogue pins; fetches the manifest and cross-checks name, version and size; fetches the tarball and verifies the signature over its raw bytes; then cross-checks a sha512 integrity digest. Only then is the package vendored and installed. A failure at any step rolls back — nothing unverified is left behind.</p>
 
 <h1 id="security">Security</h1>
-<p>AgentApps run <strong>in-process</strong> with the model. That is the performance story — no IPC, no serialisation on the hot tool path, one shared spine across many agents — and it is also the security story: with no process boundary, the trust boundary becomes the prompt itself.</p>
+<p>Abilities run <strong>in-process</strong> with the model. That is the performance story — no IPC, no serialisation on the hot tool path, one shared spine across many agents — and it is also the security story: with no process boundary, the trust boundary becomes the prompt itself.</p>
 
 <h2 id="three-attacks">Three attacks</h2>
 <ol><li><strong>Catalogue escape.</strong> An app-supplied string interpolated into the shared spine could carry a newline, a fake role marker, or a code fence — convincing the model the catalogue has ended and the prompt is now elsewhere.</li><li><strong>Cross-app injection.</strong> Apps share one prompt surface. A web page fetched by one app could contain text instructing the model to call another app's tool.</li><li><strong>Unauthorised writes.</strong> A model may decide to call a write tool because of a planning mistake or an injected page. It must not be able to perform the write without the session — not the model — having consented.</li></ol>
@@ -99,7 +99,7 @@ export const guideHtml = `<div class="page">
 <p><strong>Sensitive tools are marked <code>protected</code></strong> and require session-level consent. The model can request; it cannot authorise.</p>
 
 <h1 id="naming">A note on naming</h1>
-<p>AgentApps appear in code as <code>App</code> — <code>defineApp</code>, <code>AppManifest</code>, <code>app.json</code>. The docs say <strong>AgentApp</strong> to distinguish the published capability from the <em>application</em> you embed a harness in. The code keeps the short name.</p>
+<p>Abilities appear in code as <code>App</code> — <code>defineApp</code>, <code>AppManifest</code>, <code>app.json</code>. The docs say <strong>Ability</strong> to distinguish the published capability from the <em>application</em> you embed a harness in. The code keeps the short name.</p>
 
 </article></main>
 </div>`;
