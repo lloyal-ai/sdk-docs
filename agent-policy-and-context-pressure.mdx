@@ -15,15 +15,15 @@ export const guideHtml = `<div class="page">
 
   <section class="hero wrap">
     <div class="eyebrow"><a href="/">Programming guides</a> / Engineering note</div>
-    <h1>How Agents Know When to Stop</h1>
-    <div class="hero-sub">AgentPolicy, context pressure, and recovery</div>
+    <h1>Spend attention and get it back</h1>
+    <div class="hero-sub">Agents return the attention they borrowed, while the run continues</div>
   </section>
 
   <section class="thesis wrap">
     <div class="thesis-grid">
-      <div class="thesis-copy"><p>That sentence is the execution model.</p>
-<p>This guide explains how a live AgentPool turns finite context, time, Tool results, and model output into safe behavioural decisions.</p>
-<p>It assumes the ownership model from <a href="/thinking-in-lloyal">Thinking in Lloyal</a>:</p>
+      <div class="thesis-copy"><p><strong>Every other agent system grows its context until it has to compact. Here the window moves both ways.</strong> An Agent that finishes returns its KV cells to its siblings mid-run, so headroom is something the pool recovers rather than something it runs out of.</p>
+<p>This guide is how you drive that: what the pool watches, where the limits sit, what an Agent should do next, and how work is saved before its memory is reclaimed.</p>
+<p>It assumes the ownership model from <a href="/thinking-in-lloyal">Thinking in Lloyal</a> &mdash; scopes, Agents, and what ends together:</p>
 <ul>
 <li>Effection owns the lifetime of the harness and pool;</li>
 <li>the AgentPool owns Agent execution and branch lifecycle;</li>
@@ -41,7 +41,7 @@ export const guideHtml = `<div class="page">
   </section>
 
   <main class="article-shell wrap">
-    <nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#start-here">Start here</a><a class="toc-l2" href="#the-decision-hierarchy">The decision hierarchy</a><a class="toc-l2" href="#the-three-questions">The three questions</a><a class="toc-l3" href="#1-does-this-work-still-have-an-owner">1. Does this work still have an owner?</a><a class="toc-l3" href="#2-should-this-agent-continue">2. Should this Agent continue?</a><a class="toc-l3" href="#3-can-the-requested-action-be-performed-safely">3. Can the requested action be performed safely?</a><a class="toc-l2" href="#the-five-rules">The five rules</a><a class="toc-l2" href="#the-two-axes">The two axes</a><a class="toc-l2" href="#choose-your-reading-path">Choose your reading path</a><a class="toc-l3" href="#i-need-the-mental-model">I need the mental model</a><a class="toc-l3" href="#i-am-configuring-defaultagentpolicy">I am configuring DefaultAgentPolicy</a><a class="toc-l3" href="#i-am-implementing-a-custom-policy">I am implementing a custom policy</a><a class="toc-l3" href="#i-am-debugging-pressure-or-incomplete-reports">I am debugging pressure or incomplete reports</a><a class="toc-l1" href="#1-ownership-boundary">1. Ownership boundary</a><a class="toc-l2" href="#scope-termination-and-agent-termination">Scope termination and Agent termination</a><a class="toc-l3" href="#the-owner-disappears">The owner disappears</a><a class="toc-l3" href="#one-agent-stops-inside-a-live-pool">One Agent stops inside a live pool</a><a class="toc-l1" href="#2-the-decision-stack">2. The decision stack</a><a class="toc-l2" href="#the-four-layer-decision-path">The four-layer decision path</a><a class="toc-l3" href="#branchstore-accounts">BranchStore accounts</a><a class="toc-l3" href="#contextpressure-observes">ContextPressure observes</a><a class="toc-l3" href="#agentpolicy-decides">AgentPolicy decides</a><a class="toc-l3" href="#agentpool-enforces">AgentPool enforces</a><a class="toc-l2" href="#pressure-is-a-photograph-not-a-live-gauge">Pressure is a photograph, not a live gauge</a><a class="toc-l2" href="#every-agent-spends-live-attention-budget">Every Agent spends live-attention budget</a><a class="toc-l1" href="#3-pressure-boundaries">3. Pressure boundaries</a><a class="toc-l2" href="#the-two-limits-are-not-symmetric">The two limits are not symmetric</a><a class="toc-l2" href="#soft-limit-the-new-work-boundary">Soft limit: the new-work boundary</a><a class="toc-l2" href="#hard-limit-the-safety-and-recovery-boundary">Hard limit: the safety and recovery boundary</a><a class="toc-l2" href="#raising-softlimit-does-not-reduce-recovery-to-zero">Raising softLimit does not reduce recovery to zero</a><a class="toc-l1" href="#4-the-pool-decision-cycle">4. The pool decision cycle</a><a class="toc-l2" href="#the-pools-decision-cycle">The pool’s decision cycle</a><a class="toc-l3" href="#spawn-extend">SPAWN + EXTEND</a><a class="toc-l3" href="#produce">PRODUCE</a><a class="toc-l3" href="#commit">COMMIT</a><a class="toc-l3" href="#drain">DRAIN</a><a class="toc-l3" href="#settle">SETTLE</a><a class="toc-l3" href="#dispatch">DISPATCH</a><a class="toc-l1" href="#5-policy-surface">5. Policy surface</a><a class="toc-l2" href="#agentpolicy-is-a-rulebook">AgentPolicy is a rulebook</a><a class="toc-l2" href="#onproduced-interpret-the-models-stop">onProduced : interpret the model’s stop</a><a class="toc-l3" href="#terminal-tools-are-result-contracts">Terminal Tools are result contracts</a><a class="toc-l2" href="#tool-guards-are-policy-not-execution">Tool guards are policy, not execution</a><a class="toc-l2" href="#exploration-and-lifecycle-are-separate-axes">Exploration and lifecycle are separate axes</a><a class="toc-l3" href="#explore">Explore</a><a class="toc-l3" href="#exploit">Exploit</a><a class="toc-l2" href="#shouldexit-stop-before-another-token">shouldExit : stop before another token</a><a class="toc-l2" href="#onsettlereject-when-a-result-cannot-fit">onSettleReject : when a result cannot fit</a><a class="toc-l2" href="#transient-tool-failure-park-retry-or-pivot">Transient Tool failure: park, retry, or pivot</a><a class="toc-l3" href="#retry">Retry</a><a class="toc-l3" href="#fail">Fail</a><a class="toc-l1" href="#6-recovery">6. Recovery</a><a class="toc-l2" href="#recovery-save-useful-work-before-pruning">Recovery: save useful work before pruning</a><a class="toc-l3" href="#policy-owns-the-meaning">Policy owns the meaning</a><a class="toc-l3" href="#agentpool-owns-the-mechanics">AgentPool owns the mechanics</a><a class="toc-l3" href="#recovery-is-a-real-turn">Recovery is a real turn</a><a class="toc-l2" href="#why-recovery-uses-the-hard-limit-reserve">Why recovery uses the hard-limit reserve</a><a class="toc-l2" href="#staggered-and-parallel-recovery">Staggered and parallel recovery</a><a class="toc-l3" href="#staggered">Staggered</a><a class="toc-l3" href="#parallel">Parallel</a><a class="toc-l2" href="#in-flight-terminal-report-salvage">In-flight terminal-report salvage</a><a class="toc-l2" href="#wind-down-per-agent-cancellation-and-scope-halt">Wind-down, per-Agent cancellation, and scope halt</a><a class="toc-l3" href="#graceful-wind-down">Graceful wind-down</a><a class="toc-l3" href="#per-agent-cancellation">Per-Agent cancellation</a><a class="toc-l3" href="#scope-halt">Scope halt</a><a class="toc-l1" href="#7-configuration-and-extension">7. Configuration and extension</a><a class="toc-l2" href="#configuring-the-default-policy">Configuring the default policy</a><a class="toc-l2" href="#a-worked-pressure-example">A worked pressure example</a><a class="toc-l2" href="#writing-a-custom-policy">Writing a custom policy</a><a class="toc-l3" href="#override-decisions-not-execution">Override decisions, not execution</a><a class="toc-l2" href="#the-synthesiser-exception">The synthesiser exception</a><a class="toc-l2" href="#tuning-by-workload">Tuning by workload</a><a class="toc-l3" href="#interactive-assistant">Interactive assistant</a><a class="toc-l3" href="#broad-research">Broad research</a><a class="toc-l3" href="#deep-research">Deep research</a><a class="toc-l3" href="#casework">Casework</a><a class="toc-l1" href="#quick-reference">Quick reference</a><a class="toc-l2" href="#common-mistakes">Common mistakes</a><a class="toc-l3" href="#treating-the-soft-limit-as-a-kill-line">Treating the soft limit as a kill line</a><a class="toc-l3" href="#raising-the-soft-limit-to-get-longer-recovery">Raising the soft limit to get longer recovery</a><a class="toc-l3" href="#making-policy-prune-branches">Making policy prune branches</a><a class="toc-l3" href="#performing-async-work-inside-hooks">Performing async work inside hooks</a><a class="toc-l3" href="#conflating-exploit-with-exit">Conflating exploit with exit</a><a class="toc-l3" href="#retrying-without-considering-time">Retrying without considering time</a><a class="toc-l3" href="#using-session-halt-for-wrap-up">Using Session halt for wrap-up</a><a class="toc-l3" href="#treating-policy-as-a-native-safety-escape-hatch">Treating policy as a native-safety escape hatch</a><a class="toc-l2" href="#rules-for-coding-agents">Rules for coding agents</a><a class="toc-l1" href="#relationship-to-the-programming-model">Relationship to the programming model</a></nav>
+    <nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#start-here">Start here</a><a class="toc-l2" href="#the-decision-hierarchy">The decision hierarchy</a><a class="toc-l2" href="#the-three-questions">The three questions</a><a class="toc-l3" href="#1-does-this-work-still-have-an-owner">1. Does this work still have an owner?</a><a class="toc-l3" href="#2-should-this-agent-continue">2. Should this Agent continue?</a><a class="toc-l3" href="#3-can-the-requested-action-be-performed-safely">3. Can the requested action be performed safely?</a><a class="toc-l2" href="#the-five-rules">The five rules</a><a class="toc-l2" href="#the-two-axes">The two axes</a><a class="toc-l2" href="#choose-your-reading-path">Choose your reading path</a><a class="toc-l3" href="#i-need-the-mental-model">I need the mental model</a><a class="toc-l3" href="#i-am-configuring-defaultagentpolicy">I am configuring DefaultAgentPolicy</a><a class="toc-l3" href="#i-am-implementing-a-custom-policy">I am implementing a custom policy</a><a class="toc-l3" href="#i-am-debugging-pressure-or-incomplete-reports">I am debugging pressure or incomplete reports</a><a class="toc-l1" href="#1-ownership-boundary">1. Know what you own</a><a class="toc-l2" href="#scope-termination-and-agent-termination">Scope termination and Agent termination</a><a class="toc-l3" href="#the-owner-disappears">The owner disappears</a><a class="toc-l3" href="#one-agent-stops-inside-a-live-pool">One Agent stops inside a live pool</a><a class="toc-l1" href="#2-the-decision-stack">2. See what the pool sees</a><a class="toc-l2" href="#the-four-layer-decision-path">The four-layer decision path</a><a class="toc-l3" href="#branchstore-accounts">BranchStore accounts</a><a class="toc-l3" href="#contextpressure-observes">ContextPressure observes</a><a class="toc-l3" href="#agentpolicy-decides">AgentPolicy decides</a><a class="toc-l3" href="#agentpool-enforces">AgentPool enforces</a><a class="toc-l2" href="#pressure-is-a-photograph-not-a-live-gauge">Pressure is a photograph, not a live gauge</a><a class="toc-l2" href="#every-agent-spends-live-attention-budget">Every Agent spends live-attention budget</a><a class="toc-l1" href="#3-pressure-boundaries">3. Set the limits</a><a class="toc-l2" href="#the-two-limits-are-not-symmetric">The two limits are not symmetric</a><a class="toc-l2" href="#soft-limit-the-new-work-boundary">Soft limit: the new-work boundary</a><a class="toc-l2" href="#hard-limit-the-safety-and-recovery-boundary">Hard limit: the safety and recovery boundary</a><a class="toc-l2" href="#raising-softlimit-does-not-reduce-recovery-to-zero">Raising softLimit does not reduce recovery to zero</a><a class="toc-l1" href="#4-the-pool-decision-cycle">4. Decide in the loop</a><a class="toc-l2" href="#the-pools-decision-cycle">The pool’s decision cycle</a><a class="toc-l3" href="#spawn-extend">SPAWN + EXTEND</a><a class="toc-l3" href="#produce">PRODUCE</a><a class="toc-l3" href="#commit">COMMIT</a><a class="toc-l3" href="#drain">DRAIN</a><a class="toc-l3" href="#settle">SETTLE</a><a class="toc-l3" href="#dispatch">DISPATCH</a><a class="toc-l1" href="#5-policy-surface">5. Write the rules</a><a class="toc-l2" href="#agentpolicy-is-a-rulebook">AgentPolicy is a rulebook</a><a class="toc-l2" href="#onproduced-interpret-the-models-stop">onProduced : interpret the model’s stop</a><a class="toc-l3" href="#terminal-tools-are-result-contracts">Terminal Tools are result contracts</a><a class="toc-l2" href="#tool-guards-are-policy-not-execution">Tool guards are policy, not execution</a><a class="toc-l2" href="#exploration-and-lifecycle-are-separate-axes">Exploration and lifecycle are separate axes</a><a class="toc-l3" href="#explore">Explore</a><a class="toc-l3" href="#exploit">Exploit</a><a class="toc-l2" href="#shouldexit-stop-before-another-token">shouldExit : stop before another token</a><a class="toc-l2" href="#onsettlereject-when-a-result-cannot-fit">onSettleReject : when a result cannot fit</a><a class="toc-l2" href="#transient-tool-failure-park-retry-or-pivot">Transient Tool failure: park, retry, or pivot</a><a class="toc-l3" href="#retry">Retry</a><a class="toc-l3" href="#fail">Fail</a><a class="toc-l1" href="#6-recovery">6. Save the work before you reclaim it</a><a class="toc-l2" href="#recovery-save-useful-work-before-pruning">Recovery: save useful work before pruning</a><a class="toc-l3" href="#policy-owns-the-meaning">Policy owns the meaning</a><a class="toc-l3" href="#agentpool-owns-the-mechanics">AgentPool owns the mechanics</a><a class="toc-l3" href="#recovery-is-a-real-turn">Recovery is a real turn</a><a class="toc-l2" href="#why-recovery-uses-the-hard-limit-reserve">Why recovery uses the hard-limit reserve</a><a class="toc-l2" href="#staggered-and-parallel-recovery">Choose what recovery costs</a><a class="toc-l3" href="#staggered">Staggered</a><a class="toc-l3" href="#parallel">Parallel</a><a class="toc-l2" href="#in-flight-terminal-report-salvage">In-flight terminal-report salvage</a><a class="toc-l2" href="#wind-down-per-agent-cancellation-and-scope-halt">Three ways to end work</a><a class="toc-l3" href="#graceful-wind-down">Graceful wind-down</a><a class="toc-l3" href="#per-agent-cancellation">Per-Agent cancellation</a><a class="toc-l3" href="#scope-halt">Scope halt</a><a class="toc-l1" href="#7-configuration-and-extension">7. Tune it for the workload</a><a class="toc-l2" href="#configuring-the-default-policy">Configuring the default policy</a><a class="toc-l2" href="#a-worked-pressure-example">A worked pressure example</a><a class="toc-l2" href="#writing-a-custom-policy">Writing a custom policy</a><a class="toc-l3" href="#override-decisions-not-execution">Override decisions, not execution</a><a class="toc-l2" href="#the-synthesiser-exception">The synthesiser exception</a><a class="toc-l2" href="#tuning-by-workload">Tuning by workload</a><a class="toc-l3" href="#interactive-assistant">Interactive assistant</a><a class="toc-l3" href="#broad-research">Broad research</a><a class="toc-l3" href="#deep-research">Deep research</a><a class="toc-l3" href="#casework">Casework</a><a class="toc-l1" href="#quick-reference">Quick reference</a><a class="toc-l2" href="#common-mistakes">Common mistakes</a><a class="toc-l3" href="#treating-the-soft-limit-as-a-kill-line">Treating the soft limit as a kill line</a><a class="toc-l3" href="#raising-the-soft-limit-to-get-longer-recovery">Raising the soft limit to get longer recovery</a><a class="toc-l3" href="#making-policy-prune-branches">Making policy prune branches</a><a class="toc-l3" href="#performing-async-work-inside-hooks">Performing async work inside hooks</a><a class="toc-l3" href="#conflating-exploit-with-exit">Conflating exploit with exit</a><a class="toc-l3" href="#retrying-without-considering-time">Retrying without considering time</a><a class="toc-l3" href="#using-session-halt-for-wrap-up">Using Session halt for wrap-up</a><a class="toc-l3" href="#treating-policy-as-a-native-safety-escape-hatch">Treating policy as a native-safety escape hatch</a><a class="toc-l2" href="#rules-for-coding-agents">Rules for coding agents</a><a class="toc-l1" href="#relationship-to-the-programming-model">Relationship to the programming model</a></nav>
     <article class="article"><h1 id="start-here">Start here</h1>
 <h2 id="the-decision-hierarchy">The decision hierarchy</h2>
 <p>A policy decision sits inside a larger execution stack:</p>
@@ -136,7 +136,7 @@ work ─────────────→ report ────────�
 <li><a href="#in-flight-terminal-report-salvage">In-flight report salvage</a></li>
 </ol>
 <hr/>
-<h1 id="1-ownership-boundary">1. Ownership boundary</h1>
+<h1 id="1-ownership-boundary">1. Know what you own</h1>
 <h2 id="scope-termination-and-agent-termination">Scope termination and Agent termination</h2>
 <p>These events can look similar in a UI but have different meanings.</p>
 <h3 id="the-owner-disappears">The owner disappears</h3>
@@ -168,7 +168,7 @@ siblings continue
 </blockquote>
 <p>Do not use policy hooks to imitate scope cancellation. Do not treat Session cancellation as an ordinary policy stop.</p>
 <hr/>
-<h1 id="2-the-decision-stack">2. The decision stack</h1>
+<h1 id="2-the-decision-stack">2. See what the pool sees</h1>
 <h2 id="the-four-layer-decision-path">The four-layer decision path</h2>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>BranchStore
     owns branches and accounts for live KV cells
@@ -259,7 +259,7 @@ next phase receives a new snapshot
 <p>Shared prefixes are amortised, but new private tokens still occupy live cells.</p>
 <p>Pressure is not a static prompt-length limit. It changes as the cohort works.</p>
 <hr/>
-<h1 id="3-pressure-boundaries">3. Pressure boundaries</h1>
+<h1 id="3-pressure-boundaries">3. Set the limits</h1>
 <h2 id="the-two-limits-are-not-symmetric">The two limits are not symmetric</h2>
 <p>The most common mistake is treating <code>softLimit</code> and <code>hardLimit</code> as stronger and weaker forms of the same cutoff.</p>
 <p>They have different jobs.</p>
@@ -299,7 +299,7 @@ next phase receives a new snapshot
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>remaining - softLimit
 </code></pre></div><p>Raising <code>softLimit</code> nudges earlier. It does not remove the reserved recovery band down to <code>hardLimit</code>.</p>
 <hr/>
-<h1 id="4-the-pool-decision-cycle">4. The pool decision cycle</h1>
+<h1 id="4-the-pool-decision-cycle">4. Decide in the loop</h1>
 <h2 id="the-pools-decision-cycle">The pool’s decision cycle</h2>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>SPAWN + EXTEND
       ↓
@@ -351,7 +351,7 @@ DISPATCH
 </ul>
 <p>Policy is consulted at specific decision boundaries. It does not control the loop.</p>
 <hr/>
-<h1 id="5-policy-surface">5. Policy surface</h1>
+<h1 id="5-policy-surface">5. Write the rules</h1>
 <h2 id="agentpolicy-is-a-rulebook">AgentPolicy is a rulebook</h2>
 <p>The public policy surface is easiest to understand as a set of questions.</p>
 <table>
@@ -577,7 +577,7 @@ waiting cannot change the outcome
 </ul>
 <p>Avoid unbounded retries.</p>
 <hr/>
-<h1 id="6-recovery">6. Recovery</h1>
+<h1 id="6-recovery">6. Save the work before you reclaim it</h1>
 <h2 id="recovery-save-useful-work-before-pruning">Recovery: save useful work before pruning</h2>
 <p>An Agent may stop without a voluntary terminal result because of:</p>
 <ul>
@@ -641,8 +641,8 @@ waiting cannot change the outcome
 <blockquote>
 <p>No more recovery tokens may be decoded.</p>
 </blockquote>
-<h2 id="staggered-and-parallel-recovery">Staggered and parallel recovery</h2>
-<p><code>recoveryShape</code> expresses a product trade-off.</p>
+<h2 id="staggered-and-parallel-recovery">Choose what recovery costs</h2>
+<p><strong>You set how much effort the pool spends saving work.</strong> <code>recoveryShape</code> picks between lossless and fast.</p>
 <h3 id="staggered">Staggered</h3>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>recover A
     ↓
@@ -687,8 +687,8 @@ prune each as it finishes
 <p>The pool instead parses and salvages the existing partial terminal output without further decode.</p>
 <p>This is a pool mechanic, not a policy hook.</p>
 <p>Policy decides that the Agent should stop. The pool chooses the least-destructive safe route.</p>
-<h2 id="wind-down-per-agent-cancellation-and-scope-halt">Wind-down, per-Agent cancellation, and scope halt</h2>
-<p>These controls have different meanings.</p>
+<h2 id="wind-down-per-agent-cancellation-and-scope-halt">Three ways to end work</h2>
+<p><strong>Ending is a decision, not an event.</strong> Wind down and every Agent reports what it has; cancel one and its siblings carry on; halt and the scope unwinds with everything in it.</p>
 <h3 id="graceful-wind-down">Graceful wind-down</h3>
 <p>A <code>WindDown</code> signal means:</p>
 <blockquote>
@@ -717,7 +717,7 @@ prune each as it finishes
 <p>Effection unwinds the entire child tree.</p>
 <p>A user asking to wrap up is not the same event as a browser disappearing.</p>
 <hr/>
-<h1 id="7-configuration-and-extension">7. Configuration and extension</h1>
+<h1 id="7-configuration-and-extension">7. Tune it for the workload</h1>
 <h2 id="configuring-the-default-policy">Configuring the default policy</h2>
 <p>Most harnesses should configure <code>DefaultAgentPolicy</code> rather than implement the entire interface.</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code><span class="kd">const</span><span class="w"> </span><span class="nx">policy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">DefaultAgentPolicy</span><span class="p">({</span>
