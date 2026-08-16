@@ -1,27 +1,27 @@
 ---
 title: "Why FSL"
-description: "FSL protects the integrity of the HDK App protocol — the coordination point that makes Apps portable across harnesses."
+description: "FSL protects the integrity of the Ability protocol — the coordination point that makes Abilities portable across harnesses."
 ---
 
-**FSL exists to protect the integrity of the HDK App protocol** — the
-coordination point that lets an App written for one harness run on any
+**FSL exists to protect the integrity of the Ability protocol** — the
+coordination point that lets an Ability written for one harness run on any
 harness. Without that protection, the protocol is forkable, the ecosystem
-fragments, and the App you wrote stops working consistently across the
+fragments, and the Ability you wrote stops working consistently across the
 runtimes your users actually have installed.
 
 This page explains what that means concretely and why standard FSL fits.
 
 ## The protocol is the coordination point
 
-Every HDK App declares against a specific App protocol — the bytes-locked
+Every Ability declares against a specific Ability protocol — the bytes-locked
 intro, catalog format, tool-selection rule, and boundary marker in
 `packages/rig/src/protocol.ts`. The runtime renders that protocol into the
 spine. The model's behavior depends on those exact bytes.
 
-When you publish an App for HDK, you're publishing against that protocol.
-Your App's reliability depends on every HDK runtime — every harness, every
+When you publish an Ability for HDK, you're publishing against that protocol.
+Your Ability's reliability depends on every HDK runtime — every harness, every
 deployment, every version your users install — agreeing on the same
-protocol. The protocol is what makes "I built an HDK App" a portable,
+protocol. The protocol is what makes "I built an Ability" a portable,
 trustworthy statement.
 
 ## Protocol fragmentation is the threat
@@ -36,7 +36,7 @@ straightforward:
    — small changes are enough.
 3. Bundle it with captive distribution (a cloud vendor's managed offering,
    a vertically integrated stack, an "enterprise" build).
-4. App developers now face a choice: target the upstream HDK App protocol,
+4. Ability developers now face a choice: target the upstream Ability protocol,
    target the fork's protocol, build twice, or pick the bigger
    distribution.
 
@@ -48,9 +48,9 @@ MCP variants shipping from multiple vendors. Each time, the underlying
 issue was the same: a coordination protocol under a permissive license
 with no defense against fragmentation.
 
-**The cost is paid by App developers**, not by the entity that forked. App
+**The cost is paid by Ability developers**, not by the entity that forked. Ability
 developers have to test against multiple variants, support divergent
-behaviors, or accept that their App only works on the bigger of the two
+behaviors, or accept that their Ability only works on the bigger of the two
 contracts. The fragmentation tax is distributed across the people who
 trusted the protocol.
 
@@ -93,31 +93,31 @@ conversion. The category is designed for exactly the situation HDK is in
 — a coordination point that needs integrity protection during the
 formative period without sacrificing developer-friendly access.
 
-## What this means for you, the App developer
+## What this means for you, the Ability developer
 
-If you're building an HDK App, what FSL changes for you is approximately
+If you're building an Ability, what FSL changes for you is approximately
 nothing:
 
-- **You can publish, sell, embed, and commercialize your App** as before
+- **You can publish, sell, embed, and commercialize your Ability** as before
 - **You can fork HDK, modify it, learn from it** as before
 - **You can ship it inside any product, on any platform** as before
-- **Your App's protocol will not be fragmented** by a forked runtime
+- **Your Ability's protocol will not be fragmented** by a forked runtime
   shipping a slightly-different variant during the period when
   fragmentation would cost you the most
-- **The runtime your App targets will be Apache 2.0** within two years of
+- **The runtime your Ability targets will be Apache 2.0** within two years of
   each release — the long-term open-source guarantee is contractual
 
 ## Why not Apache 2.0 alone
 
 Apache 2.0 is one of the strongest permissive licenses and has been right
-for HDK 2.x. With HDK 3.0 introducing installable Apps as the
+for HDK 2.x. With HDK 3.0 introducing installable Abilities as the
 architectural core, the calculus shifts: under Apache 2.0 the protocol is
-forkable, and a fragmentation attack has no legal barrier. The price App
+forkable, and a fragmentation attack has no legal barrier. The price Ability
 developers pay if the ecosystem splits is real, and once the split
 happens it's hard to undo (the Node.js / io.js reconciliation took a year
 of significant ecosystem effort). FSL is the targeted intervention to
 prevent that specific outcome during the specific window when it would
-hurt App developers most.
+hurt Ability developers most.
 
 After two years, Apache 2.0 is exactly what every released version
 becomes.

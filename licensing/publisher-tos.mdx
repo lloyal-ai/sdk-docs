@@ -1,12 +1,12 @@
 ---
 title: "Publisher Terms of Service"
-description: "The terms under which you publish HDK apps to the apps.lloyal.ai distribution channel."
+description: "The terms under which you publish Abilities to the apps.lloyal.ai distribution channel."
 ---
 
 <Note>
 **Version:** v1 · **Effective:** 2026-06-08
 
-These terms apply to anyone who publishes an HDK app to the
+These terms apply to anyone who publishes an Ability to the
 `apps.lloyal.ai` distribution channel via [`lloyal publish`](/cli/publishing)
 or the underlying API. Registering a publisher handle and submitting a
 tarball constitutes acceptance.
@@ -18,7 +18,7 @@ If you've run [`lloyal publishers register`](/cli/publishing) and
 claimed a handle, you are a **publisher** under these terms. Each
 subsequent submission is made under the handle you registered.
 
-You retain ownership of the code in your app. These terms govern only
+You retain ownership of the code in your Ability. These terms govern only
 the distribution relationship: what you grant Lloyal Labs to do with
 your tarball, what Lloyal Labs commits to do in return, and the rules
 your submissions must meet.
@@ -30,7 +30,7 @@ Labs a non-exclusive, worldwide, royalty-free license to:
 
 1. **Inspect the tarball** during review — including extracting and
    reading `package.json`, the bundled source, the manifest, and the
-   `app.json` metadata.
+   `ability.json` metadata.
 2. **Sign the approved tarball bytes** with the Lloyal platform Ed25519
    key, producing a manifest carrying that signature.
 3. **Distribute the signed tarball + manifest + catalog entry** via the
@@ -66,15 +66,15 @@ You agree that your submissions:
 1. **Will not contain malicious code.** This includes (non-exhaustively):
    credential-stealing logic, unauthorized network beacons, cryptocurrency
    miners, persistence mechanisms outside the harness's stated scope, or
-   code that violates the [HDK App Protocol](/build-an-app/what-is-an-app).
+   code that violates the [Ability Protocol](/abilities).
 2. **Will not scrape or transmit personal data** of harness end-users
    without their explicit informed consent.
 3. **Will not impersonate** another publisher, person, or organization.
 4. **Will respect third-party rights.** You are responsible for ensuring
    the tarball's contents — including transitive dependencies — comply
    with the licenses of any code you include.
-5. **Will conform to the [HDK App Protocol](/build-an-app/what-is-an-app)**
-   for the protocol version declared in your `app.json`.
+5. **Will conform to the [Ability Protocol](/abilities)**
+   for the protocol version declared in your `ability.json`.
 6. **Will use a `package.json` name that you control** and that matches
    the `importName` field declared in your manifest stub.
 
@@ -83,33 +83,33 @@ You agree that your submissions:
 Lloyal Labs may reject a submission for any of:
 
 - Failure to meet any obligation in the previous section.
-- Tool surface overlap with existing approved apps that creates
+- Tool surface overlap with existing approved abilities that creates
   significant consumer confusion.
 - Manifest claims that don't match the tarball contents.
-- Insufficient documentation for a reviewer to assess the app's behavior.
+- Insufficient documentation for a reviewer to assess the Ability's behavior.
 
 A rejection is per-submission; you may resubmit a corrected tarball
 under the same or a new version.
 
 ## Revocation
 
-Lloyal Labs may revoke a published app from the catalog for:
+Lloyal Labs may revoke a published Ability from the catalog for:
 
-1. **A subsequent finding** that the app violates these terms.
-2. **A credible security report** about the app's behavior.
+1. **A subsequent finding** that the Ability violates these terms.
+2. **A credible security report** about the Ability's behavior.
 3. **A legal order** requiring removal.
 4. **A request from the publisher** to delist a version.
 
 Revocation removes the catalog entry and the canonical R2 paths.
-Consumers who previously installed the app retain their local copy —
+Consumers who previously installed the Ability retain their local copy —
 the tarball bytes on their disk are not modified.
 
 ## Suspension
 
 Lloyal Labs may suspend a publisher account — preventing further
-submissions, without removing previously approved apps — for:
+submissions, without removing previously approved abilities — for:
 
-1. Repeated submission of apps that violate these terms.
+1. Repeated submission of abilities that violate these terms.
 2. Abuse of the review pipeline (e.g., spam submissions to exhaust
    reviewer capacity).
 3. Behavior that misrepresents Lloyal Labs or another publisher.
