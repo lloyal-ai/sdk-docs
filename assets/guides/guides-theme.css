@@ -936,3 +936,27 @@ so ordinary
 @media (max-width: 1180px)  {
   #lloyal-guides .lloyal-topnav { gap: 20px; padding-left: 24px; padding-right: 24px; }
 }
+
+/* The thesis band carried two undifferentiated paragraphs of body text on black
+   and read as a dump. Each column now runs label, claim, evidence - the same
+   rhythm as the access ladder on the homepage, so a reader arriving from there
+   meets a shape they already know. */
+#lloyal-guides.pg-abilities .thesis p.proof-claim {
+  margin: 0 0 20px;
+  color: #fff;
+  font-size: 26px;
+  line-height: 1.24;
+  letter-spacing: -.03em;
+  font-weight: 500;
+}
+#lloyal-guides.pg-abilities .proof .eyebrow { margin-bottom: 14px; }
+#lloyal-guides.pg-abilities .thesis p.proof-check {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #393939;
+  color: #8f8f8f;
+  font-size: 15px;
+}
+@media (max-width: 560px) {
+  #lloyal-guides.pg-abilities .thesis p.proof-claim { font-size: 22px; }
+}
