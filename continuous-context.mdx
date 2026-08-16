@@ -38,21 +38,15 @@ contact with reality</a><a class="toc-l2" href="#the-harness-supplies-domain-mea
 meaning</a><a class="toc-l2" href="#the-lineage-keeps-them-in-one-procedure">The lineage keeps them
 in one procedure</a><a class="toc-l1" href="#what-this-unlocks">What this unlocks</a><a class="toc-l2" href="#stateful-delegation">Stateful delegation</a><a class="toc-l2" href="#evidence-admission-by-applicability">Evidence admission by
 applicability</a><a class="toc-l2" href="#adaptive-execution">Adaptive execution</a><a class="toc-l2" href="#matched-continuations">Matched continuations</a><a class="toc-l2" href="#verified-continuation">Verified continuation</a><a class="toc-l2" href="#practical-depth">Practical depth</a><a class="toc-l1" href="#demonstration-by-example">Demonstration by example</a><a class="toc-l1" href="#workflow-continuity-and-inference-continuity">Workflow
-continuity and inference continuity</a><a class="toc-l1" href="#why-the-research-matters">Why the research matters</a><a class="toc-l2" href="#reruns-diverge-early">Reruns diverge early</a><a class="toc-l2" href="#deterministic-settings-are-not-an-endpoint-guarantee">Deterministic settings are not an endpoint guarantee</a><a class="toc-l2" href="#evidence-conflict-is-not-solved-by-co-presence">Evidence
+continuity and inference continuity</a><a class="toc-l1" href="#why-the-research-matters">What the research shows</a><a class="toc-l2" href="#reruns-diverge-early">Reruns diverge early</a><a class="toc-l2" href="#deterministic-settings-are-not-an-endpoint-guarantee">Deterministic settings are not an endpoint guarantee</a><a class="toc-l2" href="#evidence-conflict-is-not-solved-by-co-presence">Evidence
 conflict is not solved by co-presence</a><a class="toc-l2" href="#position-changes-use">Position changes use</a><a class="toc-l2" href="#processed-state-has-systems-value">Processed state has systems
 value</a><a class="toc-l1" href="#what-continuous-context-does-not-mean">What Continuous Context
-does not mean</a><a class="toc-l2" href="#it-is-not-an-infinitely-growing-conversation">It is not an
-infinitely growing conversation</a><a class="toc-l2" href="#it-is-not-a-claim-of-deterministic-generation">It is not a claim
-of deterministic generation</a><a class="toc-l2" href="#it-is-not-universal-evidence-sharing">It is not universal
-evidence sharing</a><a class="toc-l2" href="#it-is-not-continuation-at-all-costs">It is not continuation at
-all costs</a><a class="toc-l2" href="#it-is-not-a-replacement-for-durable-content">It is not a
-replacement for durable content</a><a class="toc-l2" href="#it-is-not-orchestration-hidden-inside-the-kernel">It is not
-orchestration hidden inside the kernel</a><a class="toc-l1" href="#the-design-test">The design test</a><a class="toc-l1" href="#the-mental-model">The mental model</a></nav>
+does not mean</a><a class="toc-l1" href="#the-design-test">The design test</a><a class="toc-l1" href="#the-mental-model">The mental model</a></nav>
 <article class="article">
 <h1 id="context-is-not-the-context-window">Context is not the context
 window</h1>
-<p>The word <em>context</em> is overloaded in AI systems.</p>
-<p>It can mean:</p>
+<p><strong>Every other system rebuilds the model&rsquo;s state from a transcript. Continuous Context keeps the execution itself.</strong> A message history can reconstruct what was said. It cannot establish that a new execution carries the same processed state as the one it replaces.</p>
+<p>Which matters because the word <em>context</em> is overloaded. It can mean:</p>
 <ul>
 <li>the text submitted in a request;</li>
 <li>the maximum token window supported by a model;</li>
@@ -72,16 +66,15 @@ workflow state
 live inference state
     is the instantiated model execution continuing from that content</code></pre></div>
 <p>All three matter. They are not interchangeable.</p>
-<p>A message history can reconstruct content. It cannot establish that a
-new execution has the same processed carrier, current stochastic state,
-grammar state, next-token distribution or reasoning trajectory as the
-execution it replaces.</p>
+<p>What a transcript cannot carry: the processed carrier, the current stochastic state, the grammar state, the next-token distribution, the reasoning trajectory.</p>
 <p>Continuous Context does not mean that one Branch decodes forever. A
 Branch may be advancing, waiting for a Tool, excluded from the current
 decode cohort, retained for later comparison, or finished but still
 alive for downstream use. Continuity is the persistence of identity and
 ancestry across those transitions—not constant activity.</p>
 <hr />
+<p>What that buys, in six places:</p>
+<ul class="unlocks-list"><li><a href="#stateful-delegation"><strong>Specialists inherit the live case</strong></a> &mdash; not a summary handed down.</li><li><a href="#evidence-admission-by-applicability"><strong>Conclusions form against the governing evidence</strong></a> &mdash; not whatever happens to dominate attention.</li><li><a href="#adaptive-execution"><strong>Compute follows what the case reveals</strong></a> &mdash; not a decomposition fixed before execution.</li><li><a href="#matched-continuations"><strong>Options are compared from one understanding</strong></a> &mdash; not from separate reconstructions of it.</li><li><a href="#verified-continuation"><strong>What survives is the state you accepted</strong></a> &mdash; not the last response to finish.</li><li><a href="#practical-depth"><strong>Deeper procedures stay practical</strong></a> &mdash; on device, on-premises and on frontier compute.</li></ul>
 <h1 id="the-boundary-created-by-model-calls">The boundary created by
 model calls</h1>
 <p>Request-shaped systems divide an intelligent application at the
@@ -432,6 +425,9 @@ outputs; they participate in the evolution of the reasoning process.</p>
 <p>Continuous Context is one contract with several consequences. No
 single consequence is the architecture by itself.</p>
 <h2 id="stateful-delegation">Stateful delegation</h2>
+<p><strong>Specialist intelligence remains
+coherent with the developing case, and expertise can be recruited when
+the need emerges rather than fixed into the workflow beforehand.</strong></p>
 <p>An Agent can encounter a question, call a delegation Tool and spawn a
 nested AgentPool from its own Branch.</p>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>lead Agent discovers a specialist question
@@ -451,11 +447,11 @@ and then reconstruct itself after the specialists return.</p>
 policy and context pressure. Effection scopes align each nested pool's
 lifetime with the Agent that created it, while the branch tree preserves
 inference ancestry.</p>
-<p><strong>Product consequence:</strong> specialist intelligence remains
-coherent with the developing case, and expertise can be recruited when
-the need emerges rather than fixed into the workflow beforehand.</p>
 <h2 id="evidence-admission-by-applicability">Evidence admission by
 applicability</h2>
+<p><strong>Conclusions are formed against
+the governing evidence rather than whichever mixture of old and new
+material happens to dominate the model's attention.</strong></p>
 <p>Abilities acquire observations. The harness decides what those
 observations mean and where they may enter.</p>
 <div class="code-frame"><div class="code-label">Structure</div><pre><code>observation arrives
@@ -474,10 +470,10 @@ where it can, then admit the result into the lineages it governs.
 Unaffected work need not receive it. Material conflict can create
 focused topology instead of forcing stale and current evidence to
 compete inside one undifferentiated prompt.</p>
-<p><strong>Product consequence:</strong> conclusions are formed against
-the governing evidence rather than whichever mixture of old and new
-material happens to dominate the model's attention.</p>
 <h2 id="adaptive-execution">Adaptive execution</h2>
+<p><strong>The application allocates
+intelligence according to what the case reveals, not only according to a
+static decomposition chosen before execution.</strong></p>
 <p>The intelligent procedure does not need to be fully specified before
 the model begins.</p>
 <p>The harness can respond to observations from the model, Tools,
@@ -497,10 +493,10 @@ next:</p>
 <p>Graph orchestration remains part of this. The difference is that new
 work can inherit the live state whose observations caused the graph to
 change.</p>
-<p><strong>Product consequence:</strong> the application allocates
-intelligence according to what the case reveals, not only according to a
-static decomposition chosen before execution.</p>
 <h2 id="matched-continuations">Matched continuations</h2>
+<p><strong>An application can evaluate
+policies or courses of action from one instantiated understanding of the
+case, producing a more defensible comparison and trace.</strong></p>
 <p>Sometimes an application must compare alternatives rather than merely
 generate several candidates.</p>
 <p>A live parent can be forked into children that initially share the
@@ -519,10 +515,10 @@ intervention; it changes the object being compared.</p>
 endpoint calls. Reconstructed calls may be nominally comparable, but
 their differences combine the declared intervention with fresh-run
 variance.</p>
-<p><strong>Product consequence:</strong> an application can evaluate
-policies or courses of action from one instantiated understanding of the
-case, producing a more defensible comparison and trace.</p>
 <h2 id="verified-continuation">Verified continuation</h2>
+<p><strong>The state that survives is the
+state the application accepted—not merely a prose summary of the last
+response to finish.</strong></p>
 <p>Generation, acceptance, authority and continuity are separate
 decisions.</p>
 <p>An Agent may propose a result. A validator or human may accept it. A
@@ -533,10 +529,10 @@ the accepted Branch so later work inherits that state.</p>
 accepted state
         ↓ promotion
 basis of later work</code></pre></div>
-<p><strong>Product consequence:</strong> the state that survives is the
-state the application accepted—not merely a prose summary of the last
-response to finish.</p>
 <h2 id="practical-depth">Practical depth</h2>
+<p><strong>Richer domain procedures become
+practical on device, on-premises and on shared frontier placements
+without changing the harness contract.</strong></p>
 <p>Continuous Tree Batching advances eligible branches as one cohort.
 Shared ancestry is retained rather than repeatedly prefilling the same
 material, and Agents waiting for external work do not occupy decode
@@ -545,9 +541,6 @@ slots for that tick.</p>
 can fit inside a product's latency, memory and deployment envelope: more
 specialist work, deeper investigation and more deliberate survival
 policy over one resident model.</p>
-<p><strong>Product consequence:</strong> richer domain procedures become
-practical on device, on-premises and on shared frontier placements
-without changing the harness contract.</p>
 <hr />
 <h1 id="demonstration-by-example">Demonstration by example</h1>
 <p>Consider an application responsible for a time-sensitive operational
@@ -641,7 +634,7 @@ able to govern.</p>
 live-state semantics, it has crossed the same architectural boundary.
 Ordinary hosted model endpoints do not.</p>
 <hr />
-<h1 id="why-the-research-matters">Why the research matters</h1>
+<h1 id="why-the-research-matters">What the research shows</h1>
 <p>Continuous Context is not founded on the claim that transcripts are
 useless or every rerun fails. It begins from a narrower observation:
 reconstructed executions should not be treated as behaviourally
@@ -675,7 +668,7 @@ and evidence coexist.</p>
 <p>Appending a correction beside stale material does not establish which
 fact governs, where its influence propagated or whether the old material
 should remain only as provenance. Those are application semantics.</p>
-<h2 id="position-changes-use">Position changes use</h2>
+<h2 id="position-changes-use">Position changes whether the model uses it</h2>
 <p><a href="https://aclanthology.org/2024.tacl-1.9/" target="_blank" rel="noopener noreferrer">Lost in the
 Middle</a> showed that where relevant information appears inside a
 supported context can materially affect whether models use it
@@ -699,38 +692,31 @@ procedure.</p>
 <hr />
 <h1 id="what-continuous-context-does-not-mean">What Continuous Context
 does not mean</h1>
-<h2 id="it-is-not-an-infinitely-growing-conversation">It is not an
-infinitely growing conversation</h2>
-<p>Working branches are scoped. Temporary subtrees are pruned. Accepted
+<p><strong>It is not an
+infinitely growing conversation.</strong> Working branches are scoped. Temporary subtrees are pruned. Accepted
 findings can become ordinary data, extend a spine or be promoted
 deliberately.</p>
-<h2 id="it-is-not-a-claim-of-deterministic-generation">It is not a claim
-of deterministic generation</h2>
-<p>Generation remains stochastic. Deterministic application control
+<p><strong>It is not a claim
+of deterministic generation.</strong> Generation remains stochastic. Deterministic application control
 means the harness decides which state is held, forked, admitted,
 constrained, continued, pruned or promoted.</p>
-<h2 id="it-is-not-universal-evidence-sharing">It is not universal
-evidence sharing</h2>
-<p>Shared ancestry does not require every descendant to receive every
+<p><strong>It is not universal
+evidence sharing.</strong> Shared ancestry does not require every descendant to receive every
 observation. Admission and inheritance are application decisions.</p>
-<h2 id="it-is-not-continuation-at-all-costs">It is not continuation at
-all costs</h2>
-<p>Sometimes the correct policy is to prune an invalid subtree and begin
+<p><strong>It is not continuation at
+all costs.</strong> Sometimes the correct policy is to prune an invalid subtree and begin
 from a clean ancestor. Continuous Context makes continuation,
 reconciliation and pruning application choices rather than consequences
 imposed by a request boundary.</p>
-<h2 id="it-is-not-a-replacement-for-durable-content">It is not a
-replacement for durable content</h2>
-<p>Applications still need messages, evidence records, Tool results,
+<p><strong>It is not a
+replacement for durable content.</strong> Applications still need messages, evidence records, Tool results,
 accepted turns, traces and replayable checkpoints. Live state and
 durable content solve different problems.</p>
-<h2 id="it-is-not-orchestration-hidden-inside-the-kernel">It is not
-orchestration hidden inside the kernel</h2>
-<p>The kernel supplies live Branch semantics. The TypeScript runtime
+<p><strong>It is not
+orchestration hidden inside the kernel.</strong> The kernel supplies live Branch semantics. The TypeScript runtime
 supplies Agents, scoped concurrency, lifecycle, cohorts, Tool
 settlement, recovery and orchestration. The harness supplies domain
 meaning.</p>
-<hr />
 <h1 id="the-design-test">The design test</h1>
 <p>Before introducing Agents or branches, ask:</p>
 <blockquote>
