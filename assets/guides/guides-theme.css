@@ -32,7 +32,7 @@
 #lloyal-guides.pg {
   scroll-behavior: smooth;
 }
-#lloyal-guides.pg-index {
+#lloyal-guides.pg {
   margin: 0;
   background: #d8d8d8;
   color: var(--ink);
@@ -508,13 +508,6 @@
   --paper: #f0f0f0;
   --soft: #f6f6f6;
   --max: 1180px;
-}
-#lloyal-guides.pg-build-your-first-harness {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300;
 }
 #lloyal-guides.pg-build-your-first-harness .page {
   max-width: var(--max);
@@ -1043,13 +1036,10 @@
 }
 
 @media (max-width:900px) {
-  #lloyal-guides.pg-build-your-first-harness .hero h1 {
+  #lloyal-guides.long .hero h1 {
     font-size: 52px;
   }
-  #lloyal-guides.pg-build-your-first-harness .hero-sub {
-    font-size: 20px;
-  }
-  #lloyal-guides.pg-build-your-first-harness .toc {
+  #lloyal-guides.guide .toc {
     position: relative;
     top: auto;
     max-height: none;
@@ -1062,7 +1052,7 @@
 }
 
 @media (max-width:560px) {
-  #lloyal-guides.pg-build-your-first-harness .article-shell {
+  #lloyal-guides.guide .article-shell {
     padding-top: 44px;
   }
   #lloyal-guides.pg-build-your-first-harness .article p {
@@ -1123,7 +1113,7 @@
   font-size: 15px;
   line-height: 1.5;
 }
-#lloyal-guides.pg-build-your-first-harness .article h3 {
+#lloyal-guides.long .article h3 {
   scroll-margin-top: calc(var(--nav-h) + 24px);
 }
 #lloyal-guides.long .toc .toc-l3 {
@@ -1552,13 +1542,6 @@
   font-display:swap;
   src:url('https://cdn.jsdelivr.net/fontsource/fonts/readex-pro:vf@5.3.0/latin-wght-normal.woff2') format('woff2-variations');
 }
-#lloyal-guides.pg-thinking-in-lloyal {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300;
-}
 #lloyal-guides.pg-thinking-in-lloyal .page {
   max-width: var(--max);
   margin: 0 auto;
@@ -1584,32 +1567,10 @@
   border-bottom: 1px solid #eee;
 }
 
-@media (max-width:900px) {
-  #lloyal-guides.pg-thinking-in-lloyal .hero h1 {
-    font-size: 52px;
-  }
-  #lloyal-guides.pg-thinking-in-lloyal .hero-sub {
-    font-size: 20px;
-  }
-  #lloyal-guides.pg-thinking-in-lloyal .toc {
-    position: relative;
-    top: auto;
-    max-height: none;
-    margin-bottom: 44px;
-    columns: 2;
-  }
-}
-
 @media (max-width:560px) {
-  #lloyal-guides.pg-thinking-in-lloyal .article-shell {
-    padding-top: 44px;
-  }
   #lloyal-guides.pg-thinking-in-lloyal .article p {
     font-size: 15px;
   }
-}
-#lloyal-guides.pg-thinking-in-lloyal .article h3 {
-  scroll-margin-top: calc(var(--nav-h) + 24px);
 }
 #lloyal-guides.pg-thinking-in-lloyal /* Execution stack */
 .execution-stack {
@@ -1773,13 +1734,6 @@
   font-display:swap;
   src:url('https://cdn.jsdelivr.net/fontsource/fonts/readex-pro:vf@5.3.0/latin-wght-normal.woff2') format('woff2-variations');
 }
-#lloyal-guides.pg-agent-policy-and-context-pressure {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300;
-}
 #lloyal-guides.pg-agent-policy-and-context-pressure .page {
   max-width: var(--max);
   margin: 0 auto;
@@ -1806,31 +1760,15 @@
 }
 
 @media (max-width:900px) {
-  #lloyal-guides.pg-agent-policy-and-context-pressure .hero h1 {
-    font-size: 52px;
-  }
-  #lloyal-guides.pg-agent-policy-and-context-pressure .hero-sub {
-    font-size: 20px;
-  }
   #lloyal-guides.pg-agent-policy-and-context-pressure .thesis-grid > .thesis-copy {
     order: 2;
   }
   #lloyal-guides.pg-agent-policy-and-context-pressure .thesis-grid > .thesis-copy ~ div {
     order: 1;
   }
-  #lloyal-guides.pg-agent-policy-and-context-pressure .toc {
-    position: relative;
-    top: auto;
-    max-height: none;
-    margin-bottom: 44px;
-    columns: 2;
-  }
 }
 
 @media (max-width:560px) {
-  #lloyal-guides.pg-agent-policy-and-context-pressure .article-shell {
-    padding-top: 44px;
-  }
   #lloyal-guides.pg-agent-policy-and-context-pressure .article p {
     font-size: 15px;
   }
@@ -1859,9 +1797,6 @@
   font-size: 12px;
   line-height: 1.55;
   text-align: center;
-}
-#lloyal-guides.pg-agent-policy-and-context-pressure .article h3 {
-  scroll-margin-top: calc(var(--nav-h) + 24px);
 }
 
 @media (max-width:900px) {
@@ -1925,27 +1860,6 @@
   --line: #d3d3d3;
   --soft: #f5f5f5;
   --max: 1320px
-}
-#lloyal-guides.pg-where-a-harness-runs {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300
-}
-#lloyal-guides.pg-abilities {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300
-}
-#lloyal-guides.pg-focal-lens {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300
 }
 #lloyal-guides.short .page {
   max-width: var(--max);
@@ -2321,44 +2235,8 @@
 }
 
 @media(max-width:900px) {
-  #lloyal-guides.pg-where-a-harness-runs .hero h1 {
+  #lloyal-guides.short .hero h1 {
     font-size: 54px
-  }
-  #lloyal-guides.pg-abilities .hero h1 {
-    font-size: 54px
-  }
-  #lloyal-guides.pg-focal-lens .hero h1 {
-    font-size: 54px
-  }
-  #lloyal-guides.pg-where-a-harness-runs .hero-sub {
-    font-size: 20px
-  }
-  #lloyal-guides.pg-abilities .hero-sub {
-    font-size: 20px
-  }
-  #lloyal-guides.pg-focal-lens .hero-sub {
-    font-size: 20px
-  }
-  #lloyal-guides.pg-where-a-harness-runs .toc {
-    position: relative;
-    top: auto;
-    max-height: none;
-    margin-bottom: 44px;
-    columns: 2
-  }
-  #lloyal-guides.pg-abilities .toc {
-    position: relative;
-    top: auto;
-    max-height: none;
-    margin-bottom: 44px;
-    columns: 2
-  }
-  #lloyal-guides.pg-focal-lens .toc {
-    position: relative;
-    top: auto;
-    max-height: none;
-    margin-bottom: 44px;
-    columns: 2
   }
   #lloyal-guides.short .axis-grid {
     grid-template-columns: 1fr
@@ -2377,15 +2255,6 @@
 @media(max-width:560px) {
   #lloyal-guides.short .platform-map {
     padding: 32px 12px
-  }
-  #lloyal-guides.pg-where-a-harness-runs .article-shell {
-    padding-top: 44px
-  }
-  #lloyal-guides.pg-abilities .article-shell {
-    padding-top: 44px
-  }
-  #lloyal-guides.pg-focal-lens .article-shell {
-    padding-top: 44px
   }
   #lloyal-guides.short .article>h1 {
     font-size: 34px
@@ -2426,13 +2295,6 @@
   --soft: #f5f5f5;
   --max: 1320px
 }
-#lloyal-guides.pg-lookup {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300
-}
 #lloyal-guides.pg-lookup .toc-label {
   color: #777;
   font-size: 9px;
@@ -2457,22 +2319,9 @@
 }
 
 @media(max-width:900px) {
-  #lloyal-guides.pg-lookup .hero h1 {
-    font-size: 54px
-  }
-  #lloyal-guides.pg-lookup .hero-sub {
-    font-size: 20px
-  }
   #lloyal-guides.short .thesis-grid {
     grid-template-columns: 1fr;
     gap: 30px
-  }
-  #lloyal-guides.pg-lookup .toc {
-    position: relative;
-    top: auto;
-    max-height: none;
-    margin-bottom: 44px;
-    columns: 2
   }
 }
 
@@ -2482,9 +2331,6 @@
   }
   #lloyal-guides.short .pullquote {
     font-size: 22px
-  }
-  #lloyal-guides.pg-lookup .article-shell {
-    padding-top: 44px
   }
   #lloyal-guides.short .article h2 {
     font-size: 24px
@@ -2569,13 +2415,6 @@
   font-display:swap;
   src:url('https://cdn.jsdelivr.net/fontsource/fonts/readex-pro:vf@5.3.0/latin-wght-normal.woff2') format('woff2-variations');
 }
-#lloyal-guides.pg-continuous-context {
-  margin: 0;
-  background: #d8d8d8;
-  color: var(--ink);
-  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
-  font-weight: 300;
-}
 #lloyal-guides.pg-continuous-context .page {
   max-width: var(--max);
   margin: 0 auto;
@@ -2624,10 +2463,7 @@
     padding-top: 52px;
     padding-bottom: 48px;
   }
-  #lloyal-guides.pg-continuous-context .hero h1 {
-    font-size: 52px;
-  }
-  #lloyal-guides.pg-continuous-context .hero-sub {
+  #lloyal-guides.guide .hero-sub {
     font-size: 20px;
   }
   #lloyal-guides.long .thesis-grid {
@@ -2637,13 +2473,6 @@
   #lloyal-guides.guide .article-shell {
     grid-template-columns: 1fr;
     gap: 0;
-  }
-  #lloyal-guides.pg-continuous-context .toc {
-    position: relative;
-    top: auto;
-    max-height: none;
-    margin-bottom: 44px;
-    columns: 2;
   }
 }
 
@@ -2665,9 +2494,6 @@
   }
   #lloyal-guides.long .pullquote {
     font-size: 23px;
-  }
-  #lloyal-guides.pg-continuous-context .article-shell {
-    padding-top: 44px;
   }
   #lloyal-guides.guide .toc {
     columns: 1;
@@ -2703,9 +2529,6 @@
 
 
 /* Latest-guide additions */
-#lloyal-guides.pg-continuous-context .article h3 {
-  scroll-margin-top: calc(var(--nav-h) + 24px);
-}
 #lloyal-guides.guide .toc a.active {
   color: #111;
   font-weight: 600;
