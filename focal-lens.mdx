@@ -1,0 +1,83 @@
+---
+title: "A focal lens for context admission"
+description: "Every chunk that reaches a model's attention got there by answering a question. The question is a sentence you write, the answer is two floats, and a hundred candidates cost one forward pass — the same code on a laptop and on two B200s."
+mode: "custom"
+---
+
+export const guideHtml = `<div class="page">
+<header class="masthead wrap"><div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI&rsquo;s contact with reality.</div></div><div class="issue"><span>Context /<br>Admission</span></div></header>
+<section class="hero wrap"><div class="eyebrow"><a href="/">Developer docs</a> / Engineering note</div><h1>A focal lens for context admission</h1><div class="hero-sub">You choose the plane that comes up sharp, and everything else falls away</div></section>
+
+<section class="thesis wrap"><div class="thesis-grid">
+<div class="proof">
+<p class="eyebrow">The squeeze</p>
+<p class="proof-claim">On a laptop you have 32k, and a dozen agents that all want it.</p>
+<p>Every search hit, every fetched page, every tool return is a candidate for space that is already spoken for. Nothing is admitted for free, so something has to choose &mdash; and at the edge that choice is the difference between an application that works and one that thrashes.</p>
+</div>
+<div class="proof">
+<p class="eyebrow">The swing</p>
+<p class="proof-claim">On two B200s the same application hands one agent a 57,000-word budget.</p>
+<p>One process, both GPUs, the same packages you ran on the laptop. Nothing in the code changes between them. The policy reads the headroom it actually has, and the lens admits accordingly.</p>
+</div>
+</div></section>
+
+<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#distance-is-not-a-criterion">Distance is not a criterion</a><a class="toc-l1" href="#the-question-is-a-sentence">The question is a sentence</a><a class="toc-l1" href="#a-page-arrives-in-its-own-words">A page arrives in its own words</a><a class="toc-l1" href="#the-aperture-is-under-program-control">The aperture is under program control</a><a class="toc-l1" href="#a-hundred-candidates-one-pass">A hundred candidates, one pass</a><a class="toc-l1" href="#a-threshold-is-worth-its-canaries">A threshold is worth its canaries</a><a class="toc-l1" href="#the-shipped-lens-is-one-configuration">The shipped lens is one configuration</a></nav>
+
+<article class="article">
+
+<h1 id="distance-is-not-a-criterion">Distance is not a criterion</h1>
+<p><strong>Most systems choose what enters context by distance.</strong> They embed the candidate, embed the query, keep whatever lands closest. Distance is cheap, and it is not a judgement.</p>
+<p>Consider two sentences:</p>
+<div class="code-frame"><div class="code-label">CANDIDATE</div><pre><code>Query:    The inspection occurred on 18 March.
+
+Passage:  The inspection was scheduled for 18 March
+          but was cancelled on 17 March.</code></pre></div>
+<p>Same entities, same date, heavy lexical overlap &mdash; neighbours in embedding space. Top-k returns the passage, your model states the assertion as fact, and you have spent scarce context on the one document that refutes it.</p>
+<p>Negation and modality are invisible to similarity, because similarity was never asked anything. It measured.</p>
+
+<h1 id="the-question-is-a-sentence">The question is a sentence</h1>
+<p><strong>Every chunk that reaches a model&rsquo;s attention in Lloyal got there because a second model was asked a question in English and answered yes or no.</strong> The judge is a prompt, and the criterion lives in one line of it:</p>
+<div class="code-frame"><div class="code-label">THE JUDGE</div><pre><code>SYSTEM: Judge whether the Document meets the requirements based on
+        the Query and the Instruct provided. Note that the answer
+        can only be "yes" or "no".
+
+USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
+                    passages that answer the query
+        &lt;Query&gt;:    ...
+        &lt;Document&gt;: ...</code></pre></div>
+<p>The score is <code>logit("yes") &minus; logit("no")</code> &mdash; two slots out of a hundred and fifty thousand, read as log-odds. A floor of zero means <em>keep what the judge would call relevant</em>, which is a threshold you can say out loud.</p>
+<p>Because the criterion sits in the <code>&lt;Instruct&gt;</code> line, the same weights answer a different question when the sentence changes. That line is the plane you bring into focus. Similarity has one plane, fixed at <em>looks alike</em>, and no way to move it at any price.</p>
+
+<h1 id="a-page-arrives-in-its-own-words">A page arrives in its own words</h1>
+<p><strong>An agent fetches a forty-thousand-token page. Two thousand tokens of it reach the model.</strong> The article is chunked on heading boundaries, every chunk is scored, and the survivors are admitted <em>verbatim</em> &mdash; five of them by default, inside a 2048-token budget.</p>
+<p>Nothing is summarised. The industry&rsquo;s answer to an oversized page is a second generative call that compresses it, which is lossy, slow, and precisely where fabrication enters. Selection replaces compression: what arrives is the source&rsquo;s own sentences, quotable and attributable, chosen by a question you wrote.</p>
+<p>The tool says so itself &mdash; the reranker path exists for <em>&ldquo;reducing KV pressure without lossy summarization.&rdquo;</em></p>
+
+<h1 id="the-aperture-is-under-program-control">The aperture is under program control</h1>
+<p><strong>Policy decides what the model gets to focus on, per agent, per tick.</strong> Reading a page in explore mode, chunks are scored against what that agent just asked. In exploit mode they must satisfy the agent&rsquo;s query <em>and</em> the original task at once &mdash; <code>min(toolQueryScore, originalQueryScore)</code>, which is a much narrower depth of field.</p>
+<p>The default is wide. <code>AgentPolicy.shouldExplore()</code> narrows it as headroom disappears, at 40% of context and 50% of the time budget in the shipped policy. An investigating agent keeps its bridging content while there is room for it, and stops down when there is not.</p>
+<p>The reason explore is the default when reading a page is worth stating: the agent chose that page. Scoring its contents against the original task would demote exactly the bridging material that produces the next good hypothesis.</p>
+
+<h1 id="a-hundred-candidates-one-pass">A hundred candidates, one pass</h1>
+<p><strong>Widen the candidate set and the GPU bill stays flat.</strong> Scoring forks a branch per candidate and dispatches them together: every token carries its own position and sequence, logits requested only on each candidate&rsquo;s final token, and one <code>llama_decode</code> settles the group. Forking shares the parent&rsquo;s cache cells rather than copying them, so a candidate costs its own tokens and nothing more.</p>
+<p>You pay in cache space, not in dispatches. The group is bounded by available sequence leases, never by how many candidates you had.</p>
+<p><strong>And it runs beside generation, never in front of it.</strong> The reranker owns a separate context and serialises its own calls, so admission queues among itself while the tokens already generating keep generating. Search declares <code>fanout = true</code> precisely because it touches no main-context state.</p>
+
+<h1 id="a-threshold-is-worth-its-canaries">A threshold is worth its canaries</h1>
+<p><strong>The classifier is measured before it is handed to you, and the gate refuses to return one that fails.</strong> Three checks run at startup: <code>"yes"</code> and <code>"no"</code> must each tokenise to exactly one token, or the subtraction is not a log-odds ratio at all; sentinel probes confirm the tokenizer did not merge across the prompt&rsquo;s segment boundaries; and a known-relevant and a known-irrelevant document must separate by more than one logit &mdash; the gate asserts the <em>gap</em>, not the sign.</p>
+<p>This is the load-bearing consequence for anyone writing a new <code>&lt;Instruct&gt;</code>: <strong>a gate is only as good as its fixtures.</strong> The shipped canaries measure retrieval. A different question &mdash; support, entailment, policy conformance &mdash; needs canaries built for that question, or startup will happily certify a judge nobody has measured.</p>
+
+<h1 id="the-shipped-lens-is-one-configuration">The shipped lens is one configuration</h1>
+<p>Every element unscrews.</p>
+<div class="table-wrap"><table><thead><tr><th>element</th><th>ships as</th><th>or</th></tr></thead><tbody>
+<tr><td>The judge</td><td>Four batched scorers &mdash; entailment, relevance, similarity, and a shared threshold gate</td><td>Any object with a <code>scoreBatch</code> method satisfies the contract</td></tr>
+<tr><td>The plane</td><td>One <code>&lt;Instruct&gt;</code> sentence, tuned for retrieval</td><td>Write another, and calibrate it</td></tr>
+<tr><td>The aperture</td><td><code>DefaultAgentPolicy</code> implements all eleven hooks the pool calls</td><td>Subclass it and override the one decision you care about</td></tr>
+</tbody></table></div>
+<p>Explore and exploit are one shape of one hook, not the axis itself. A policy that needs a different posture &mdash; a verification phase, a burden-of-proof that rises with the stakes &mdash; writes it.</p>
+<p>An embedding has none of this. Not a plane you can choose, not a posture to switch, not a hook to override. You get similarity, forever, and you find out at review time.</p>
+
+</article></main>
+</div>`;
+
+<div id="lloyal-guides" className="pg-focal-lens" dangerouslySetInnerHTML={{__html: guideHtml}} />
