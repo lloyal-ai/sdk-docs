@@ -1087,3 +1087,86 @@ so ordinary
 #lloyal-guides.pg-abilities .scorer-table td:first-child,
 #lloyal-guides.pg-focal-lens .scorer-table td:first-child { white-space: nowrap; }#lloyal-guides.pg-abilities .scorer-table table,
 #lloyal-guides.pg-focal-lens .scorer-table table { min-width: 860px; }
+
+/* Syntax tokens, cloned from Thinking in Lloyal so code reads the same
+   everywhere. Pygments emits .c1 for line comments; the theme colours the
+   whole comment family alike. */
+#lloyal-guides.pg-focal-lens .code-frame code .bp { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .c { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .c1 { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .ch { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .cm { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .cp { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .cpf { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .cs { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .dl { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .err { color: #ED007E; background-color: #1E0010 }
+#lloyal-guides.pg-focal-lens .code-frame code .esc { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .fm { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .g { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .gd { color: #FF4689 }
+#lloyal-guides.pg-focal-lens .code-frame code .ge { color: #F8F8F2; font-style: italic }
+#lloyal-guides.pg-focal-lens .code-frame code .ges { color: #F8F8F2; font-weight: bold; font-style: italic }
+#lloyal-guides.pg-focal-lens .code-frame code .gh { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .gi { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .go { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .gp { color: #FF4689; font-weight: bold }
+#lloyal-guides.pg-focal-lens .code-frame code .gr { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .gs { color: #F8F8F2; font-weight: bold }
+#lloyal-guides.pg-focal-lens .code-frame code .gt { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .gu { color: #959077 }
+#lloyal-guides.pg-focal-lens .code-frame code .hll { background-color: #49483e }
+#lloyal-guides.pg-focal-lens .code-frame code .il { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .k { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .kc { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .kd { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .kn { color: #FF4689 }
+#lloyal-guides.pg-focal-lens .code-frame code .kp { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .kr { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .kt { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .l { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .ld { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .m { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .mb { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .mf { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .mh { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .mi { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .mo { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .n { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .na { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .nb { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .nc { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .nd { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .ne { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .nf { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .ni { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .nl { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .nn { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .no { color: #66D9EF }
+#lloyal-guides.pg-focal-lens .code-frame code .nt { color: #FF4689 }
+#lloyal-guides.pg-focal-lens .code-frame code .nv { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .nx { color: #A6E22E }
+#lloyal-guides.pg-focal-lens .code-frame code .o { color: #FF4689 }
+#lloyal-guides.pg-focal-lens .code-frame code .ow { color: #FF4689 }
+#lloyal-guides.pg-focal-lens .code-frame code .p { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .pm { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .py { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .s { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .s1 { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .s2 { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .sa { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .sb { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .sc { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .sd { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .se { color: #AE81FF }
+#lloyal-guides.pg-focal-lens .code-frame code .sh { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .si { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .sr { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .ss { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .sx { color: #E6DB74 }
+#lloyal-guides.pg-focal-lens .code-frame code .vc { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .vg { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .vi { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .vm { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .w { color: #F8F8F2 }
+#lloyal-guides.pg-focal-lens .code-frame code .x { color: #F8F8F2 }
