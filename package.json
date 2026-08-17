@@ -1,5 +1,14 @@
 {
+  "scripts": {
+    "build": "node build.mjs",
+    "css:selftest": "node tools/css-gate/selftest.mjs",
+    "css:pagesets": "node tools/css-gate/pagesets.mjs assets/guides/guides-theme.css",
+    "css:volatility": "node tools/css-gate/volatility.mjs"
+  },
   "devDependencies": {
-    "@mermaid-js/mermaid-cli": "^11.12.0"
+    "@mermaid-js/mermaid-cli": "^11.12.0",
+    "postcss": "^8.5.8",
+    "postcss-selector-parser": "^6.1.2",
+    "puppeteer": "^23.11.1"
   }
 }
