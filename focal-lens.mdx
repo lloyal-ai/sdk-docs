@@ -51,7 +51,7 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <h1 id="a-page-arrives-in-its-own-words">A page arrives in its own words</h1>
 <p><strong>An agent fetches a forty-thousand-token page. Two thousand tokens of it reach the model.</strong> The article is chunked on heading boundaries, every chunk is scored, and the survivors are admitted <em>verbatim</em> &mdash; five of them by default, inside a 2048-token budget.</p>
 <p>Nothing is summarised. The industry&rsquo;s answer to an oversized page is a second generative call that compresses it, which is lossy, slow, and precisely where fabrication enters. Selection replaces compression: what arrives is the source&rsquo;s own sentences, quotable and attributable, chosen by a question you wrote.</p>
-<div class="code-frame"><div class="code-label">WEB/SRC/TOOLS/FETCH-PAGE.TS</div><pre><code><span class="c">// 1. structure the page — headings become chunk boundaries</span>
+<div class="code-frame"><div class="code-label">ADMITTING FROM A PAGE</div><pre><code><span class="c">// 1. structure the page — headings become chunk boundaries</span>
 const chunks = yield* call(() =&gt;
   chunkHtml(fetched.articleHtml, url, fetched.title),
 );
@@ -64,7 +64,28 @@ for await (const batch of reranker.score(args.query, chunks)) {
 
 <span class="c">// 3. admit verbatim: top-K, inside a token budget</span>
 const topChunks = selectTopChunks(scored, chunks, topK, tokenBudget);</code></pre></div>
-<p>If you have written retrieval before, step 3 is where your <code>top_k</code> slice went. The difference is what step 2 returns: not a distance to sort by, but an answer to a question. And there is no step 4 &mdash; nothing compresses what survived. The tool says so itself: the reranker path exists for <em>&ldquo;reducing KV pressure without lossy summarization.&rdquo;</em></p>
+<p>If you have written retrieval before, step three is where your <code>top_k</code> slice went. The difference is what step two returns &mdash; not a distance to sort by, but an answer to a question &mdash; and that there is no step four. Nothing compresses what survived.</p>
+
+<p>A corpus admits on the same shape, with one addition. The judge is linear in candidates, so a cheap lexical stage narrows the field before it is asked anything:</p>
+<div class="code-frame"><div class="code-label">ADMITTING FROM A CORPUS</div><pre><code><span class="c">// a cheap first stage decides who gets judged at all</span>
+const candidates = bm25.topK(query, 100);
+
+<span class="c">// the judge scores those, in one batched pass</span>
+const scored = await reranker.score(query, candidates);
+
+<span class="c">// a floor you can say out loud: keep what the judge calls relevant</span>
+const hits = scored.filter((s) =&gt; s.score &gt;= threshold);</code></pre></div>
+<p>The floor does double duty. Above it the agent has confident matches. Below it the agent has learned something too &mdash; that this corpus does not answer the question as asked, and the next move is a different question rather than a longer list.</p>
+<p><strong>And the same lens admits work, not only text.</strong> Hand it proposed sub-tasks instead of passages and it asks two questions before anything is spawned:</p>
+<div class="code-frame"><div class="code-label">ADMITTING WORK</div><pre><code><span class="c">// does this sub-task still follow from the original query?</span>
+const onTopic = await scorer.scoreEntailmentBatch(subTasks);
+const surviving = subTasks.filter((_, i) =&gt; scorer.shouldProceed(onTopic[i]));
+
+<span class="c">// is someone further up the tree already asking it?</span>
+const ancestors = callingAgent.walkAncestors((a) =&gt; (a.task ? [a.task] : []));
+const echo = await scorer.scoreSimilarityBatch(ancestors.join(" "), surviving);
+if (Math.min(...echo) &gt; echoThreshold) return { error: "already asked upstream" };</code></pre></div>
+<p>Same primitive, same batched pass, a different reference string. Admission is not a retrieval feature &mdash; it is what the runtime does whenever something wants space it has not earned.</p>
 
 <h1 id="the-aperture-is-under-program-control">The aperture is under program control</h1>
 <p><strong>Policy decides what the model gets to focus on, per agent, per tick.</strong> Reading a page in explore mode, chunks are scored against what that agent just asked. In exploit mode they must satisfy the agent&rsquo;s query <em>and</em> the original task at once &mdash; <code>min(toolQueryScore, originalQueryScore)</code>, which is a much narrower depth of field.</p>
