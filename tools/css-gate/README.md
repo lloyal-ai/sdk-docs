@@ -49,3 +49,37 @@ node tools/css-gate/gate-c.mjs 8794 8795     # two builds, two ports
 
 `gate-c.mjs` expects the old and new builds served on separate ports so it can
 snapshot both in one browser session — same process, same fonts, same rasteriser.
+
+## Serving the two builds
+
+Both gates compare a running old build against a running new one, so the servers
+have to be right or the result is meaningless. Two things go wrong:
+
+1. **They die with the shell.** Start them detached — `(cd dir && nohup python3
+   -m http.server PORT >/dev/null 2>&1 &)`.
+2. **The port is already taken.** This is the dangerous one. A server left over
+   from an earlier session keeps the port, the new bind fails silently, and the
+   gate happily compares against whatever that other server is serving. It cost
+   a full Gate C run reporting `ELEMENT COUNT: 5 -> 255` — not a regression, just
+   a different website.
+
+So always prove the bind before gating:
+
+```sh
+curl -s http://localhost:PORT/abilities.html | wc -c   # must equal the file on disk
+```
+
+`lsof -nP -iTCP -sTCP:LISTEN | grep :88` shows what is squatting.
+
+## Order of operations for a merge
+
+```sh
+node build.mjs && cp -R dist /tmp/_base      # baseline, serve it and VERIFY
+node tools/css-gate/matchsets.mjs 8811 /tmp/_ms.json
+node tools/css-gate/merge.mjs assets/guides/guides-theme.css /tmp/_m.css pg,guide,long,short,hl /tmp/_ms.json
+cp /tmp/_m.css assets/guides/guides-theme.css && node build.mjs
+node tools/css-gate/gate-c.mjs 8811 8812     # the arbiter
+```
+
+The match sets must be built from the **baseline** stylesheet, before the merge
+rewrites any selector — they are the evidence, not a product of the change.
