@@ -222,12 +222,34 @@ rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 const built = [];
+/**
+ * Refuse to emit a page whose block structure does not close cleanly.
+ *
+ * A browser silently ignores an unmatched `</div>` — no error, no console
+ * warning — so a stray one closes the page wrapper early and everything after it
+ * escapes the layout. That shipped to production on the index page and stayed up
+ * through several deploys, because nothing in the pipeline was looking.
+ */
+function assertBalanced(name, body) {
+  const TAGS = /<(\/?)(div|section|header|footer|nav|main|article|aside|ul|ol|li|table|figure)\b([^>]*)>/g;
+  const stack = [];
+  for (const [, close, tag, attrs] of body.matchAll(TAGS)) {
+    if (attrs.trimEnd().endsWith('/')) continue;
+    if (!close) { stack.push([tag, (attrs.match(/class="([^"]*)"/) || [, ''])[1]]); continue; }
+    if (!stack.length) throw new Error(`${name}: unmatched </${tag}> — it would close the page wrapper early`);
+    const [open, cls] = stack.pop();
+    if (open !== tag) throw new Error(`${name}: </${tag}> closes <${open} class="${cls}">`);
+  }
+  if (stack.length) throw new Error(`${name}: never closed — ${stack.map(([t, c]) => `<${t} class="${c}">`).join(', ')}`);
+}
+
 for (const file of pages) {
   const src = readFileSync(file, 'utf8');
   const body = guideHtml(src);
   if (body === null) { console.log(`  skip   ${file} (no guideHtml)`); continue; }
   const slug = basename(file, '.mdx');
   const { title, description } = frontmatter(src);
+  assertBalanced(`${slug}.mdx`, body);
 
   writeFileSync(join(OUT, `${slug}.html`), `<!doctype html>
 <html lang="en">
@@ -277,7 +299,7 @@ writeFileSync(join(OUT, '_headers'), `/assets/*
 // unmatched path — so every dead link returns the homepage with a 200. That is
 // a soft 404: links look alive, and crawlers index endless duplicates of the
 // hub. This makes a miss say so, in the site's own idiom.
-writeFileSync(join(OUT, '404.html'), `<!doctype html>
+const notFound = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -316,7 +338,9 @@ ${nav('')}
 ${NAV_SCRIPT}
 </body>
 </html>
-`);
+`;
+assertBalanced('404.html', notFound);
+writeFileSync(join(OUT, '404.html'), notFound);
 
 // Mintlify generated this; emit an equivalent so it does not vanish silently.
 writeFileSync(join(OUT, 'llms.txt'), `# Lloyal HDK documentation
