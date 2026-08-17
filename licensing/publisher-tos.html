@@ -1,0 +1,83 @@
+<!--
+title: Publisher Terms of Service
+description: The terms under which you publish Abilities to the apps.lloyal.ai distribution channel.
+-->
+<div class="page" id="top">
+<header class="masthead wrap">
+<div>
+<div class="wordmark">Lloyal Labs</div>
+<div class="tagline">Engineering AI's contact with reality.</div>
+</div>
+<div class="issue"><span>Publisher /<br>Terms</span></div>
+</header>
+
+<section class="hero wrap">
+<div class="eyebrow"><a href="/">Programming guides</a> / Licensing</div>
+<h1 id="publisher-terms-of-service">Publisher Terms of Service</h1>
+<div class="hero-sub">The terms under which you publish Abilities to the apps.lloyal.ai distribution channel.</div>
+</section>
+
+<section class="thesis wrap">
+<p><strong>Version:</strong> v1 · <strong>Effective:</strong> 2026-06-08 These terms apply to anyone who publishes an Ability to the <code>apps.lloyal.ai</code> distribution channel via <a href="/cli/publishing"><code>lloyal publish</code></a> or the underlying API. Registering a publisher handle and submitting a tarball constitutes acceptance.</p>
+</section>
+
+<main class="article-shell wrap">
+<nav class="toc" aria-label="Table of contents"><div class="toc-label">On this page</div>
+<a class="toc-l1" href="#who-this-applies-to">Who this applies to</a>
+<a class="toc-l1" href="#what-you-grant-lloyal-labs">What you grant Lloyal Labs</a>
+<a class="toc-l1" href="#what-lloyal-labs-commits-to">What Lloyal Labs commits to</a>
+<a class="toc-l1" href="#your-obligations">Your obligations</a>
+<a class="toc-l1" href="#rejection-reasons">Rejection reasons</a>
+<a class="toc-l1" href="#revocation">Revocation</a>
+<a class="toc-l1" href="#suspension">Suspension</a>
+<a class="toc-l1" href="#reserved-handles">Reserved handles</a>
+<a class="toc-l1" href="#tos-revisions">ToS revisions</a>
+<a class="toc-l1" href="#disclaimer">Disclaimer</a>
+<a class="toc-l1" href="#liability">Liability</a>
+<a class="toc-l1" href="#governing-law">Governing law</a>
+<a class="toc-l1" href="#contact">Contact</a>
+</nav>
+<article class="article">
+<h2 id="who-this-applies-to">Who this applies to</h2>
+<p>If you've run <a href="/cli/publishing"><code>lloyal publishers register</code></a> and claimed a handle, you are a <strong>publisher</strong> under these terms. Each subsequent submission is made under the handle you registered.</p>
+<p>You retain ownership of the code in your Ability. These terms govern only the distribution relationship: what you grant Lloyal Labs to do with your tarball, what Lloyal Labs commits to do in return, and the rules your submissions must meet.</p>
+<h2 id="what-you-grant-lloyal-labs">What you grant Lloyal Labs</h2>
+<p>By submitting a tarball through <code>lloyal publish</code>, you grant Lloyal Labs a non-exclusive, worldwide, royalty-free license to:</p>
+<ol><li><strong>Inspect the tarball</strong> during review — including extracting and reading <code>package.json</code>, the bundled source, the manifest, and the <code>ability.json</code> metadata.</li><li><strong>Sign the approved tarball bytes</strong> with the Lloyal platform Ed25519 key, producing a manifest carrying that signature.</li><li><strong>Distribute the signed tarball + manifest + catalog entry</strong> via the <code>apps.lloyal.ai</code> channel and any successor channel under the same trust roots.</li><li><strong>Cache and serve</strong> the signed tarball through Cloudflare R2 and any CDN layer in front of it.</li><li><strong>Display your handle and the catalog name</strong> publicly in the catalog and in any portal Lloyal Labs operates over the channel.</li></ol>
+<p>The signature is over the exact bytes you submitted; Lloyal Labs does not modify your tarball before signing. If a revision is needed, you submit a new version under a new semver.</p>
+<h2 id="what-lloyal-labs-commits-to">What Lloyal Labs commits to</h2>
+<ol><li><strong>Review every submission</strong> before it enters the catalog.</li><li><strong>Communicate review outcomes</strong> — approval includes the canonical tarball URL; rejection includes a written reason.</li><li><strong>Preserve rejected submission artifacts for 30 days</strong> so you can appeal or resubmit a corrected version.</li><li><strong>Not modify your tarball bytes.</strong> Approved bytes are exactly the submitted bytes.</li><li><strong>Maintain the catalog signature</strong> so consumers verifying against <code>CHANNEL_TRUST_ROOTS</code> can rely on its integrity.</li><li><strong>Honor reasonable rate limits</strong> (currently 10 publishes per 24h per publisher identity).</li></ol>
+<h2 id="your-obligations">Your obligations</h2>
+<p>You agree that your submissions:</p>
+<ol><li><strong>Will not contain malicious code.</strong> This includes (non-exhaustively): credential-stealing logic, unauthorized network beacons, cryptocurrency miners, persistence mechanisms outside the harness's stated scope, or code that violates the <a href="/abilities">Ability Protocol</a>.</li><li><strong>Will not scrape or transmit personal data</strong> of harness end-users without their explicit informed consent.</li><li><strong>Will not impersonate</strong> another publisher, person, or organization.</li><li><strong>Will respect third-party rights.</strong> You are responsible for ensuring the tarball's contents — including transitive dependencies — comply with the licenses of any code you include.</li><li><strong>Will conform to the <a href="/abilities">Ability Protocol</a></strong> for the protocol version declared in your <code>ability.json</code>.</li><li><strong>Will use a <code>package.json</code> name that you control</strong> and that matches the <code>importName</code> field declared in your manifest stub.</li></ol>
+<h2 id="rejection-reasons">Rejection reasons</h2>
+<p>Lloyal Labs may reject a submission for any of:</p>
+<ul><li>Failure to meet any obligation in the previous section.</li><li>Tool surface overlap with existing approved abilities that creates significant consumer confusion.</li><li>Manifest claims that don't match the tarball contents.</li><li>Insufficient documentation for a reviewer to assess the Ability's behavior.</li></ul>
+<p>A rejection is per-submission; you may resubmit a corrected tarball under the same or a new version.</p>
+<h2 id="revocation">Revocation</h2>
+<p>Lloyal Labs may revoke a published Ability from the catalog for:</p>
+<ol><li><strong>A subsequent finding</strong> that the Ability violates these terms.</li><li><strong>A credible security report</strong> about the Ability's behavior.</li><li><strong>A legal order</strong> requiring removal.</li><li><strong>A request from the publisher</strong> to delist a version.</li></ol>
+<p>Revocation removes the catalog entry and the canonical R2 paths. Consumers who previously installed the Ability retain their local copy — the tarball bytes on their disk are not modified.</p>
+<h2 id="suspension">Suspension</h2>
+<p>Lloyal Labs may suspend a publisher account — preventing further submissions, without removing previously approved abilities — for:</p>
+<ol><li>Repeated submission of abilities that violate these terms.</li><li>Abuse of the review pipeline (e.g., spam submissions to exhaust reviewer capacity).</li><li>Behavior that misrepresents Lloyal Labs or another publisher.</li></ol>
+<p>Suspended publishers may appeal by emailing <a href="mailto:support@lloyal.ai"><code>support@lloyal.ai</code></a>.</p>
+<h2 id="reserved-handles">Reserved handles</h2>
+<p>The handle <code>lloyal</code> is reserved for Lloyal Labs. All other handles are first-come-first-served, subject to good-faith use. Lloyal Labs reserves the right to reclaim a handle that is registered in bad faith (impersonation, squatting, abandoned squatting).</p>
+<h2 id="tos-revisions">ToS revisions</h2>
+<p>This document is versioned (<code>v1</code>, <code>v2</code>, …). Each version is identified by the <code>tosVersion</code> field in your publisher record. When Lloyal Labs revises the ToS in a way that materially changes publisher obligations, the version increments and your existing registration's <code>tosVersion</code> becomes stale. The publish CLI will refuse to submit until you re-attest by running <code>lloyal publishers register</code> again.</p>
+<p>Editorial or clarifying changes that don't change publisher obligations keep the same <code>tosVersion</code>.</p>
+<h2 id="disclaimer">Disclaimer</h2>
+<p>THE <code>apps.lloyal.ai</code> CHANNEL AND THE REVIEW PIPELINE ARE PROVIDED "AS IS". Lloyal Labs makes no warranty that any specific submission will be approved, that reviews will complete within a specific timeframe, or that the channel will be available continuously. To the extent permitted by law, Lloyal Labs disclaims all warranties — express, implied, statutory, or otherwise.</p>
+<p>Nothing in these terms limits Lloyal Labs's review discretion. Approval is at Lloyal Labs's sole judgment based on the criteria documented here.</p>
+<h2 id="liability">Liability</h2>
+<p>To the maximum extent permitted by law, Lloyal Labs's aggregate liability arising out of or relating to these terms or the channel is limited to the fees you paid Lloyal Labs in the 12 months preceding the claim. The channel is currently free; that limit is therefore zero.</p>
+<h2 id="governing-law">Governing law</h2>
+<p>These terms are governed by the laws of New South Wales, Australia. Disputes will be resolved in the courts of New South Wales unless an alternative forum is required by applicable consumer-protection law in your jurisdiction.</p>
+<h2 id="contact">Contact</h2>
+<p>For questions about these terms or to report a suspected violation by another publisher, email <a href="mailto:support@lloyal.ai"><code>support@lloyal.ai</code></a>.</p>
+</article>
+</main>
+
+<footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on its terms.</span><span>Lloyal Labs &middot; Melbourne</span></footer>
+</div>

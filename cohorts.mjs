@@ -33,6 +33,9 @@ export const COHORT = {
   'focal-lens':                        ['guide', 'short', 'wide', 'hl'],
   'lookup':                            ['guide', 'short', 'wide'],
   'where-a-harness-runs':              ['guide', 'short', 'wide'],
+  // The first page styled entirely by the shared layers — it has no per-page
+  // selectors at all, which before the flatten meant no styling at all.
+  'publisher-tos':                     ['guide', 'short', 'wide'],
 };
 
 /** Every scope a page's <body> carries. Used by the page loop AND by 404.html. */
