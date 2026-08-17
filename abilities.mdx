@@ -62,7 +62,7 @@ export const guideHtml = `<div class="page">
 <tr><td><code>scoreSimilarityBatch(reference, texts)</code></td><td>How close is this to that? Any reference string, so the criterion is yours to name.</td></tr>
 <tr><td><code>shouldProceed(score)</code></td><td>The threshold gate, so callers share one notion of &ldquo;good enough&rdquo; instead of each inventing a cutoff.</td></tr>
 </tbody></table></div>
-<p>The contract is structural &mdash; any object with a <code>scoreBatch</code> method satisfies it &mdash; so an Ability can bring its own scorer as readily as it can use the harness&rsquo;s. A service is capacity an Ability puts to work, not a binary it links against.</p>
+<p>The contract is structural &mdash; any object with a <code>scoreBatch</code> method satisfies it &mdash; so an Ability can bring its own scorer as readily as it can use the harness&rsquo;s. A service is capacity an Ability puts to work, not a binary it links against. What that scoring decides &mdash; which chunks of a page or a corpus reach the model at all &mdash; is <a href="/focal-lens">context admission</a>.</p>
 <p>Loading is eager and shared. The harness takes every <code>services</code> entry across every installed Ability and provisions the union once, at boot. Two Abilities that declare <code>reranker</code> share one runtime. A harness whose Abilities declare none loads nothing.</p>
 <p><strong>The Abilities you install decide which models your application runs.</strong> A plugin asks for a package. An Ability asks for a model, and gets it.</p>
 <h2 id="the-setup">The setup</h2>

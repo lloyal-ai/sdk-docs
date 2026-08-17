@@ -190,6 +190,7 @@ const NAV = [
   { slug: 'continuous-context', href: '/continuous-context', label: 'Continuous Context' },
   { slug: 'abilities', href: '/abilities', label: 'Abilities' },
   { slug: 'agent-policy-and-context-pressure', href: '/agent-policy-and-context-pressure', label: 'Adaptive compute' },
+  { slug: 'focal-lens', href: '/focal-lens', label: 'Focus' },
   { slug: 'where-a-harness-runs', href: '/where-a-harness-runs', label: 'Where a harness runs' },
   { slug: 'lookup', href: '/lookup', label: 'Lookup' },
 ];
