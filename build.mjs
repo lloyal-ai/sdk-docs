@@ -189,6 +189,39 @@ const TOC_SCRIPT = `<script>
  * Built here rather than written into each `.mdx` so the six pages cannot drift
  * apart, and so `current` follows the slug by construction.
  */
+/**
+ * Extra marker classes per page, for the shared-CSS layers.
+ *
+ * WHY A STATIC TABLE, NOT DERIVED: `hl` (the Pygments palette) looks derivable
+ * from "does this page contain highlighted spans", and that is wrong — index,
+ * lookup, abilities, where-a-harness-runs and 404 all carry such spans that are
+ * deliberately UNSTYLED. Deriving it would silently restyle them. Adding a page
+ * should force a decision here, which is the point.
+ *
+ * `long` = the four long guides, `short` = the four short ones; the split is
+ * real (--max 1320 vs 1180, looser vs tighter heading rhythm) and `index` is
+ * neither. `pg-<slug>` is never removed, so anything targeting it still works.
+ */
+const COHORT = {
+  'index':                             [],
+  'build-your-first-harness':          ['guide', 'long', 'hl'],
+  'thinking-in-lloyal':                ['guide', 'long', 'hl'],
+  'continuous-context':                ['guide', 'long', 'hl'],
+  'agent-policy-and-context-pressure': ['guide', 'long', 'hl'],
+  'abilities':                         ['guide', 'short'],
+  'focal-lens':                        ['guide', 'short', 'hl'],
+  'lookup':                            ['guide', 'short'],
+  'where-a-harness-runs':              ['guide', 'short'],
+};
+
+/** Every scope a page's <body> carries. Used by the page loop AND by 404.html. */
+const bodyClass = (slug) => {
+  // Fail the build rather than ship a page silently missing its cohort — an
+  // unstyled page is exactly the failure this whole change exists to remove.
+  if (!COHORT[slug]) throw new Error(`build: no cohort declared for '${slug}' — add it to COHORT in build.mjs`);
+  return ['pg', ...COHORT[slug], `pg-${slug}`].join(' ');
+};
+
 const NAV = [
   { slug: 'index', href: '/', label: 'Docs' },
   { slug: 'build-your-first-harness', href: '/build-your-first-harness', label: 'Build your first harness' },
@@ -239,7 +272,7 @@ for (const file of pages) {
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="${CSS}">
 </head>
-<body id="lloyal-guides" class="pg-${slug}">
+<body id="lloyal-guides" class="${bodyClass(slug)}">
 ${nav(slug)}
 ${body}
 ${NAV_SCRIPT}
@@ -287,7 +320,7 @@ writeFileSync(join(OUT, '404.html'), `<!doctype html>
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="${CSS}">
 </head>
-<body id="lloyal-guides" class="pg-index">
+<body id="lloyal-guides" class="${bodyClass('index')}">
 ${nav('')}
 <div class="page">
 <header class="masthead wrap">
