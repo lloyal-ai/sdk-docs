@@ -1,10 +1,8 @@
----
-title: "Adaptive compute through semantic pruning"
-description: "Adaptive compute in a running AgentPool: how policy, context pressure, effort, recovery and wind-down decide what continues. Semantic pruning removes whole branches on judgement rather than compacting the context window on arithmetic."
-mode: "custom"
----
-
-export const guideHtml = `<div class="page">
+<!--
+title: Adaptive compute through semantic pruning
+description: Adaptive compute in a running AgentPool: how policy, context pressure, effort, recovery and wind-down decide what continues. Semantic pruning removes whole branches on judgement rather than compacting the context window on arithmetic.
+-->
+<div class="page">
   <header class="masthead wrap">
     <div>
       <div class="wordmark">Lloyal Labs</div>
@@ -937,15 +935,15 @@ critical  = true
   AgentPool enforces.
 <span class="k">-</span><span class="w"> </span>Do not mutate branches, prune KV, or call native decode from a policy hook.
 <span class="k">-</span><span class="w"> </span>Treat ContextPressure as an immutable decision-boundary snapshot.
-<span class="k">-</span><span class="w"> </span><span class="sb">\`softLimit\`</span> is the new-work and nudge boundary.
-<span class="k">-</span><span class="w"> </span><span class="sb">\`hardLimit\`</span> is the mechanical decode floor and recovery boundary.
-<span class="k">-</span><span class="w"> </span>Recovery budgets from <span class="sb">\`remaining - hardLimit\`</span>, not only from <span class="sb">\`headroom\`</span>.
-<span class="k">-</span><span class="w"> </span><span class="sb">\`shouldExplore\`</span> changes retrieval strategy; it does not terminate an Agent.
-<span class="k">-</span><span class="w"> </span><span class="sb">\`shouldExit\`</span> stops an Agent but leaves its branch available for recovery.
-<span class="k">-</span><span class="w"> </span><span class="sb">\`onRecovery\`</span> chooses extract or skip; AgentPool enforces grammar and budget.
-<span class="k">-</span><span class="w"> </span><span class="sb">\`onSettleReject\`</span> is a stall-break after ordinary deferral cannot resolve.
+<span class="k">-</span><span class="w"> </span><span class="sb">`softLimit`</span> is the new-work and nudge boundary.
+<span class="k">-</span><span class="w"> </span><span class="sb">`hardLimit`</span> is the mechanical decode floor and recovery boundary.
+<span class="k">-</span><span class="w"> </span>Recovery budgets from <span class="sb">`remaining - hardLimit`</span>, not only from <span class="sb">`headroom`</span>.
+<span class="k">-</span><span class="w"> </span><span class="sb">`shouldExplore`</span> changes retrieval strategy; it does not terminate an Agent.
+<span class="k">-</span><span class="w"> </span><span class="sb">`shouldExit`</span> stops an Agent but leaves its branch available for recovery.
+<span class="k">-</span><span class="w"> </span><span class="sb">`onRecovery`</span> chooses extract or skip; AgentPool enforces grammar and budget.
+<span class="k">-</span><span class="w"> </span><span class="sb">`onSettleReject`</span> is a stall-break after ordinary deferral cannot resolve.
 <span class="k">-</span><span class="w"> </span>Wind-down, per-Agent cancellation, and Effection scope halt are different.
-<span class="k">-</span><span class="w"> </span>Prefer configuring or extending <span class="sb">\`DefaultAgentPolicy\`</span> over replacing it.
+<span class="k">-</span><span class="w"> </span>Prefer configuring or extending <span class="sb">`DefaultAgentPolicy`</span> over replacing it.
 </code></pre></div><hr/>
 <h1 id="relationship-to-the-programming-model">Relationship to the programming model</h1>
 <p>Structured concurrency answers:</p>
@@ -979,6 +977,4 @@ AgentPool
     <span class="mission">Enable every organisation to deliver intelligence on their terms.</span>
     <span>Lloyal Labs · Melbourne</span>
   </footer>
-</div>`
-
-<div id="lloyal-guides" className="pg-agent-policy-and-context-pressure" dangerouslySetInnerHTML={{__html: guideHtml}} />
+</div>

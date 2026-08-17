@@ -1,10 +1,8 @@
----
-title: "Build your first harness"
-description: "Use lloyal-ai to create an application, begin a Session, inspect its procedure, change its topology, and continue from accepted state."
-mode: "custom"
----
-
-export const guideHtml = `<div class="page">
+<!--
+title: Build your first harness
+description: Use lloyal-ai to create an application, begin a Session, inspect its procedure, change its topology, and continue from accepted state.
+-->
+<div class="page">
   <header class="masthead wrap">
     <div>
       <div class="wordmark">Lloyal Labs</div>
@@ -230,7 +228,7 @@ notes leave as data
 <span class="w">  </span><span class="nx">enableThinking</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">orchestrate</span><span class="o">:</span><span class="w"> </span><span class="kt">parallel</span><span class="p">(</span>
 <span class="w">    </span><span class="nx">ANGLES</span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">angle</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
-<span class="w">      </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="sb">\`</span><span class="si">\${</span><span class="nx">query</span><span class="si">}</span><span class="sb">\\n\\nFocus: </span><span class="si">\${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">\`</span><span class="p">,</span>
+<span class="w">      </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="sb">`</span><span class="si">${</span><span class="nx">query</span><span class="si">}</span><span class="sb">\n\nFocus: </span><span class="si">${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
 <span class="w">      </span><span class="nx">systemPrompt</span><span class="o">:</span><span class="w"> </span><span class="kt">agentPreamble</span><span class="p">(</span><span class="nx">apps</span><span class="p">[</span><span class="mf">0</span><span class="p">],</span><span class="w"> </span><span class="nx">i</span><span class="p">),</span>
 <span class="w">      </span><span class="nx">seed</span><span class="o">:</span><span class="w"> </span><span class="kt">1000</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span>
 <span class="w">    </span><span class="p">})),</span>
@@ -271,11 +269,11 @@ C ─┘
 </code></pre></div><p>Replace the <code>orchestrate</code> value:</p>
 <div class="code-frame"><div class="code-label">TYPESCRIPT</div><pre><code><span class="nx">orchestrate</span><span class="o">:</span><span class="w"> </span><span class="kt">chain</span><span class="p">(</span><span class="nx">ANGLES</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">angle</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span>
 <span class="w">  </span><span class="nx">task</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="sb">\`</span><span class="si">\${</span><span class="nx">query</span><span class="si">}</span><span class="sb">\\n\\nFocus: </span><span class="si">\${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">\`</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="sb">`</span><span class="si">${</span><span class="nx">query</span><span class="si">}</span><span class="sb">\n\nFocus: </span><span class="si">${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
 <span class="w">    </span><span class="nx">systemPrompt</span><span class="o">:</span><span class="w"> </span><span class="kt">agentPreamble</span><span class="p">(</span><span class="nx">apps</span><span class="p">[</span><span class="mf">0</span><span class="p">],</span><span class="w"> </span><span class="nx">i</span><span class="p">),</span>
 <span class="w">    </span><span class="nx">seed</span><span class="o">:</span><span class="w"> </span><span class="kt">1000</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="nx">i</span><span class="p">,</span>
 <span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="nx">userContent</span><span class="o">:</span><span class="w"> </span><span class="sb">\`Research focus: </span><span class="si">\${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">\`</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">userContent</span><span class="o">:</span><span class="w"> </span><span class="sb">`Research focus: </span><span class="si">${</span><span class="nx">angle</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
 <span class="p">})),</span>
 </code></pre></div><p>The execution now has a different shape:</p>
 <div class="code-frame"><div class="code-label">STRUCTURE</div><pre><code>chain
@@ -293,7 +291,7 @@ C inherits A + B
 <span class="w">  </span><span class="nx">systemPrompt</span><span class="o">:</span><span class="w"> </span><span class="kt">SYNTH_SYSTEM</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">task</span><span class="o">:</span><span class="w"> </span><span class="kt">renderTemplate</span><span class="p">(</span><span class="nx">SYNTH_USER</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nx">query</span><span class="p">,</span>
-<span class="w">    </span><span class="nx">notes</span><span class="o">:</span><span class="w"> </span><span class="kt">notes.map</span><span class="p">((</span><span class="nx">n</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="sb">\`[</span><span class="si">\${</span><span class="nx">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="si">}</span><span class="sb">] </span><span class="si">\${</span><span class="nx">n</span><span class="si">}</span><span class="sb">\`</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s2">"\\n\\n"</span><span class="p">),</span>
+<span class="w">    </span><span class="nx">notes</span><span class="o">:</span><span class="w"> </span><span class="kt">notes.map</span><span class="p">((</span><span class="nx">n</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="sb">`[</span><span class="si">${</span><span class="nx">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="si">}</span><span class="sb">] </span><span class="si">${</span><span class="nx">n</span><span class="si">}</span><span class="sb">`</span><span class="p">).</span><span class="nx">join</span><span class="p">(</span><span class="s2">"\n\n"</span><span class="p">),</span>
 <span class="w">  </span><span class="p">}),</span>
 <span class="w">  </span><span class="nx">parent</span><span class="o">:</span><span class="w"> </span><span class="kt">session.trunk</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="kc">undefined</span><span class="p">,</span>
 <span class="w">  </span><span class="nx">policy</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nx">SynthPolicy</span><span class="p">(),</span>
@@ -377,6 +375,4 @@ subsequent work may inherit it
 
   <footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on their terms.</span><span>Lloyal.ai</span></footer>
 </div>
-<a aria-label="Back to top" class="back-to-top" href="#top">↑</a>`
-
-<div id="lloyal-guides" className="pg-build-your-first-harness" dangerouslySetInnerHTML={{__html: guideHtml}} />
+<a aria-label="Back to top" class="back-to-top" href="#top">↑</a>

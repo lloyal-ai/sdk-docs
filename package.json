@@ -3,7 +3,9 @@
     "build": "node build.mjs",
     "css:selftest": "node tools/css-gate/selftest.mjs",
     "css:pagesets": "node tools/css-gate/pagesets.mjs assets/guides/guides-theme.css",
-    "css:volatility": "node tools/css-gate/volatility.mjs"
+    "css:volatility": "node tools/css-gate/volatility.mjs",
+    "css:matchsets": "node tools/css-gate/matchsets.mjs",
+    "css:merge": "node tools/css-gate/merge.mjs"
   },
   "devDependencies": {
     "@mermaid-js/mermaid-cli": "^11.12.0",

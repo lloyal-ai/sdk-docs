@@ -1,10 +1,8 @@
----
-title: "Thinking in Lloyal"
-description: "How owned lifetimes, live inference state, Agents, Tools, orchestration, finality, and continuity fit together."
-mode: "custom"
----
-
-export const guideHtml = `<div class="page" id="top">
+<!--
+title: Thinking in Lloyal
+description: How owned lifetimes, live inference state, Agents, Tools, orchestration, finality, and continuity fit together.
+-->
+<div class="page" id="top">
 <header class="masthead wrap">
 <div>
 <div class="wordmark">Lloyal Labs</div>
@@ -1326,20 +1324,20 @@ later work forks from accepted state
 <div class="code-frame"><div class="code-label">Markdown</div><pre><code><span class="gu">## Lloyal structured-concurrency invariants</span>
 
 <span class="k">-</span><span class="w"> </span>A harness is a long-lived Effection scope.
-<span class="k">-</span><span class="w"> </span>Read <span class="sb">\`yield*\`</span> as “perform this operation here, under this owner.”
+<span class="k">-</span><span class="w"> </span>Read <span class="sb">`yield*`</span> as “perform this operation here, under this owner.”
 <span class="k">-</span><span class="w"> </span>Do not convert Operation generators into async functions.
-<span class="k">-</span><span class="w"> </span>Do not call and ignore a value of type <span class="sb">\`Operation&lt;T&gt;\`</span>.
-<span class="k">-</span><span class="w"> </span>Perform Operations with <span class="sb">\`yield*\`</span>, <span class="sb">\`all\`</span>, <span class="sb">\`race\`</span>, <span class="sb">\`spawn\`</span>, or return them.
-<span class="k">-</span><span class="w"> </span>Use <span class="sb">\`spawn\`</span> only for concurrent children owned by the current scope.
-<span class="k">-</span><span class="w"> </span>Use <span class="sb">\`call()\`</span> at Promise or async-library boundaries.
+<span class="k">-</span><span class="w"> </span>Do not call and ignore a value of type <span class="sb">`Operation&lt;T&gt;`</span>.
+<span class="k">-</span><span class="w"> </span>Perform Operations with <span class="sb">`yield*`</span>, <span class="sb">`all`</span>, <span class="sb">`race`</span>, <span class="sb">`spawn`</span>, or return them.
+<span class="k">-</span><span class="w"> </span>Use <span class="sb">`spawn`</span> only for concurrent children owned by the current scope.
+<span class="k">-</span><span class="w"> </span>Use <span class="sb">`call()`</span> at Promise or async-library boundaries.
 <span class="k">-</span><span class="w"> </span>An Agent is not an Effection Task; the pool advances Agents.
 <span class="k">-</span><span class="w"> </span>Agent concurrency is executed by the pool over BranchStore.
 <span class="k">-</span><span class="w"> </span>A Branch or spine normally cannot outlive the scope that created it.
-<span class="k">-</span><span class="w"> </span>Return durable findings from <span class="sb">\`withSpine\`</span>, not live branch handles.
+<span class="k">-</span><span class="w"> </span>Return durable findings from <span class="sb">`withSpine`</span>, not live branch handles.
 <span class="k">-</span><span class="w"> </span>Effection Context values are scoped capabilities, not globals.
-<span class="k">-</span><span class="w"> </span>Follow TypeScript return types: some <span class="sb">\`send()\`</span> methods are synchronous,
+<span class="k">-</span><span class="w"> </span>Follow TypeScript return types: some <span class="sb">`send()`</span> methods are synchronous,
   while Channels return Operations that must be yielded.
-<span class="k">-</span><span class="w"> </span>Do not mark a Tool as <span class="sb">\`fanout\`</span> if it may touch the main SessionContext.
+<span class="k">-</span><span class="w"> </span>Do not mark a Tool as <span class="sb">`fanout`</span> if it may touch the main SessionContext.
 </code></pre></div><hr/>
 <h1 id="continue-into-adaptive-execution">Continue into adaptive compute</h1>
 <p>This guide establishes the ownership model and shows the advanced procedures it can express. The next guide goes deeper on the lifecycle boundary that production harnesses use most often:</p>
@@ -1352,6 +1350,4 @@ later work forks from accepted state
 </main>
 <footer class="footer wrap"><span class="mission">Enable every organisation to deliver intelligence on their terms.</span><span>Lloyal.ai</span></footer>
 </div>
-<a aria-label="Back to top" class="back-to-top" href="#top">↑</a>`
-
-<div id="lloyal-guides" className="pg-thinking-in-lloyal" dangerouslySetInnerHTML={{__html: guideHtml}} />
+<a aria-label="Back to top" class="back-to-top" href="#top">↑</a>
