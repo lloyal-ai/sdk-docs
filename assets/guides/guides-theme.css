@@ -507,7 +507,7 @@
   --darkline: #303030;
   --paper: #f0f0f0;
   --soft: #f6f6f6;
-  --max: 1180px;
+  --max: 1320px;
 }
 #lloyal-guides.pg-build-your-first-harness .page {
   max-width: var(--max);
@@ -586,7 +586,11 @@
 }
 #lloyal-guides.guide .article-shell {
   display: grid;
-  grid-template-columns: 235px minmax(0,1fr);
+  /* The text column is capped rather than left to take whatever the page
+     gives it. Tracking --max put 116 characters on a line at 1320px - the
+     reading measure was a side effect of a layout decision. 720px is ~95
+     characters, the upper bound for technical prose. */
+  grid-template-columns: 235px minmax(0,720px);
   gap: 62px;
   align-items: start;
   padding-top: 64px;
