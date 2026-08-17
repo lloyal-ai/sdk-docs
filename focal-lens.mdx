@@ -51,55 +51,55 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <h1 id="a-page-arrives-in-its-own-words">A page arrives in its own words</h1>
 <p><strong>An agent fetches a forty-thousand-token page. Two thousand tokens of it reach the model.</strong> The article is chunked on heading boundaries, every chunk is scored, and the survivors are admitted <em>verbatim</em> &mdash; five of them by default, inside a 2048-token budget.</p>
 <p>Nothing is summarised. The industry&rsquo;s answer to an oversized page is a second generative call that compresses it, which is lossy, slow, and precisely where fabrication enters. Selection replaces compression: what arrives is the source&rsquo;s own sentences, quotable and attributable, chosen by a question you wrote.</p>
-<div class="code-frame"><div class="code-label">ADMITTING FROM A PAGE</div><pre><code><span class="c">// 1. structure the page — headings become chunk boundaries</span>
-const chunks = yield* call(() =&gt;
-  chunkHtml(fetched.articleHtml, url, fetched.title),
-);
+<div class="code-frame"><div class="code-label">ADMITTING FROM A PAGE</div><pre><code><span class="c1">// 1. structure the page — headings become chunk boundaries</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">chunks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span>
+<span class="w">  </span><span class="nx">chunkHtml</span><span class="p">(</span><span class="nx">fetched</span><span class="p">.</span><span class="nx">articleHtml</span><span class="p">,</span><span class="w"> </span><span class="nx">url</span><span class="p">,</span><span class="w"> </span><span class="nx">fetched</span><span class="p">.</span><span class="nx">title</span><span class="p">),</span>
+<span class="p">);</span>
 
-<span class="c">// 2. ask the judge once per chunk, in one batched pass</span>
-let scored: ScoredChunk[] = [];
-for await (const batch of reranker.score(args.query, chunks)) {
-  scored = batch.results;
-}
+<span class="c1">// 2. ask the judge once per chunk, in one batched pass</span>
+<span class="kd">let</span><span class="w"> </span><span class="nx">scored</span><span class="o">:</span><span class="w"> </span><span class="kt">ScoredChunk</span><span class="p">[]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span>
+<span class="k">for</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="p">(</span><span class="kd">const</span><span class="w"> </span><span class="nx">batch</span><span class="w"> </span><span class="k">of</span><span class="w"> </span><span class="nx">reranker</span><span class="p">.</span><span class="nx">score</span><span class="p">(</span><span class="nx">args</span><span class="p">.</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">chunks</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">scored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">batch</span><span class="p">.</span><span class="nx">results</span><span class="p">;</span>
+<span class="p">}</span>
 
-<span class="c">// 3. admit verbatim: top-K, inside a token budget</span>
-const topChunks = selectTopChunks(scored, chunks, topK, tokenBudget);</code></pre></div>
+<span class="c1">// 3. admit verbatim: top-K, inside a token budget</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">topChunks</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">selectTopChunks</span><span class="p">(</span><span class="nx">scored</span><span class="p">,</span><span class="w"> </span><span class="nx">chunks</span><span class="p">,</span><span class="w"> </span><span class="nx">topK</span><span class="p">,</span><span class="w"> </span><span class="nx">tokenBudget</span><span class="p">);</span></code></pre></div>
 <p>If you have written retrieval before, step three is where your <code>top_k</code> slice went. The difference is what step two returns &mdash; not a distance to sort by, but an answer to a question &mdash; and that there is no step four. Nothing compresses what survived.</p>
 
 <p>A corpus admits on the same shape, with one addition. The judge is linear in candidates, so a cheap lexical stage narrows the field before it is asked anything:</p>
-<div class="code-frame"><div class="code-label">ADMITTING FROM A CORPUS</div><pre><code><span class="c">// a cheap first stage decides who gets judged at all</span>
-const candidates = bm25.topK(query, 100);
+<div class="code-frame"><div class="code-label">ADMITTING FROM A CORPUS</div><pre><code><span class="c1">// a cheap first stage decides who gets judged at all</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">candidates</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">bm25</span><span class="p">.</span><span class="nx">topK</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="mf">100</span><span class="p">);</span>
 
-<span class="c">// the judge scores those, in one batched pass</span>
-const scored = await reranker.score(query, candidates);
+<span class="c1">// the judge scores those, in one batched pass</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">scored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">reranker</span><span class="p">.</span><span class="nx">score</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">candidates</span><span class="p">);</span>
 
-<span class="c">// a floor you can say out loud: keep what the judge calls relevant</span>
-const hits = scored.filter((s) =&gt; s.score &gt;= threshold);</code></pre></div>
+<span class="c1">// a floor you can say out loud: keep what the judge calls relevant</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">hits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">scored</span><span class="p">.</span><span class="nx">filter</span><span class="p">((</span><span class="nx">s</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">score</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">threshold</span><span class="p">);</span></code></pre></div>
 <p>The floor does double duty. Above it the agent has confident matches. Below it the agent has learned something too &mdash; that this corpus does not answer the question as asked, and the next move is a different question rather than a longer list.</p>
 <p><strong>And the same lens admits work, not only text.</strong> Hand it proposed sub-tasks instead of passages and it asks two questions before anything is spawned:</p>
-<div class="code-frame"><div class="code-label">ADMITTING WORK</div><pre><code><span class="c">// does this sub-task still follow from the original query?</span>
-const onTopic = await scorer.scoreEntailmentBatch(subTasks);
-const surviving = subTasks.filter((_, i) =&gt; scorer.shouldProceed(onTopic[i]));
+<div class="code-frame"><div class="code-label">ADMITTING WORK</div><pre><code><span class="c1">// does this sub-task still follow from the original query?</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">onTopic</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">scorer</span><span class="p">.</span><span class="nx">scoreEntailmentBatch</span><span class="p">(</span><span class="nx">subTasks</span><span class="p">);</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">surviving</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">subTasks</span><span class="p">.</span><span class="nx">filter</span><span class="p">((</span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">scorer</span><span class="p">.</span><span class="nx">shouldProceed</span><span class="p">(</span><span class="nx">onTopic</span><span class="p">[</span><span class="nx">i</span><span class="p">]));</span>
 
-<span class="c">// is someone further up the tree already asking it?</span>
-const ancestors = callingAgent.walkAncestors((a) =&gt; (a.task ? [a.task] : []));
-const echo = await scorer.scoreSimilarityBatch(ancestors.join(" "), surviving);
-if (Math.min(...echo) &gt; echoThreshold) return { error: "already asked upstream" };</code></pre></div>
+<span class="c1">// is someone further up the tree already asking it?</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">ancestors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">callingAgent</span><span class="p">.</span><span class="nx">walkAncestors</span><span class="p">((</span><span class="nx">a</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">(</span><span class="nx">a</span><span class="p">.</span><span class="nx">task</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">[</span><span class="nx">a</span><span class="p">.</span><span class="nx">task</span><span class="p">]</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[]));</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">echo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">scorer</span><span class="p">.</span><span class="nx">scoreSimilarityBatch</span><span class="p">(</span><span class="nx">ancestors</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">surviving</span><span class="p">);</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(...</span><span class="nx">echo</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">echoThreshold</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">error</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;already asked upstream&quot;</span><span class="w"> </span><span class="p">};</span></code></pre></div>
 <p>Same primitive, same batched pass, a different reference string. Admission is not a retrieval feature &mdash; it is what the runtime does whenever something wants space it has not earned.</p>
 
 <h1 id="the-aperture-is-under-program-control">The aperture is under program control</h1>
 <p><strong>Policy decides what the model gets to focus on, per agent, per tick.</strong> Reading a page in explore mode, chunks are scored against what that agent just asked. In exploit mode they must satisfy the agent&rsquo;s query <em>and</em> the original task at once &mdash; <code>min(toolQueryScore, originalQueryScore)</code>, which is a much narrower depth of field.</p>
 <p>The default is wide. <code>AgentPolicy.shouldExplore()</code> narrows it as headroom disappears, at 40% of context and 50% of the time budget in the shipped policy. An investigating agent keeps its bridging content while there is room for it, and stops down when there is not.</p>
-<div class="code-frame"><div class="code-label">THE POSTURE SWITCH</div><pre><code><span class="c">// Explore (default): score against what this agent asked for.</span>
-<span class="c">// Exploit: demand both planes at once.</span>
-if (!context?.explore &amp;&amp; context?.scorer) {
-  const combined = yield* call(() =&gt;
-    context.scorer.scoreRelevanceBatch(chunkTexts, args.query),
-  );  <span class="c">// min(toolQueryScore, originalQueryScore)</span>
-  scored = scored
-    .map((sc, i) =&gt; ({ ...sc, score: combined[i] }))
-    .sort((a, b) =&gt; b.score - a.score);
-}</code></pre></div>
+<div class="code-frame"><div class="code-label">THE POSTURE SWITCH</div><pre><code><span class="c1">// Explore (default): score against what this agent asked for.</span>
+<span class="c1">// Exploit: demand both planes at once.</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nx">context</span><span class="o">?</span><span class="p">.</span><span class="nx">explore</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">context</span><span class="o">?</span><span class="p">.</span><span class="nx">scorer</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">combined</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">yield</span><span class="o">*</span><span class="w"> </span><span class="nx">call</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span>
+<span class="w">    </span><span class="nx">context</span><span class="p">.</span><span class="nx">scorer</span><span class="p">.</span><span class="nx">scoreRelevanceBatch</span><span class="p">(</span><span class="nx">chunkTexts</span><span class="p">,</span><span class="w"> </span><span class="nx">args</span><span class="p">.</span><span class="nx">query</span><span class="p">),</span>
+<span class="w">  </span><span class="p">);</span><span class="w">  </span><span class="c1">// min(toolQueryScore, originalQueryScore)</span>
+<span class="w">  </span><span class="nx">scored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">scored</span>
+<span class="w">    </span><span class="p">.</span><span class="nx">map</span><span class="p">((</span><span class="nx">sc</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">({</span><span class="w"> </span><span class="p">...</span><span class="nx">sc</span><span class="p">,</span><span class="w"> </span><span class="nx">score</span><span class="o">:</span><span class="w"> </span><span class="kt">combined</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="p">}))</span>
+<span class="w">    </span><span class="p">.</span><span class="nx">sort</span><span class="p">((</span><span class="nx">a</span><span class="p">,</span><span class="w"> </span><span class="nx">b</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">b</span><span class="p">.</span><span class="nx">score</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">a</span><span class="p">.</span><span class="nx">score</span><span class="p">);</span>
+<span class="p">}</span></code></pre></div>
 <p>The reason explore is the default when reading a page is worth stating: the agent chose that page. Scoring its contents against the original task would demote exactly the bridging material that produces the next good hypothesis.</p>
 
 <h1 id="a-hundred-candidates-one-pass">A hundred candidates, one pass</h1>
