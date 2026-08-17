@@ -2573,7 +2573,7 @@
   margin: 0;
   background: #d8d8d8;
   color: var(--ink);
-  font-family: 'Readex Pro','Inter',Arial,sans-serif;
+  font-family: 'Readex Pro Variable','Readex Pro','Inter',Arial,sans-serif;
   font-weight: 300;
 }
 #lloyal-guides.pg-continuous-context .page {
@@ -2704,7 +2704,7 @@
 
 /* Latest-guide additions */
 #lloyal-guides.pg-continuous-context .article h3 {
-  scroll-margin-top: 24px;
+  scroll-margin-top: calc(var(--nav-h) + 24px);
 }
 #lloyal-guides.guide .toc a.active {
   color: #111;
@@ -3000,27 +3000,7 @@ body:has(#lloyal-guides) .fixed.z-999 {
    shove it down the page instead of holding it clear of the bar. */
 
 @media (min-width: 901px) {
-  #lloyal-guides.pg-continuous-context .toc {
-    top: calc(var(--nav-h) + 28px);
-    max-height: calc(100vh - var(--nav-h) - 56px);
-  }
-  #lloyal-guides.pg-build-your-first-harness .toc {
-    top: calc(var(--nav-h) + 28px);
-    max-height: calc(100vh - var(--nav-h) - 56px);
-  }
-  #lloyal-guides.pg-thinking-in-lloyal .toc {
-    top: calc(var(--nav-h) + 28px);
-    max-height: calc(100vh - var(--nav-h) - 56px);
-  }
-  #lloyal-guides.pg-agent-policy-and-context-pressure .toc {
-    top: calc(var(--nav-h) + 28px);
-    max-height: calc(100vh - var(--nav-h) - 56px);
-  }
-  #lloyal-guides.pg-where-a-harness-runs .toc {
-    top: calc(var(--nav-h) + 28px);
-    max-height: calc(100vh - var(--nav-h) - 56px);
-  }
-  #lloyal-guides.pg-lookup .toc {
+  #lloyal-guides.guide .toc {
     top: calc(var(--nav-h) + 28px);
     max-height: calc(100vh - var(--nav-h) - 56px);
   }
@@ -3126,7 +3106,7 @@ so ordinary
    shrinking further was not available. */
 
 @media (max-width: 560px) {
-  #lloyal-guides.pg-index .masthead {
+  #lloyal-guides.pg .masthead {
     flex-direction: column;
     align-items: flex-start;
     justify-content: center;
@@ -3135,79 +3115,7 @@ so ordinary
     padding-top: 20px;
     padding-bottom: 18px;
   }
-  #lloyal-guides.pg-build-your-first-harness .masthead {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 12px;
-    height: auto;
-    padding-top: 20px;
-    padding-bottom: 18px;
-  }
-  #lloyal-guides.pg-thinking-in-lloyal .masthead {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 12px;
-    height: auto;
-    padding-top: 20px;
-    padding-bottom: 18px;
-  }
-  #lloyal-guides.pg-continuous-context .masthead {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 12px;
-    height: auto;
-    padding-top: 20px;
-    padding-bottom: 18px;
-  }
-  #lloyal-guides.pg-agent-policy-and-context-pressure .masthead {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 12px;
-    height: auto;
-    padding-top: 20px;
-    padding-bottom: 18px;
-  }
-  #lloyal-guides.pg-where-a-harness-runs .masthead {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 12px;
-    height: auto;
-    padding-top: 20px;
-    padding-bottom: 18px;
-  }
-  #lloyal-guides.pg-lookup .masthead {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 12px;
-    height: auto;
-    padding-top: 20px;
-    padding-bottom: 18px;
-  }
-  #lloyal-guides.pg-index .issue {
-    text-align: left;
-  }
-  #lloyal-guides.pg-build-your-first-harness .issue {
-    text-align: left;
-  }
-  #lloyal-guides.pg-thinking-in-lloyal .issue {
-    text-align: left;
-  }
-  #lloyal-guides.pg-continuous-context .issue {
-    text-align: left;
-  }
-  #lloyal-guides.pg-agent-policy-and-context-pressure .issue {
-    text-align: left;
-  }
-  #lloyal-guides.pg-where-a-harness-runs .issue {
-    text-align: left;
-  }
-  #lloyal-guides.pg-lookup .issue {
+  #lloyal-guides.pg .issue {
     text-align: left;
   }
 }
