@@ -56,19 +56,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import postcss from 'postcss';
 import selectorParser from 'postcss-selector-parser';
 
-const LONG = ['agent-policy-and-context-pressure', 'build-your-first-harness',
-  'continuous-context', 'thinking-in-lloyal'];
-const SHORT = ['abilities', 'focal-lens', 'lookup', 'where-a-harness-runs'];
-const ALL = [...LONG, ...SHORT, 'index'];
+import { COHORT, MARKERS } from '../../cohorts.mjs';
 
-/** Marker → the page set it stands for. */
-const MARKERS = {
-  pg:    ALL,
-  guide: [...LONG, ...SHORT],
-  long:  LONG,
-  short: SHORT,
-  hl:    [...LONG, 'focal-lens'],   // the palette is long PLUS focal-lens, not a cohort
-};
+const ALL = Object.keys(COHORT);
+
 
 const [inPath, outPath, want, matchPath] = process.argv.slice(2);
 if (!inPath || !outPath || !want) { console.error('usage: merge.mjs <in> <out> pg,guide,... [matchsets.json]'); process.exit(2); }

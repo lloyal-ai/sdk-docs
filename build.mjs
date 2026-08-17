@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync, readdirSync, existsSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, basename } from 'node:path';
+import { COHORT, bodyClass } from './cohorts.mjs';
 
 const OUT = 'dist';
 
@@ -189,38 +190,6 @@ const TOC_SCRIPT = `<script>
  * Built here rather than written into each `.mdx` so the six pages cannot drift
  * apart, and so `current` follows the slug by construction.
  */
-/**
- * Extra marker classes per page, for the shared-CSS layers.
- *
- * WHY A STATIC TABLE, NOT DERIVED: `hl` (the Pygments palette) looks derivable
- * from "does this page contain highlighted spans", and that is wrong — index,
- * lookup, abilities, where-a-harness-runs and 404 all carry such spans that are
- * deliberately UNSTYLED. Deriving it would silently restyle them. Adding a page
- * should force a decision here, which is the point.
- *
- * `long` = the four long guides, `short` = the four short ones; the split is
- * real (--max 1320 vs 1180, looser vs tighter heading rhythm) and `index` is
- * neither. `pg-<slug>` is never removed, so anything targeting it still works.
- */
-const COHORT = {
-  'index':                             [],
-  'build-your-first-harness':          ['guide', 'long', 'hl'],
-  'thinking-in-lloyal':                ['guide', 'long', 'hl'],
-  'continuous-context':                ['guide', 'long', 'hl'],
-  'agent-policy-and-context-pressure': ['guide', 'long', 'hl'],
-  'abilities':                         ['guide', 'short'],
-  'focal-lens':                        ['guide', 'short', 'hl'],
-  'lookup':                            ['guide', 'short'],
-  'where-a-harness-runs':              ['guide', 'short'],
-};
-
-/** Every scope a page's <body> carries. Used by the page loop AND by 404.html. */
-const bodyClass = (slug) => {
-  // Fail the build rather than ship a page silently missing its cohort — an
-  // unstyled page is exactly the failure this whole change exists to remove.
-  if (!COHORT[slug]) throw new Error(`build: no cohort declared for '${slug}' — add it to COHORT in build.mjs`);
-  return ['pg', ...COHORT[slug], `pg-${slug}`].join(' ');
-};
 
 const NAV = [
   { slug: 'index', href: '/', label: 'Docs' },
@@ -249,6 +218,25 @@ const nav = (slug) => `<nav class="lloyal-topnav" aria-label="Guides">` +
   NAV.map(
     (n) => `<a href="${n.href}"${n.slug === slug ? ' class="lloyal-topnav-current" aria-current="page"' : ''}>${n.label}</a>`,
   ).join('') + `</nav>`;
+
+/**
+ * Every scope the stylesheet targets must be a scope some page actually wears.
+ *
+ * The two lists live in different files — the markers in `tools/css-gate/merge.mjs`
+ * decide what the CSS is keyed on, `COHORT` above decides what the body carries —
+ * and nothing but this connects them. Adding `wide` to one and not the other
+ * silently deleted the root variables block from all nine pages: no `--max`, so
+ * every page went full-bleed. Gate C caught it, but only after a full build and
+ * a minute of rendering. This catches it in milliseconds.
+ */
+function assertScopesExist() {
+  const worn = new Set(Object.keys(COHORT).flatMap((s) => bodyClass(s).split(' ')));
+  const used = new Set([...readFileSync('assets/guides/guides-theme.css', 'utf8')
+    .matchAll(/#lloyal-guides\.([a-z][a-z0-9-]*)/g)].map((m) => m[1]));
+  const orphans = [...used].filter((c) => !worn.has(c));
+  if (orphans.length) throw new Error(`build: stylesheet targets scopes no page wears: ${orphans.join(', ')}`);
+}
+assertScopesExist();
 
 const pages = readdirSync('.').filter((f) => f.endsWith('.mdx')).sort();
 rmSync(OUT, { recursive: true, force: true });
