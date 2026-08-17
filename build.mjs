@@ -44,8 +44,14 @@ function frontmatter(src) {
 
 /**
  * The page body. `guideHtml` is a template literal, so it ends at the first
- * unescaped backtick — every page is verified to contain none inside, and an
- * escaped one (\`) is unescaped back to a literal backtick.
+ * unescaped backtick — every page is verified to contain none inside.
+ *
+ * WHY THREE ESCAPES, NOT ONE: a template literal forces authors to escape the
+ * backtick, the dollar-brace and the backslash. Unescaping only the backtick
+ * shipped the other two verbatim, so `\${query}` and `\\n` reached the browser
+ * with their backslashes intact — invalid TypeScript in the starter sample on
+ * Build your first harness. Whatever a JS parser would consume here, this must
+ * consume too.
  */
 function guideHtml(src) {
   const start = src.indexOf('export const guideHtml = `');
@@ -53,7 +59,7 @@ function guideHtml(src) {
   const from = start + 'export const guideHtml = `'.length;
   let out = '';
   for (let i = from; i < src.length; i++) {
-    if (src[i] === '\\' && src[i + 1] === '`') { out += '`'; i++; continue; }
+    if (src[i] === '\\' && '`$\\'.includes(src[i + 1])) { out += src[i + 1]; i++; continue; }
     if (src[i] === '`') return out;
     out += src[i];
   }
