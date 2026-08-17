@@ -960,3 +960,8 @@ so ordinary
 @media (max-width: 560px) {
   #lloyal-guides.pg-abilities .thesis p.proof-claim { font-size: 22px; }
 }
+
+/* Method signatures were breaking mid-identifier in the narrow first column.
+   The wrap already scrolls, so let the signature keep its shape. */
+#lloyal-guides.pg-abilities .scorer-table td:first-child { white-space: nowrap; }
+#lloyal-guides.pg-abilities .scorer-table table { min-width: 860px; }
