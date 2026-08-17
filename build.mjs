@@ -239,6 +239,11 @@ function assertScopesExist() {
     .matchAll(/#lloyal-guides\.([a-z][a-z0-9-]*)/g)].map((m) => m[1]));
   const orphans = [...used].filter((c) => !worn.has(c));
   if (orphans.length) throw new Error(`build: stylesheet targets scopes no page wears: ${orphans.join(', ')}`);
+  // And the reverse: a marker every page carries but no rule uses is dead weight
+  // in the body class. `wide` became one the moment the two page widths merged.
+  const markers = new Set(Object.values(COHORT).flat());
+  const unused = [...markers].filter((m) => !used.has(m));
+  if (unused.length) throw new Error(`build: COHORT declares scopes the stylesheet never uses: ${unused.join(', ')}`);
 }
 assertScopesExist();
 

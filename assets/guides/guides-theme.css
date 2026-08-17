@@ -13,14 +13,11 @@
   font-family:'Readex Pro Variable','Readex Pro'; font-style:normal; font-weight:100 900; font-display:swap;
   src:url('https://cdn.jsdelivr.net/fontsource/fonts/readex-pro:vf@5.3.0/latin-wght-normal.woff2') format('woff2-variations');
 }
-#lloyal-guides.wide {
+#lloyal-guides.pg {
   --black: #050505;
   --white: #fff;
   --ink: #111;
-  --grey: #666;
-  --muted: #8d8d8d;
   --line: #d3d3d3;
-  --soft: #f5f5f5;
   --max: 1320px;
 }
 #lloyal-guides.pg {
@@ -496,18 +493,6 @@
   font-weight:100 900;
   font-display:swap;
   src:url('https://cdn.jsdelivr.net/fontsource/fonts/readex-pro:vf@5.3.0/latin-wght-normal.woff2') format('woff2-variations');
-}
-#lloyal-guides.long {
-  --black: #050505;
-  --white: #fff;
-  --ink: #111;
-  --grey: #666;
-  --muted: #8d8d8d;
-  --line: #d3d3d3;
-  --darkline: #303030;
-  --paper: #f0f0f0;
-  --soft: #f6f6f6;
-  --max: 1320px;
 }
 #lloyal-guides.pg-build-your-first-harness .page {
   max-width: var(--max);

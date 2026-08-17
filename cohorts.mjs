@@ -19,23 +19,21 @@
  *   guide  every page except index
  *   long   the four long guides    (--max 1180px, looser heading rhythm)
  *   short  the four short ones     (--max 1320px, tighter)
- *   wide   the 1320px measure: the short guides AND index, which is neither
- *          `short` nor `guide` but is where the root variables block lives
  *   hl     the syntax palette: the long guides PLUS focal-lens, not a cohort
  */
 export const COHORT = {
-  'index':                             ['wide'],
+  'index':                             [],
   'build-your-first-harness':          ['guide', 'long', 'hl'],
   'thinking-in-lloyal':                ['guide', 'long', 'hl'],
   'continuous-context':                ['guide', 'long', 'hl'],
   'agent-policy-and-context-pressure': ['guide', 'long', 'hl'],
-  'abilities':                         ['guide', 'short', 'wide'],
-  'focal-lens':                        ['guide', 'short', 'wide', 'hl'],
-  'lookup':                            ['guide', 'short', 'wide'],
-  'where-a-harness-runs':              ['guide', 'short', 'wide'],
+  'abilities':                         ['guide', 'short'],
+  'focal-lens':                        ['guide', 'short', 'hl'],
+  'lookup':                            ['guide', 'short'],
+  'where-a-harness-runs':              ['guide', 'short'],
   // The first page styled entirely by the shared layers — it has no per-page
   // selectors at all, which before the flatten meant no styling at all.
-  'publisher-tos':                     ['guide', 'short', 'wide'],
+  'publisher-tos':                     ['guide', 'short'],
 };
 
 /** Every scope a page's <body> carries. Used by the page loop AND by 404.html. */
