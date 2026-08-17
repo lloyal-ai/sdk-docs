@@ -21,7 +21,7 @@ export const guideHtml = `<div class="page">
 </div>
 </div></section>
 
-<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#distance-is-not-a-criterion">Distance is not a criterion</a><a class="toc-l1" href="#the-question-is-a-sentence">The question is a sentence</a><a class="toc-l1" href="#a-page-arrives-in-its-own-words">A page arrives in its own words</a><a class="toc-l1" href="#the-aperture-is-under-program-control">The aperture is under program control</a><a class="toc-l1" href="#a-hundred-candidates-one-pass">A hundred candidates, one pass</a><a class="toc-l1" href="#a-threshold-is-worth-its-canaries">A threshold is worth its canaries</a><a class="toc-l1" href="#the-shipped-lens-is-one-configuration">The shipped lens is one configuration</a></nav>
+<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#distance-is-not-a-criterion">Distance is not a criterion</a><a class="toc-l1" href="#the-question-is-a-sentence">The question is a sentence</a><a class="toc-l1" href="#a-page-arrives-in-its-own-words">A page arrives in its own words</a><a class="toc-l1" href="#the-aperture-is-under-program-control">The aperture is under program control</a><a class="toc-l1" href="#a-hundred-candidates-one-pass">A hundred candidates, one pass</a><a class="toc-l1" href="#a-threshold-is-worth-its-canaries">A threshold is worth its canaries</a><a class="toc-l1" href="#lenses-that-ship">Lenses that ship</a><a class="toc-l1" href="#lenses-you-can-compose">Lenses you can compose</a><a class="toc-l1" href="#the-shipped-lens-is-one-configuration">The shipped lens is one configuration</a></nav>
 
 <article class="article">
 
@@ -51,11 +51,34 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <h1 id="a-page-arrives-in-its-own-words">A page arrives in its own words</h1>
 <p><strong>An agent fetches a forty-thousand-token page. Two thousand tokens of it reach the model.</strong> The article is chunked on heading boundaries, every chunk is scored, and the survivors are admitted <em>verbatim</em> &mdash; five of them by default, inside a 2048-token budget.</p>
 <p>Nothing is summarised. The industry&rsquo;s answer to an oversized page is a second generative call that compresses it, which is lossy, slow, and precisely where fabrication enters. Selection replaces compression: what arrives is the source&rsquo;s own sentences, quotable and attributable, chosen by a question you wrote.</p>
-<p>The tool says so itself &mdash; the reranker path exists for <em>&ldquo;reducing KV pressure without lossy summarization.&rdquo;</em></p>
+<div class="code-frame"><div class="code-label">WEB/SRC/TOOLS/FETCH-PAGE.TS</div><pre><code><span class="c">// 1. structure the page — headings become chunk boundaries</span>
+const chunks = yield* call(() =&gt;
+  chunkHtml(fetched.articleHtml, url, fetched.title),
+);
+
+<span class="c">// 2. ask the judge once per chunk, in one batched pass</span>
+let scored: ScoredChunk[] = [];
+for await (const batch of reranker.score(args.query, chunks)) {
+  scored = batch.results;
+}
+
+<span class="c">// 3. admit verbatim: top-K, inside a token budget</span>
+const topChunks = selectTopChunks(scored, chunks, topK, tokenBudget);</code></pre></div>
+<p>If you have written retrieval before, step 3 is where your <code>top_k</code> slice went. The difference is what step 2 returns: not a distance to sort by, but an answer to a question. And there is no step 4 &mdash; nothing compresses what survived. The tool says so itself: the reranker path exists for <em>&ldquo;reducing KV pressure without lossy summarization.&rdquo;</em></p>
 
 <h1 id="the-aperture-is-under-program-control">The aperture is under program control</h1>
 <p><strong>Policy decides what the model gets to focus on, per agent, per tick.</strong> Reading a page in explore mode, chunks are scored against what that agent just asked. In exploit mode they must satisfy the agent&rsquo;s query <em>and</em> the original task at once &mdash; <code>min(toolQueryScore, originalQueryScore)</code>, which is a much narrower depth of field.</p>
 <p>The default is wide. <code>AgentPolicy.shouldExplore()</code> narrows it as headroom disappears, at 40% of context and 50% of the time budget in the shipped policy. An investigating agent keeps its bridging content while there is room for it, and stops down when there is not.</p>
+<div class="code-frame"><div class="code-label">THE POSTURE SWITCH</div><pre><code><span class="c">// Explore (default): score against what this agent asked for.</span>
+<span class="c">// Exploit: demand both planes at once.</span>
+if (!context?.explore &amp;&amp; context?.scorer) {
+  const combined = yield* call(() =&gt;
+    context.scorer.scoreRelevanceBatch(chunkTexts, args.query),
+  );  <span class="c">// min(toolQueryScore, originalQueryScore)</span>
+  scored = scored
+    .map((sc, i) =&gt; ({ ...sc, score: combined[i] }))
+    .sort((a, b) =&gt; b.score - a.score);
+}</code></pre></div>
 <p>The reason explore is the default when reading a page is worth stating: the agent chose that page. Scoring its contents against the original task would demote exactly the bridging material that produces the next good hypothesis.</p>
 
 <h1 id="a-hundred-candidates-one-pass">A hundred candidates, one pass</h1>
@@ -66,6 +89,27 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <h1 id="a-threshold-is-worth-its-canaries">A threshold is worth its canaries</h1>
 <p><strong>The classifier is measured before it is handed to you, and the gate refuses to return one that fails.</strong> Three checks run at startup: <code>"yes"</code> and <code>"no"</code> must each tokenise to exactly one token, or the subtraction is not a log-odds ratio at all; sentinel probes confirm the tokenizer did not merge across the prompt&rsquo;s segment boundaries; and a known-relevant and a known-irrelevant document must separate by more than one logit &mdash; the gate asserts the <em>gap</em>, not the sign.</p>
 <p>This is the load-bearing consequence for anyone writing a new <code>&lt;Instruct&gt;</code>: <strong>a gate is only as good as its fixtures.</strong> The shipped canaries measure retrieval. A different question &mdash; support, entailment, policy conformance &mdash; needs canaries built for that question, or startup will happily certify a judge nobody has measured.</p>
+
+<h1 id="lenses-that-ship">Lenses that ship</h1>
+<p>Four admissions come configured, and one Ability deliberately has none.</p>
+<div class="table-wrap"><table><thead><tr><th>lens</th><th>plane</th><th>what it admits</th></tr></thead><tbody>
+<tr><td><code>corpus / search</code></td><td>Retrieval relevance</td><td>BM25 narrows to a hundred lexical candidates, the cross-encoder scores those, and a threshold floor decides. The floor gives the agent two signals rather than one: confident matches, or a landscape worth grepping.</td></tr>
+<tr><td><code>web / fetch_page</code></td><td>The agent&rsquo;s own query</td><td>Five verbatim chunks inside 2048 tokens, chosen from a page structured on its headings.</td></tr>
+<tr><td><code>web / web_search</code></td><td>Provider score, then entailment</td><td>In exploit mode, <code>min(provider score, entailment score)</code> &mdash; the search engine&rsquo;s own relevance and the original task must agree. A result a sibling already fetched is skipped outright.</td></tr>
+<tr><td><code>rig / delegate</code></td><td>Entailment, then similarity</td><td>Admission of <em>work</em> rather than text: proposed sub-tasks that drifted from the original query are dropped, and any that echo a task already running further up the tree are refused.</td></tr>
+<tr><td><code>wikipedia</code></td><td>&mdash;</td><td>No lens at all. A capped result list, and the model reads what comes back. Not every Ability needs one, and pretending otherwise would be the expensive kind of consistency.</td></tr>
+</tbody></table></div>
+
+<h1 id="lenses-you-can-compose">Lenses you can compose</h1>
+<p>A lens is a plane, an aperture and a budget. Change any of them and you have a different one. These are described elsewhere in the docs as procedures; each is an admission decision underneath:</p>
+<ul>
+<li><strong>Support judgement.</strong> Ask whether a passage supports an assertion rather than whether it resembles one. Same primitive, different sentence &mdash; and a third outcome worth keeping, because partial support, imprecise dates and scheduled-versus-occurred deserve <em>uncertain</em> rather than a coin toss.</li>
+<li><strong><a href="/continuous-context#evidence-admission-by-applicability">Evidence admission by applicability</a>.</strong> Relevant is not the same as applicable. A filing can be on point and superseded; a rule can be authoritative and not yet in force.</li>
+<li><strong><a href="/thinking-in-lloyal#burden-of-proof-scaling">Burden-of-proof scaling</a>.</strong> Raise the floor as the stakes rise. The threshold is a number in your policy, not a constant in ours.</li>
+<li><strong><a href="/thinking-in-lloyal#temporal-applicability">Temporal applicability</a>.</strong> Admit against a date, not just a topic.</li>
+<li><strong><a href="/thinking-in-lloyal#dynamic-retrieval-phase-switching">Dynamic retrieval phase switching</a>.</strong> Move the plane as the investigation moves.</li>
+</ul>
+<p>The first of those is the one to read twice before shipping. A new question needs new canaries, and a judge nobody measured will certify anything.</p>
 
 <h1 id="the-shipped-lens-is-one-configuration">The shipped lens is one configuration</h1>
 <p>Every element unscrews.</p>
