@@ -2685,10 +2685,13 @@ body:has(#lloyal-guides) .fixed.z-999 {
   display: none;
 }
 
-/* Right-aligned by an auto margin rather than justify-content: flex-end. When
-   the six labels are wider than the window, the margin collapses to zero and
-   the whole bar can be scrolled to — flex-end strands the leading items in
-   overflow that cannot be reached. */
+/* Centred by a pair of auto margins rather than justify-content: center. When
+   the nine labels are wider than the window both margins collapse to zero and
+   the whole bar can be scrolled to — every centring or end-alignment keyword
+   strands the leading items in overflow that cannot be reached.
+
+   The page beneath is a 1320px sheet centred on the viewport, so a bar hard
+   against the right edge sat over nothing. Centred, it lines up with the sheet. */
 #lloyal-guides .lloyal-topnav {
   justify-content: flex-start;
 }
@@ -2697,6 +2700,9 @@ body:has(#lloyal-guides) .fixed.z-999 {
 }
 #lloyal-guides .lloyal-topnav a:first-of-type {
   margin-inline-start: auto;
+}
+#lloyal-guides .lloyal-topnav a:last-of-type {
+  margin-inline-end: auto;
 }
 
 /* Above 900px only: below it the TOC is position:relative, where `top` would
@@ -2792,6 +2798,7 @@ so ordinary
     display: block;
     flex: 0 0 100%;
     margin-inline-start: 0;
+    margin-inline-end: 0;
     padding: 12px 0;
     border-top: 1px solid #eee;
   }
