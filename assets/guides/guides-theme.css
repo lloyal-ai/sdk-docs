@@ -199,7 +199,7 @@
   border-left: 1px solid var(--line);
 }
 #lloyal-guides.pg-index .path-card {
-  min-height: 285px;
+  min-height: 229px;
   padding: 32px 34px 34px;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -218,14 +218,8 @@
 #lloyal-guides.pg-index .path-card:hover .path-label {
   color: #bdbdbd;
 }
-#lloyal-guides.pg-index .path-number {
-  font-family: 'SFMono-Regular',Consolas,monospace;
-  color: #888;
-  font-size: 12px;
-  letter-spacing: .08em;
-}
 #lloyal-guides.pg-index .path-card h3 {
-  margin: 42px 0 16px;
+  margin: 0 0 16px;
   font-size: 31px;
   line-height: 1.03;
   letter-spacing: -.042em;
@@ -395,11 +389,11 @@
     font-size: 36px;
   }
   #lloyal-guides.pg-index .path-card {
-    min-height: 250px;
+    min-height: 204px;
     padding: 26px;
   }
   #lloyal-guides.pg-index .path-card h3 {
-    margin-top: 32px;
+    margin-top: 0;
     font-size: 27px;
   }
   #lloyal-guides.pg-index .reference-grid {
