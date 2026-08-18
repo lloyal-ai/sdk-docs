@@ -116,7 +116,7 @@ description: Use lloyal-ai to create an application, begin a Session, inspect it
 <div class="code-frame"><div class="code-label">TERMINAL</div><pre><code><span class="nb">cd</span><span class="w"> </span>hello-harness
 npm<span class="w"> </span>run<span class="w"> </span>dev:web
 </code></pre></div><figure class="flow-shot">
-<img alt="lloyal-ai hello-harness running npm run dev:web: the Vite browser client is up and the resident-model host is fetching the model" src="/assets/guides/build-your-first-harness-dev-web.gif"/>
+<img alt="lloyal-ai hello-harness running npm run dev:web: Vite serves the browser client on localhost:5173, the model fetch reaches 100 per cent, and the resident-model host comes up on ws://127.0.0.1:8787" src="/assets/guides/build-your-first-harness-dev-web.gif"/>
 <figcaption class="flow-caption">The web target boots the resident-model host and Vite browser client together. On first run, the host fetches and digest-verifies the model.</figcaption>
 </figure>
 <p>Open the local address printed by Vite: <code>http://localhost:5173/</code>. The browser is a surface over the host; the host owns the resident model and runs the same <code>harness.ts</code> application contract.</p>
