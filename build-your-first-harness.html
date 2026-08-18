@@ -52,10 +52,14 @@ description: Use lloyal-ai to create an application, begin a Session, inspect it
 <p>Requires Node 24 or newer.</p>
 <div class="code-frame"><div class="code-label">TERMINAL</div><pre><code>npx<span class="w"> </span>lloyal-ai<span class="w"> </span>new
 </code></pre></div><p>The wizard defines the application boundary before it writes any code. Each choice below becomes an explicit part of the generated harness.</p>
+<figure class="flow-shot">
+<img alt="lloyal-ai wizard running end to end, from npx lloyal-ai@latest new to the hello-harness ready screen" src="/assets/guides/build-your-first-harness-new.gif"/>
+<figcaption>The whole wizard in one pass: the five prompts covered below, then the scaffold and dependency install, ending on the ready screen.</figcaption>
+</figure>
 <h2 id="name-the-application">Name the application</h2>
 <p>Type <code>hello-harness</code> and press Enter. The name becomes the project folder and npm package name.</p>
 <figure class="flow-shot">
-<img alt="harness.dev at the Harness name step with hello-harness entered" src="/assets/guides/build-your-first-harness-01.png"/>
+<img alt="lloyal-ai at the Harness name step with hello-harness entered" src="/assets/guides/build-your-first-harness-01.png"/>
 <figcaption>The harness is named as an application artifact, not as an endpoint or request handler.</figcaption>
 </figure>
 <p>A harness is the program you are building. The CLI materialises the project around that application boundary.</p>
@@ -66,7 +70,7 @@ description: Use lloyal-ai to create an application, begin a Session, inspect it
 <h2 id="choose-its-surfaces">Choose its surfaces</h2>
 <p>Select CLI, desktop, and web.</p>
 <figure class="flow-shot">
-<img alt="harness.dev with CLI, desktop, and web selected" src="/assets/guides/build-your-first-harness-02.png"/>
+<img alt="lloyal-ai with CLI, desktop, and web selected" src="/assets/guides/build-your-first-harness-02.png"/>
 <figcaption>CLI is always included; desktop and web mount the same harness through their own bindings.</figcaption>
 </figure>
 <p>These are three presentations of one application contract—not three agent implementations. The intelligent procedure remains under <code>harness/</code>; target-specific wiring is generated under <code>targets/</code>.</p>
@@ -77,7 +81,7 @@ description: Use lloyal-ai to create an application, begin a Session, inspect it
 <h2 id="choose-a-trunk-model">Choose a trunk model</h2>
 <p>Use the recommended Qwen3.5 4B weight.</p>
 <figure class="flow-shot">
-<img alt="harness.dev at the trunk model step" src="/assets/guides/build-your-first-harness-03.png"/>
+<img alt="lloyal-ai at the trunk model step" src="/assets/guides/build-your-first-harness-03.png"/>
 <figcaption>The recommended model is fetched and digest-verified on first run. You can also bring a local GGUF.</figcaption>
 </figure>
 <p>The model is part of the application's execution environment. You are not configuring a client to an inference-provider endpoint.</p>
@@ -88,7 +92,7 @@ description: Use lloyal-ai to create an application, begin a Session, inspect it
 <h2 id="choose-a-starting-point">Choose a starting point</h2>
 <p>Select <strong>basic</strong>.</p>
 <figure class="flow-shot">
-<img alt="harness.dev with the basic Wikipedia research harness selected" src="/assets/guides/build-your-first-harness-04.png"/>
+<img alt="lloyal-ai with the basic Wikipedia research harness selected" src="/assets/guides/build-your-first-harness-04.png"/>
 <figcaption><code>basic</code> is a compact Wikipedia research harness; <code>research</code> is the larger tuned recon → plan → Agents → synthesis pipeline.</figcaption>
 </figure>
 <p>A template is editable TypeScript, not a hosted mode. It gives the harness an initial procedure and topology that you will change directly later in this guide.</p>
@@ -99,7 +103,7 @@ description: Use lloyal-ai to create an application, begin a Session, inspect it
 <h2 id="materialise-the-project">Materialise the project</h2>
 <p>The CLI scaffolds the targets, vendors the signed Wikipedia App, and installs the project dependencies.</p>
 <figure class="flow-shot">
-<img alt="harness.dev scaffolding hello-harness and installing dependencies" src="/assets/guides/build-your-first-harness-05.png"/>
+<img alt="lloyal-ai scaffolding hello-harness and installing dependencies" src="/assets/guides/build-your-first-harness-05.png"/>
 <figcaption>The project is materialised from the choices above; the generated code remains yours.</figcaption>
 </figure>
 <p>When installation completes, the wizard prints the exact command for every selected surface.</p>
@@ -112,7 +116,7 @@ description: Use lloyal-ai to create an application, begin a Session, inspect it
 <div class="code-frame"><div class="code-label">TERMINAL</div><pre><code><span class="nb">cd</span><span class="w"> </span>hello-harness
 npm<span class="w"> </span>run<span class="w"> </span>dev:web
 </code></pre></div><figure class="flow-shot">
-<img alt="npm run dev:web starting the resident-model host and browser client" src="/assets/guides/build-your-first-harness-07.png"/>
+<img alt="lloyal-ai hello-harness running npm run dev:web: the Vite browser client is up and the resident-model host is fetching the model" src="/assets/guides/build-your-first-harness-dev-web.gif"/>
 <figcaption>The web target boots the resident-model host and Vite browser client together. On first run, the host fetches and digest-verifies the model.</figcaption>
 </figure>
 <p>Open the local address printed by Vite: <code>http://localhost:5173/</code>. The browser is a surface over the host; the host owns the resident model and runs the same <code>harness.ts</code> application contract.</p>
