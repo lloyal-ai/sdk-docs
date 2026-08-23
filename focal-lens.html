@@ -111,7 +111,7 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 
 <p><strong>A lens also has a resolving limit, and a threshold finer than it is measuring noise.</strong> The judge&rsquo;s KV cache defaults to <code>f16</code> for this reason: quantised, the same input scores up to <strong>1.27 logits</strong> differently from one run to the next &mdash; wider than the margin a canary typically asserts. The shipped canary passes regardless, because it separates far more widely than that. A gate never tests its own resolution. At <code>f16</code> the spread is <strong>0.004</strong>.</p>
 
-<p>Startup catches catastrophe &mdash; a swapped model, a drifted template. It cannot catch a judge that quietly stopped discriminating, because its fixtures are easy on purpose. <code>npm run eval:reranker</code> is where you measure that, and it is the measurement that matters when you write a new plane.</p>
+<p>Startup catches catastrophe &mdash; a swapped model, a drifted template. It cannot catch a judge that quietly stopped discriminating, because its fixtures are easy on purpose. <code>npm run eval:reranker</code> is where you measure that, and it is the measurement that matters when you write a new plane. A question you are still testing can boot unmeasured with <code>smokeTest: 'none'</code>.</p>
 
 <h1 id="lenses-that-ship">Lenses that ship</h1>
 <p>Four admissions come configured, and one Ability deliberately has none.</p>
@@ -141,6 +141,7 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <div class="table-wrap"><table><thead><tr><th>element</th><th>ships as</th><th>or</th></tr></thead><tbody>
 <tr><td>The judge</td><td>Four batched scorers &mdash; entailment, relevance, similarity, and a shared threshold gate</td><td>Any object with a <code>scoreBatch</code> method satisfies the contract</td></tr>
 <tr><td>The plane</td><td>One <code>&lt;Instruct&gt;</code> sentence, tuned for retrieval</td><td>Pass <code>instruction</code> to <code>createReranker</code> &mdash; the sentence and its canaries (<code>smokeTest</code>) travel together &mdash; then <code>npm run eval:reranker</code></td></tr>
+<tr><td>The resolution</td><td><code>f16</code> KV cache, so a margin means something</td><td>Coarser under memory pressure, at the cost of the margins you can trust</td></tr>
 <tr><td>The aperture</td><td><code>DefaultAgentPolicy</code> implements all eleven hooks the pool calls</td><td>Subclass it and override the one decision you care about</td></tr>
 </tbody></table></div>
 <p>The scorer arrives with an <a href="/abilities">Ability</a>; the posture comes from <a href="/agent-policy-and-context-pressure">AgentPolicy</a>. Explore and exploit are one shape of one hook, not the axis itself. A policy that needs a different posture &mdash; a verification phase, a burden-of-proof that rises with the stakes &mdash; writes it.</p>
