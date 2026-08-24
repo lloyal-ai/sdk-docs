@@ -2917,3 +2917,8 @@ so ordinary
 /* Syntax tokens, cloned from Thinking in Lloyal so code reads the same
    everywhere. Pygments emits .c1 for line comments; the theme colours the
    whole comment family alike. */
+
+/* The masthead names the category this page documents; the link goes to its
+   definition. Inherits the label colour so it reads as the label, not a stray link. */
+#lloyal-guides.pg .issue a{color:inherit;text-decoration:none;border-bottom:1px solid currentColor;padding-bottom:1px;opacity:.72}
+#lloyal-guides.pg .issue a:hover{opacity:1}
