@@ -56,6 +56,23 @@ interface ScorerReranker {
 <tr><td><code>shouldProceed</code></td><td>the floor</td><td>the gate itself</td></tr>
 </tbody></table></div>
 <p>The score is a <strong>logit-diff</strong> — <code>logit(yes) − logit(no)</code>, unbounded, with the sign carrying the meaning. <code>Source._entailmentFloor</code> defaults to <strong>0</strong>: a hit passes when the cross-encoder leans yes. Raise it for noise-heavy corpora, lower it for sparse ones.</p>
+<p>The <code>&lt;Instruct&gt;</code> sentence is bound at construction, not per call. <code>createReranker</code> takes it, and every Ability sharing that instance asks the same question.</p>
+<div class="table-wrap"><table><thead><tr><th>Option</th><th>Default</th><th>Note</th></tr></thead><tbody>
+<tr><td><code>instruction</code></td><td><code>RETRIEVAL_INSTRUCTION</code></td><td>Deep-frozen. Supplying one changes the criterion for every Ability on that reranker.</td></tr>
+<tr><td><code>typeK</code> / <code>typeV</code></td><td><code>q4_0</code></td><td>KV precision bounds the smallest score difference worth treating as real.</td></tr>
+<tr><td><code>nSeqMax</code></td><td><code>10</code></td><td>Parallel scoring slots &mdash; the group width of one batched dispatch.</td></tr>
+<tr><td><code>nCtx</code></td><td><code>4096</code></td><td><code>nBatch</code> derives as <code>floor(nCtx / nSeqMax)</code>.</td></tr>
+</tbody></table></div>
+<div class="code-frame"><div class="code-label">TypeScript</div><pre><code>interface RerankInstruction {
+  readonly text: string;
+  readonly smokeTest: &#39;none&#39; | {
+    readonly query: string;
+    readonly matching: string;
+    readonly nonMatching: string;
+    readonly minGap: number;
+  };
+}</code></pre></div>
+<p>Three gates run at <code>create()</code>. <code>&quot;yes&quot;</code> and <code>&quot;no&quot;</code> must each tokenise to exactly one token; a rendered probe must confirm the tokenizer did not merge across the prompt&rsquo;s segment seams; and <code>matching</code> must outscore <code>nonMatching</code> by more than <code>minGap</code>, which must be finite and non-negative. Fixtures longer than the per-leaf document budget are rejected, not truncated. <code>smokeTest: &#39;none&#39;</code> skips the third gate only &mdash; the seam probe still runs, against the retrieval fixture.</p>
 <div class="code-frame"><div class="code-label">TypeScript</div><pre><code>abstract class Source&lt;TCtx = unknown, TChunk = unknown&gt; {
   abstract readonly name: string;
   abstract get tools(): Tool[];
