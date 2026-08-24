@@ -195,6 +195,15 @@ const notFoundGrid = () => NAV
   .map(({ href, label }) => `<a href="${href}">${href === '/' ? 'Build with Lloyal' : label} <span class="out">&rarr;</span></a>`)
   .join('\n');
 
+// Absolute origins. Canonical and Open Graph URLs must be absolute, and the
+// category link is what ties every page to the definition it documents.
+const SITE = 'https://docs.lloyal.ai';
+const CATEGORY_URL = 'https://verticalinference.lloyal.ai/';
+// Shared with the marketing site rather than duplicated here; the card art is
+// authored in Figma and lives at one address.
+const OG_IMAGE = 'https://lloyal.ai/assets/home-og.png';
+const canonical = (slug) => (slug === 'index' ? `${SITE}/` : `${SITE}/${slug}`);
+
 const NAV = [
   { slug: 'index', href: '/', label: 'Docs' },
   { slug: 'build-your-first-harness', href: '/build-your-first-harness', label: 'Build your first harness' },
@@ -289,14 +298,44 @@ for (const file of pages) {
   const { title, description } = frontmatter(src);
   assertBalanced(`${slug}.html`, body);
 
+  // Every page is titled for the category it documents, not for the site it
+  // sits on. A reader arriving from search should learn what this is before
+  // they learn whose it is.
+  const pageTitle = `Vertical Inference — ${title}`;
+  const url = canonical(slug);
+  // Escaped for a <script> context: a literal `</script>` inside any string
+  // would close the block and leak the remainder as markup.
+  const jsonld = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: title,
+    description,
+    url,
+    isPartOf: { '@type': 'WebSite', name: 'Lloyal HDK documentation', url: `${SITE}/` },
+    about: { '@type': 'DefinedTerm', name: 'Vertical Inference', url: CATEGORY_URL },
+    publisher: { '@type': 'Organization', name: 'Lloyal Labs', url: 'https://lloyal.ai/' },
+  }).replace(/</g, '\\u003c');
+
   mkdirSync(join(OUT, dirname(slug)), { recursive: true });
   writeFileSync(join(OUT, `${slug}.html`), `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)} — Lloyal Labs</title>
+<title>${esc(pageTitle)}</title>
 <meta name="description" content="${esc(description)}">
+<link rel="canonical" href="${url}">
+<meta property="og:type" content="${slug === 'index' ? 'website' : 'article'}">
+<meta property="og:site_name" content="Lloyal Labs">
+<meta property="og:title" content="${esc(pageTitle)}">
+<meta property="og:description" content="${esc(description)}">
+<meta property="og:url" content="${url}">
+<meta property="og:image" content="${OG_IMAGE}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(pageTitle)}">
+<meta name="twitter:description" content="${esc(description)}">
+<meta name="twitter:image" content="${OG_IMAGE}">
+<script type="application/ld+json">${jsonld}</script>
 <link rel="icon" href="/favicon.svg">
 <link rel="stylesheet" href="${CSS}">
 </head>
@@ -385,6 +424,23 @@ writeFileSync(join(OUT, '404.html'), notFound);
 writeFileSync(join(OUT, 'llms.txt'), `# Lloyal HDK documentation
 
 ${built.map((p) => `- [${p.title}](https://docs.lloyal.ai/${p.slug === 'index' ? '' : p.slug}): ${p.description}`).join('\n')}
+`);
+
+// A sitemap the site has never had. Built from the same `built` list as
+// llms.txt, so a page cannot appear in one and be missing from the other.
+writeFileSync(join(OUT, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${built.map((p) => `  <url><loc>${canonical(p.slug)}</loc></url>`).join('\n')}
+</urlset>
+`);
+
+// Cloudflare appends its own managed block to whatever robots.txt is served,
+// which is why the site has one today despite the repo never shipping one.
+// This adds the part only we can know: where the sitemap is.
+writeFileSync(join(OUT, 'robots.txt'), `User-agent: *
+Allow: /
+
+Sitemap: ${SITE}/sitemap.xml
 `);
 
 console.log(`\n  ${built.length} pages · ${redirects.length} redirects · ${CSS_NAME} → ${OUT}/`);
