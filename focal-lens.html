@@ -1,6 +1,6 @@
 <!--
 title: A focal lens for context admission
-description: Every chunk that reaches a model's attention got there by answering a question. The question is a sentence you write, the answer is two floats, and a hundred candidates cost one forward pass — the same code on a laptop and on two B200s.
+description: Every candidate admitted through a reranked path got there by answering a question. The question is a sentence bound by the harness, the answer is two logits, and each available leaf group settles in one batched dispatch — the same code on a laptop and on two B200s.
 -->
 <div class="page">
 <header class="masthead wrap"><div><div class="wordmark">Lloyal Labs</div><div class="tagline">Engineering AI&rsquo;s contact with reality.</div></div><div class="issue"><span>Context /<br>Admission</span></div></header>
@@ -10,7 +10,7 @@ description: Every chunk that reaches a model's attention got there by answering
 <div class="proof">
 <p class="eyebrow">The squeeze</p>
 <p class="proof-claim">On a laptop you have 32k, and a dozen agents that all want it.</p>
-<p>Every search hit, every fetched page, every tool return is a candidate for space that is already spoken for. Nothing is admitted for free, so something has to choose &mdash; and at the edge that choice is the difference between an application that works and one that thrashes.</p>
+<p>Every search hit and every fetched page competes for space that is already spoken for. Admission policy decides what earns it &mdash; and at the edge that choice is the difference between an application that works and one that thrashes.</p>
 </div>
 <div class="proof">
 <p class="eyebrow">The swing</p>
@@ -19,7 +19,7 @@ description: Every chunk that reaches a model's attention got there by answering
 </div>
 </div></section>
 
-<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#distance-is-not-a-criterion">Distance is not a criterion</a><a class="toc-l1" href="#the-question-is-a-sentence">The question is a sentence</a><a class="toc-l1" href="#a-page-arrives-in-its-own-words">A page arrives in its own words</a><a class="toc-l1" href="#the-aperture-is-under-program-control">The aperture is under program control</a><a class="toc-l1" href="#a-hundred-candidates-one-pass">A hundred candidates, one pass</a><a class="toc-l1" href="#a-threshold-is-worth-its-canaries">A threshold is worth its canaries</a><a class="toc-l1" href="#lenses-that-ship">Lenses that ship</a><a class="toc-l1" href="#lenses-you-can-compose">Lenses you can compose</a><a class="toc-l1" href="#the-shipped-lens-is-one-configuration">The shipped lens is one configuration</a></nav>
+<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#distance-is-not-a-criterion">Distance is not a criterion</a><a class="toc-l1" href="#the-question-is-a-sentence">The question is a sentence</a><a class="toc-l1" href="#a-page-arrives-in-its-own-words">A page arrives in its own words</a><a class="toc-l1" href="#the-aperture-is-under-program-control">The aperture is under program control</a><a class="toc-l1" href="#candidates-share-the-dispatch">Candidates share the dispatch</a><a class="toc-l1" href="#every-question-carries-a-smoke-test">Every question carries a smoke test</a><a class="toc-l1" href="#lenses-that-ship">Lenses that ship</a><a class="toc-l1" href="#define-the-question">Define the question</a><a class="toc-l1" href="#the-shipped-lens-is-one-configuration">The shipped lens is one configuration</a></nav>
 
 <article class="article">
 
@@ -34,7 +34,7 @@ Passage:  The inspection was scheduled for 18 March
 <p>Negation and modality are invisible to similarity, because similarity was never asked anything. It measured.</p>
 
 <h1 id="the-question-is-a-sentence">The question is a sentence</h1>
-<p><strong>Every chunk that reaches a model&rsquo;s attention in Lloyal got there because a second model was asked a question in English and answered yes or no.</strong> The judge is a prompt, and the criterion lives in one line of it:</p>
+<p><strong>On a reranked path, every candidate that earns attention got there because a second model was asked a question in English and answered yes or no.</strong> The judge is a prompt, and the criterion lives in one line of it:</p>
 <div class="code-frame"><div class="code-label">THE JUDGE</div><pre><code>SYSTEM: Judge whether the Document meets the requirements based on
         the Query and the Instruct provided. Note that the answer
         can only be "yes" or "no".
@@ -43,8 +43,8 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
                     passages that answer the query
         &lt;Query&gt;:    ...
         &lt;Document&gt;: ...</code></pre></div>
-<p>The score is <code>logit("yes") &minus; logit("no")</code> &mdash; two slots out of a hundred and fifty thousand, read as log-odds. A floor of zero means <em>keep what the judge would call relevant</em>, which is a threshold you can say out loud.</p>
-<p>Because the criterion sits in the <code>&lt;Instruct&gt;</code> line, the same weights answer a different question when the sentence changes. That line is the plane you bring into focus. Similarity has one plane, fixed at <em>looks alike</em>, and no way to move it at any price.</p>
+<p>The score is <code>logit("yes") &minus; logit("no")</code> &mdash; two slots out of a hundred and fifty thousand, read as log-odds. Candidates scored against the same <code>&lt;Query&gt;</code> and the same <code>&lt;Instruct&gt;</code> line can be compared and ordered by that score. A positive value means the model favoured <em>yes</em> for that pair; it is not a globally calibrated relevance threshold. Any operational cutoff has to be calibrated for the task, instruction and model that will use it.</p>
+<p>Because the criterion sits in the <code>&lt;Instruct&gt;</code> line, the same weights answer a different question when the sentence changes. That line is the plane you bring into focus. <code>createReranker</code> binds it once for the shared reranker, so every Ability using that instance shares the same question. Moving the plane is a harness-level decision, not a per-score switch. Similarity has one plane, fixed at <em>looks alike</em>, and no way to move it at any price.</p>
 
 <h1 id="a-page-arrives-in-its-own-words">A page arrives in its own words</h1>
 <p><strong>An agent fetches a forty-thousand-token page. Two thousand tokens of it reach the model.</strong> The article is chunked on heading boundaries, every chunk is scored, and the survivors are admitted <em>verbatim</em> &mdash; five of them by default, inside a 2048-token budget.</p>
@@ -68,12 +68,12 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <div class="code-frame"><div class="code-label">ADMITTING FROM A CORPUS</div><pre><code><span class="c1">// a cheap first stage decides who gets judged at all</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">candidates</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">bm25</span><span class="p">.</span><span class="nx">topK</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="mf">100</span><span class="p">);</span>
 
-<span class="c1">// the judge scores those, in one batched pass</span>
+<span class="c1">// the judge scores those in groups of available leaves</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">scored</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">reranker</span><span class="p">.</span><span class="nx">score</span><span class="p">(</span><span class="nx">query</span><span class="p">,</span><span class="w"> </span><span class="nx">candidates</span><span class="p">);</span>
 
-<span class="c1">// a floor you can say out loud: keep what the judge calls relevant</span>
+<span class="c1">// apply this source's configured threshold, or keep top-K</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">hits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">scored</span><span class="p">.</span><span class="nx">filter</span><span class="p">((</span><span class="nx">s</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">score</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nx">threshold</span><span class="p">);</span></code></pre></div>
-<p>The floor does double duty. Above it the agent has confident matches. Below it the agent has learned something too &mdash; that this corpus does not answer the question as asked, and the next move is a different question rather than a longer list.</p>
+<p>A corpus can apply a floor because its source policy owns one. That number is not intrinsic to the score: it becomes meaningful only after calibration against that corpus, instruction and model. Without that calibration, take top-K within the query. With it, the floor can do double duty &mdash; above it the agent has admitted matches; below it the policy can expose the best rejected candidates and invite a different question rather than a longer list.</p>
 <p><strong>And the same lens admits work, not only text.</strong> Hand it proposed sub-tasks instead of passages and it asks two questions before anything is spawned:</p>
 <div class="code-frame"><div class="code-label">ADMITTING WORK</div><pre><code><span class="c1">// does this sub-task still follow from the original query?</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">onTopic</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">scorer</span><span class="p">.</span><span class="nx">scoreEntailmentBatch</span><span class="p">(</span><span class="nx">subTasks</span><span class="p">);</span>
@@ -83,10 +83,10 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <span class="kd">const</span><span class="w"> </span><span class="nx">ancestors</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">callingAgent</span><span class="p">.</span><span class="nx">walkAncestors</span><span class="p">((</span><span class="nx">a</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">(</span><span class="nx">a</span><span class="p">.</span><span class="nx">task</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="p">[</span><span class="nx">a</span><span class="p">.</span><span class="nx">task</span><span class="p">]</span><span class="w"> </span><span class="o">:</span><span class="w"> </span><span class="p">[]));</span>
 <span class="kd">const</span><span class="w"> </span><span class="nx">echo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">scorer</span><span class="p">.</span><span class="nx">scoreSimilarityBatch</span><span class="p">(</span><span class="nx">ancestors</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="s2">&quot; &quot;</span><span class="p">),</span><span class="w"> </span><span class="nx">surviving</span><span class="p">);</span>
 <span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nb">Math</span><span class="p">.</span><span class="nx">min</span><span class="p">(...</span><span class="nx">echo</span><span class="p">)</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="nx">echoThreshold</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">error</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;already asked upstream&quot;</span><span class="w"> </span><span class="p">};</span></code></pre></div>
-<p>Same primitive, same batched pass, a different reference string. Admission is not a retrieval feature &mdash; it is what the runtime does whenever something wants space it has not earned.</p>
+<p>Same primitive, same shared instruction, a different query or reference string. The method names describe how the score is used; they do not switch the <code>&lt;Instruct&gt;</code> line. Admission is not a retrieval feature &mdash; it is what the runtime does whenever something wants space it has not earned.</p>
 
 <h1 id="the-aperture-is-under-program-control">The aperture is under program control</h1>
-<p><strong>Policy decides what the model gets to focus on, per agent, per tick.</strong> Reading a page in explore mode, chunks are scored against what that agent just asked. In exploit mode they must satisfy the agent&rsquo;s query <em>and</em> the original task at once &mdash; <code>min(toolQueryScore, originalQueryScore)</code>, which is a much narrower depth of field.</p>
+<p><strong>Policy decides what the model gets to focus on, per agent, per tick.</strong> Reading a page in explore mode, chunks are scored against what that agent just asked. In exploit mode they must satisfy the agent&rsquo;s query <em>and</em> the original task at once &mdash; <code>min(toolQueryScore, originalQueryScore)</code>, which is a much narrower depth of field. The reference can move at runtime; the shared instruction remains the one the harness bound at construction.</p>
 <p>The default is wide. <code>AgentPolicy.shouldExplore()</code> narrows it as headroom disappears, at 40% of context and 50% of the time budget in the shipped policy. An investigating agent keeps its bridging content while there is room for it, and stops down when there is not.</p>
 <div class="code-frame"><div class="code-label">THE POSTURE SWITCH</div><pre><code><span class="c1">// Explore (default): score against what this agent asked for.</span>
 <span class="c1">// Exploit: demand both planes at once.</span>
@@ -100,41 +100,46 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <span class="p">}</span></code></pre></div>
 <p>The reason explore is the default when reading a page is worth stating: the agent chose that page. Scoring its contents against the original task would demote exactly the bridging material that produces the next good hypothesis.</p>
 
-<h1 id="a-hundred-candidates-one-pass">A hundred candidates, one pass</h1>
-<p><strong>Widen the candidate set and the GPU bill stays flat.</strong> Scoring forks a branch per candidate and dispatches them together: every token carries its own position and sequence, logits requested only on each candidate&rsquo;s final token, and one <code>llama_decode</code> settles the group. Forking shares the parent&rsquo;s cache cells rather than copying them, so a candidate costs its own tokens and nothing more.</p>
-<p>You pay in cache space, not in dispatches. The group is bounded by available sequence leases, never by how many candidates you had.</p>
+<h1 id="candidates-share-the-dispatch">Candidates share the dispatch</h1>
+<p><strong>Every available leaf scores in the same batched dispatch.</strong> Scoring fills a group from the sequence leases that remain after the warm trunk and query branch, then forks one leaf per candidate in that group. Every token carries its own position and sequence, logits are requested only on each candidate&rsquo;s final token, and one <code>llama_decode</code> settles the group. Forking shares the parent&rsquo;s cache cells rather than copying them, so each candidate pays for its own tokens rather than another copy of the question.</p>
+<p>A wider candidate set still costs work: once one group fills, the next group is dispatched. What batching removes is one-dispatch-per-candidate overhead. The group width is bounded by available sequence leases; the number of groups follows the candidate count.</p>
 <p><strong>And it runs beside generation, never in front of it.</strong> The reranker owns a separate context and serialises its own calls, so admission queues among itself while the tokens already generating keep generating. Search declares <code>fanout = true</code> precisely because it touches no main-context state.</p>
 
-<h1 id="a-threshold-is-worth-its-canaries">A threshold is worth its canaries</h1>
-<p><strong>The classifier is measured before it is handed to you, and the gate refuses to return one that fails.</strong> Three checks run at startup: <code>"yes"</code> and <code>"no"</code> must each tokenise to exactly one token, or the subtraction is not a log-odds ratio at all; sentinel probes confirm the tokenizer did not merge across the prompt&rsquo;s segment boundaries; and a known-relevant and a known-irrelevant document must separate by more than one logit &mdash; the gate asserts the <em>gap</em>, not the sign.</p>
-<p>This is the load-bearing consequence for anyone writing a new <code>&lt;Instruct&gt;</code>: <strong>a gate is only as good as its fixtures.</strong> The shipped canaries measure retrieval. A different question &mdash; support, entailment, policy conformance &mdash; needs canaries built for that question, or startup will happily certify a judge nobody has measured.</p>
+<h1 id="every-question-carries-a-smoke-test">Every question carries a smoke test</h1>
+<p><strong>The reranker checks its setup before it is handed to the harness.</strong> Three gates run at startup: <code>"yes"</code> and <code>"no"</code> must each tokenise to exactly one token, or the subtraction is not a log-odds ratio at all; a rendered probe confirms the tokenizer did not merge across the prompt&rsquo;s segment boundaries; and the instruction&rsquo;s own <code>matching</code> document must outscore its <code>nonMatching</code> document by more than <code>minGap</code>. The gate asserts that gap, not either score&rsquo;s sign.</p>
+<p>The smoke test catches a broken setup &mdash; a yes/no token swap, model swap or template drift. It is not calibration and does not prove the judge discriminates well. The default <code>RETRIEVAL_INSTRUCTION</code> carries a retrieval pair; a custom instruction carries fixtures for its own question. The explicit <code>smokeTest: 'none'</code> form skips the behavioural gate.</p>
+<p><strong>KV precision is part of the configuration too.</strong> <code>typeK</code> and <code>typeV</code> both default to <code>q4_0</code>. Set them explicitly when policy depends on a known score resolution: cache precision bounds the smallest difference you should treat as meaningful, and the smoke test does not measure that bound.</p>
 
 <h1 id="lenses-that-ship">Lenses that ship</h1>
-<p>Four admissions come configured, and one Ability deliberately has none.</p>
-<div class="table-wrap"><table><thead><tr><th>lens</th><th>plane</th><th>what it admits</th></tr></thead><tbody>
-<tr><td><code>corpus / search</code></td><td>Retrieval relevance</td><td>BM25 narrows to a hundred lexical candidates, the cross-encoder scores those, and a threshold floor decides. The floor gives the agent two signals rather than one: confident matches, or a landscape worth grepping.</td></tr>
-<tr><td><code>web / fetch_page</code></td><td>The agent&rsquo;s own query</td><td>Five verbatim chunks inside 2048 tokens, chosen from a page structured on its headings.</td></tr>
-<tr><td><code>web / web_search</code></td><td>Provider score, then entailment</td><td>In exploit mode, <code>min(provider score, entailment score)</code> &mdash; the search engine&rsquo;s own relevance and the original task must agree. A result a sibling already fetched is skipped outright.</td></tr>
-<tr><td><code>rig / delegate</code></td><td>Entailment, then similarity</td><td>Admission of <em>work</em> rather than text: proposed sub-tasks that drifted from the original query are dropped, and any that echo a task already running further up the tree are refused.</td></tr>
-<tr><td><code>wikipedia</code></td><td>&mdash;</td><td>No lens at all. A capped result list, and the model reads what comes back. Not every Ability needs one, and pretending otherwise would be the expensive kind of consistency.</td></tr>
+<p>One instruction ships as the default: retrieval relevance. Current consumers use that shared question with different reference strings and admission policies; none supplies a custom instruction. One Ability deliberately has no reranker at all.</p>
+<div class="table-wrap"><table><thead><tr><th>path</th><th>reference used</th><th>what it admits</th></tr></thead><tbody>
+<tr><td><code>corpus / search</code></td><td>The tool query; also the original query in exploit mode</td><td>BM25 narrows to a hundred lexical candidates, the cross-encoder orders those, and the source&rsquo;s configured floor filters them. If all miss the floor, the best rejected candidates are exposed as a different signal.</td></tr>
+<tr><td><code>web / fetch_page</code></td><td>The agent&rsquo;s tool query; also the original query in exploit mode</td><td>Five verbatim chunks inside 2048 tokens, chosen from a page structured on its headings.</td></tr>
+<tr><td><code>web / web_search</code></td><td>Provider ordering in explore mode; original query in exploit mode</td><td>Explore preserves the provider&rsquo;s ranking. Exploit combines its score with the reranker&rsquo;s original-query score, so both must agree. A result a sibling already fetched is skipped outright.</td></tr>
+<tr><td><code>rig / delegate</code></td><td>The original query, then the calling and ancestor tasks</td><td>Admission of <em>work</em> rather than text: proposed sub-tasks below the configured floor are dropped, and any that echo a task already running further up the tree are refused.</td></tr>
+<tr><td><code>wikipedia</code></td><td>&mdash;</td><td>No reranker integration. A capped result list, and the model reads what comes back. Not every Ability needs a lens, and pretending otherwise would be the expensive kind of consistency.</td></tr>
 </tbody></table></div>
 
-<h1 id="lenses-you-can-compose">Lenses you can compose</h1>
-<p>A lens is a plane, an aperture and a budget. Change any of them and you have a different one. These are described elsewhere in the docs as procedures; each is an admission decision underneath:</p>
-<ul>
-<li><strong>Support judgement.</strong> Ask whether a passage supports an assertion rather than whether it resembles one. Same primitive, different sentence &mdash; and a third outcome worth keeping, because partial support, imprecise dates and scheduled-versus-occurred deserve <em>uncertain</em> rather than a coin toss.</li>
-<li><strong><a href="/continuous-context#evidence-admission-by-applicability">Evidence admission by applicability</a>.</strong> Relevant is not the same as applicable. A filing can be on point and superseded; a rule can be authoritative and not yet in force.</li>
-<li><strong><a href="/thinking-in-lloyal#burden-of-proof-scaling">Burden-of-proof scaling</a>.</strong> Raise the floor as the stakes rise. The threshold is a number in your policy, not a constant in ours.</li>
-<li><strong><a href="/thinking-in-lloyal#temporal-applicability">Temporal applicability</a>.</strong> Admit against a date, not just a topic.</li>
-<li><strong><a href="/thinking-in-lloyal#dynamic-retrieval-phase-switching">Dynamic retrieval phase switching</a>.</strong> Move the plane as the investigation moves.</li>
-</ul>
-<p>The first of those is the one to read twice before shipping. A new question needs new canaries, and a judge nobody measured will certify anything.</p>
+<h1 id="define-the-question">Define the question</h1>
+<p><code>RerankInstruction</code> is the released surface for choosing another criterion. It carries exactly the sentence rendered into <code>&lt;Instruct&gt;</code> and the smoke test that belongs to that sentence:</p>
+<div class="code-frame"><div class="code-label">THE CONTRACT</div><pre><code><span class="kd">interface</span><span class="w"> </span><span class="nx">RerankInstruction</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">readonly</span><span class="w"> </span><span class="nx">text</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">  </span><span class="k">readonly</span><span class="w"> </span><span class="nx">smokeTest</span><span class="o">:</span><span class="w"> </span><span class="s1">'none'</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">readonly</span><span class="w"> </span><span class="nx">query</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="k">readonly</span><span class="w"> </span><span class="nx">matching</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="k">readonly</span><span class="w"> </span><span class="nx">nonMatching</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span>
+<span class="w">    </span><span class="k">readonly</span><span class="w"> </span><span class="nx">minGap</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span>
+<span class="w">  </span><span class="p">};</span>
+<span class="p">}</span></code></pre></div>
+<p>Pass that value as <code>instruction</code> to <code>createReranker</code>. Omit it and the instance uses the deep-frozen <code>RETRIEVAL_INSTRUCTION</code>. Supply it and every Ability sharing that instance asks the new question. The matching fixture must beat the non-matching fixture by more than a finite, non-negative <code>minGap</code>; fixtures too long to survive the scorer&rsquo;s token budget are rejected before boot.</p>
+<p><code>scoreBatch</code> still takes one query and many documents, so which side you put in <code>&lt;Query&gt;</code> decides what you asked. Values from different queries are not commensurable. Choose the orientation, calibrate any policy threshold within that question, and write smoke fixtures that exercise the same criterion.</p>
 
 <h1 id="the-shipped-lens-is-one-configuration">The shipped lens is one configuration</h1>
 <p>Every element unscrews.</p>
 <div class="table-wrap"><table><thead><tr><th>element</th><th>ships as</th><th>or</th></tr></thead><tbody>
-<tr><td>The judge</td><td>Four batched scorers &mdash; entailment, relevance, similarity, and a shared threshold gate</td><td>Any object with a <code>scoreBatch</code> method satisfies the contract</td></tr>
-<tr><td>The plane</td><td>One <code>&lt;Instruct&gt;</code> sentence, tuned for retrieval</td><td>Write another, and calibrate it</td></tr>
+<tr><td>The judge</td><td>A shared <code>Rerank</code> instance with batched <code>scoreBatch</code></td><td>Any object with a <code>scoreBatch</code> method satisfies the scorer contract</td></tr>
+<tr><td>The plane</td><td><code>RETRIEVAL_INSTRUCTION</code></td><td>Pass a <code>RerankInstruction</code> to <code>createReranker</code>; the sentence and its <code>smokeTest</code> travel together</td></tr>
+<tr><td>The resolution</td><td><code>q4_0</code> for both KV cache types</td><td>Set <code>typeK</code> and <code>typeV</code> explicitly for the resolution and memory profile your policy requires</td></tr>
 <tr><td>The aperture</td><td><code>DefaultAgentPolicy</code> implements all eleven hooks the pool calls</td><td>Subclass it and override the one decision you care about</td></tr>
 </tbody></table></div>
 <p>The scorer arrives with an <a href="/abilities">Ability</a>; the posture comes from <a href="/agent-policy-and-context-pressure">AgentPolicy</a>. Explore and exploit are one shape of one hook, not the axis itself. A policy that needs a different posture &mdash; a verification phase, a burden-of-proof that rises with the stakes &mdash; writes it.</p>
