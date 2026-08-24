@@ -19,7 +19,7 @@ description: Every candidate admitted through a reranked path got there by answe
 </div>
 </div></section>
 
-<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#distance-is-not-a-criterion">Distance is not a criterion</a><a class="toc-l1" href="#the-question-is-a-sentence">The question is a sentence</a><a class="toc-l1" href="#a-page-arrives-in-its-own-words">A page arrives in its own words</a><a class="toc-l1" href="#the-aperture-is-under-program-control">The aperture is under program control</a><a class="toc-l1" href="#candidates-share-the-dispatch">Candidates share the dispatch</a><a class="toc-l1" href="#every-question-carries-a-smoke-test">Every question carries a smoke test</a><a class="toc-l1" href="#lenses-that-ship">Lenses that ship</a><a class="toc-l1" href="#define-the-question">Define the question</a><a class="toc-l1" href="#the-shipped-lens-is-one-configuration">The shipped lens is one configuration</a></nav>
+<main class="article-shell wrap"><nav class="toc" aria-label="Table of contents"><div class="toc-label">In this guide</div><a class="toc-l1" href="#distance-is-not-a-criterion">Distance is not a criterion</a><a class="toc-l1" href="#the-question-is-a-sentence">The question is a sentence</a><a class="toc-l1" href="#a-page-arrives-in-its-own-words">A page arrives in its own words</a><a class="toc-l1" href="#the-aperture-is-under-program-control">The aperture is under program control</a><a class="toc-l1" href="#candidates-share-the-dispatch">Candidates share the dispatch</a><a class="toc-l1" href="#every-question-carries-a-smoke-test">Every question carries a smoke test</a><a class="toc-l1" href="#lenses-that-ship">Lenses that ship</a><a class="toc-l1" href="#define-the-question">Define the question</a><a class="toc-l1" href="#when-the-sentence-has-to-change">When the sentence has to change</a><a class="toc-l1" href="#the-shipped-lens-is-one-configuration">The shipped lens is one configuration</a></nav>
 
 <article class="article">
 
@@ -133,6 +133,18 @@ USER:   &lt;Instruct&gt;: Given a web search query, retrieve relevant
 <span class="p">}</span></code></pre></div>
 <p>Pass that value as <code>instruction</code> to <code>createReranker</code>. Omit it and the instance uses the deep-frozen <code>RETRIEVAL_INSTRUCTION</code>. Supply it and every Ability sharing that instance asks the new question. The matching fixture must beat the non-matching fixture by more than a finite, non-negative <code>minGap</code>; fixtures too long to survive the scorer&rsquo;s token budget are rejected before boot.</p>
 <p><code>scoreBatch</code> still takes one query and many documents, so which side you put in <code>&lt;Query&gt;</code> decides what you asked. Values from different queries are not commensurable. Choose the orientation, calibrate any policy threshold within that question, and write smoke fixtures that exercise the same criterion.</p>
+
+<h1 id="when-the-sentence-has-to-change">When the sentence has to change</h1>
+<p><strong>Most of what looks like a new lens is a new reference.</strong> The string you put in <code>&lt;Query&gt;</code> moves freely and costs nothing &mdash; that is how one instruction serves passages, sub-tasks and sibling work. The test for whether you need a new <em>sentence</em> is narrow: would the candidate you want to reject score <em>high</em> on relevance? If it would, no reference will save you.</p>
+<p>Three criteria fail that test.</p>
+<div class="table-wrap"><table><thead><tr><th>criterion</th><th>why relevance cannot reach it</th></tr></thead><tbody>
+<tr><td><strong>Support</strong></td><td>A passage that refutes a claim is squarely on that claim&rsquo;s topic. It answers the query &mdash; it just answers it against you.</td></tr>
+<tr><td><strong>Applicability and currency</strong></td><td>A superseded rule answers the question it was superseded on. Putting the date in the query makes it score <em>higher</em>, because it names the period.</td></tr>
+<tr><td><strong>Compatibility with an invariant</strong></td><td>A record that violates a constraint is maximally relevant to it. Violation and satisfaction are equally on topic.</td></tr>
+</tbody></table></div>
+<p>Each is a different yes-or-no question, so each needs its own <code>&lt;Instruct&gt;</code> line and its own fixtures. And each costs a second reranker: the sentence is prefilled into the warm trunk at construction, so a second criterion is a second <code>Rerank</code> instance on its own model context, owned by your harness rather than sitting on the framework&rsquo;s single reranker slot. Its scores are not comparable with the first &mdash; run it as a second filter stage, never as a term in one combined score.</p>
+<p><strong>Raising the bar is not one of these.</strong> A higher burden of proof is a floor, not a question, and the floor is already yours: <code>shouldProceed(score)</code> is part of the scorer contract, and the scorer is a plain option on the pool. A judge whose threshold rises with the stakes is a scorer you supply, not a sentence you rewrite.</p>
+<p>Moving between explore and exploit is a reference change too, not a sentence change. It is <a href="#the-aperture-is-under-program-control">above</a>, and as a policy pattern in <a href="/thinking-in-lloyal#dynamic-retrieval-phase-switching">Thinking in Lloyal</a>.</p>
 
 <h1 id="the-shipped-lens-is-one-configuration">The shipped lens is one configuration</h1>
 <p>Every element unscrews.</p>
