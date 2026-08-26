@@ -201,7 +201,7 @@ const SITE = 'https://docs.lloyal.ai';
 const CATEGORY_URL = 'https://verticalinference.lloyal.ai/';
 // Shared with the marketing site rather than duplicated here; the card art is
 // authored in Figma and lives at one address.
-const OG_IMAGE = 'https://lloyal.ai/assets/home-og.png';
+const OG_IMAGE = 'https://lloyal.ai/assets/vertical-inference-og.png';
 const canonical = (slug) => (slug === 'index' ? `${SITE}/` : `${SITE}/${slug}`);
 
 const NAV = [
